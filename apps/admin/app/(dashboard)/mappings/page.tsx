@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
+import { HotelSuggestionPanel } from '@/components/mappings/HotelSuggestionPanel'
 import { apiRequest } from '@/lib/api/client'
 import { ApiResponseError } from '@/lib/api/errors'
 import type { HotelMappingRead, RoomMappingRead } from '@bedbanks/contracts'
@@ -79,6 +80,7 @@ export default function MappingsPage() {
       {notice && <p role="status" className="workspace-panel" style={{ padding: 14 }}>{notice}</p>}
       <section className="workspace-panel" style={{ padding: 20, marginBottom: 16 }}>
         <h2>New hotel mapping</h2>
+        <HotelSuggestionPanel onUse={item => { setHotelForm(form => ({ ...form, hotelId: item.hotelId, confidence: String(item.confidence) })); setNotice(`Selected ${item.name} (${item.city}). Review the form below, then create the pending mapping.`) }} />
         <form onSubmit={addHotel} style={{ display: 'grid', gap: 12, maxWidth: 720 }}>
           <label>Supplier<select className="input-wrap" required value={hotelForm.supplierId} onChange={event => setHotelForm({ ...hotelForm, supplierId: event.target.value })}><option value="">Select supplier</option>{options.suppliers.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
           <label>Canonical hotel<select className="input-wrap" required value={hotelForm.hotelId} onChange={event => setHotelForm({ ...hotelForm, hotelId: event.target.value })}><option value="">Select hotel</option>{options.hotels.map(item => <option key={item.id} value={item.id}>{item.name} · {item.city}</option>)}</select></label>
@@ -90,7 +92,7 @@ export default function MappingsPage() {
       <section className="workspace-panel" style={{ padding: 20 }}>
         <h2>Hotel mappings</h2>
         {!hotels.length && <p>No mappings in this tenant.</p>}
-        {hotels.map(item => <div key={item.id} style={{ borderTop: '1px solid #E5E7EB', padding: '14px 0' }}>
+        {hotels.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e4e4e0)', padding: '14px 0' }}>
           <button type="button" onClick={() => { setSelected(item.id); setMetadata({ confidence: item.confidence == null ? '' : String(item.confidence), sourceMetadata: JSON.stringify(item.sourceMetadata) }) }} style={{ fontWeight: 700 }}>{item.supplier.displayName}: {item.supplierHotelId} → {item.hotel.name}</button>
           <span style={{ marginLeft: 12 }}>{item.status} · confidence {item.confidence ?? '—'}</span>
           {item.status === 'PENDING' ? <><button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/approve`, 'POST')}>Approve</button><button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/reject`, 'POST')}>Reject</button></> : <button type="button" disabled={busy} onClick={() => mutate(`${base}/${item.id}/reopen`, 'POST')}>Reopen</button>}
@@ -114,7 +116,7 @@ export default function MappingsPage() {
             <button className="button primary" disabled={busy || !roomOptions.length}>Create pending room mapping</button>
           </form>
           {!rooms.length && <p>No supplier room mappings for this hotel.</p>}
-          {rooms.map(item => <div key={item.id} style={{ borderTop: '1px solid #E5E7EB', padding: '14px 0' }}>
+          {rooms.map(item => <div key={item.id} style={{ borderTop: '1px solid var(--c-e4e4e0)', padding: '14px 0' }}>
             <strong>{item.supplierRoomId} → {item.roomType.name}</strong><span style={{ marginLeft: 12 }}>{item.status} · confidence {item.confidence ?? '—'}</span>
             {item.status === 'PENDING' ? <><button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/approve`, 'POST')}>Approve</button><button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/reject`, 'POST')}>Reject</button></> : <button type="button" disabled={busy} onClick={() => mutate(`${base}/${selected}/rooms/${item.id}/reopen`, 'POST')}>Reopen</button>}
             <button type="button" disabled={busy} onClick={() => { const raw = window.prompt('Room confidence (0–100)', item.confidence == null ? '' : String(item.confidence)); if (raw !== null) mutate(`${base}/${selected}/rooms/${item.id}`, 'PATCH', { confidence: raw === '' ? null : Number(raw) }) }}>Edit confidence</button>

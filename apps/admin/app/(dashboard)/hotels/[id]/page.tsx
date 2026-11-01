@@ -1,24 +1,113 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { PageHeader } from '@/components/common/PageHeader'
-import { StatusBadge } from '@/components/status/StatusBadge'
-import { AdminLoadingState, AdminServiceUnavailable, AccessDenied, AuthRequired } from '@/components/auth/AuthorizationStates'
-import { apiRequest } from '@/lib/api/client'
-import { ApiResponseError } from '@/lib/api/errors'
+import { Building2, ChevronRight, Plus } from 'lucide-react'
+import { Suspense } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
+import { HotelManagementSummary } from '@/components/hotels/HotelManagementSummary'
+import { HotelManagementTabs } from '@/components/hotels/HotelManagementTabs'
+import { LoadingState } from '@/components/common/LoadingState'
+import { OpsState } from '@/components/ops/OpsState'
+import { useOpsQuery } from '@/components/ops/useOpsQuery'
+import { Chip, ContractChip, MappingChip, ReadinessChip } from '@/components/hotels/ui'
+import { OverviewPanel } from '@/components/hotels/panels/OverviewPanel'
+import { SetupPanel } from '@/components/hotels/panels/SetupPanel'
+import { RoomsPanel } from '@/components/hotels/panels/RoomsPanel'
+import { AmenitiesPanel } from '@/components/hotels/panels/AmenitiesPanel'
+import { ImagesPanel } from '@/components/hotels/panels/ImagesPanel'
+import { PoliciesPanel } from '@/components/hotels/panels/PoliciesPanel'
+import { QuickUpdatePanel } from '@/components/hotels/panels/QuickUpdatePanel'
+import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
+import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
+import { InventoryPanel } from '@/components/hotels/panels/InventoryPanel'
+import { RatePlansPanel } from '@/components/hotels/panels/RatePlansPanel'
+import { RateGrid } from '@/components/hotels/panels/RateGrid'
+import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
+import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
+import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
+import { AuditPanel } from '@/components/hotels/panels/AuditPanel'
+import { HotelHeaderMetadata } from '@/components/hotels/HotelHeaderMetadata'
+import { DealsOverview } from '@/components/commercial/deals/DealsOverview'
+import { ReportsPanel } from '@/components/hotels/panels/ReportsPanel'
+import { useCan } from '@/lib/auth/capabilities'
+import { getHotel360 } from '@/lib/data/hotel-commercial'
+import { hotelLifecycleLabel, HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
 
-type Hotel = { id: string; name: string; propertyType: string; starRating: number | null; address: string | null; city: string; countryCode: string; timeZone: string; contentStatus: string; externalRef: string | null; updatedAt: string; roomTypes?: { id: string; name: string; code: string; maxOccupancy: number }[] }
-function status(value: string) { return value.toLowerCase() === 'published' ? 'active' : value.toLowerCase() === 'suspended' ? 'suspended' : value.toLowerCase() === 'archived' ? 'inactive' : 'pending' }
-
-export default function HotelDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const [hotel, setHotel] = useState<Hotel | null>(null)
-  const [state, setState] = useState<'loading' | 'ready' | 'error' | 'auth' | 'forbidden'>('loading')
-  const [saving, setSaving] = useState(false)
-  const [name, setName] = useState('')
-  useEffect(() => { let active = true; apiRequest<Hotel>(`/supply/hotels/${id}`).then((data) => { if (active) { setHotel(data); setName(data.name); setState('ready') } }).catch((error) => { if (!active) return; if (error instanceof ApiResponseError && error.status === 401) setState('auth'); else if (error instanceof ApiResponseError && [403, 404].includes(error.status)) setState('forbidden'); else setState('error') }); return () => { active = false } }, [id])
-  async function save() { if (!hotel) return; setSaving(true); try { const updated = await apiRequest<Hotel>(`/supply/hotels/${hotel.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }); setHotel(updated) } finally { setSaving(false) } }
-  return <div className="admin-page">{state === 'loading' && <AdminLoadingState />}{state === 'auth' && <AuthRequired />}{state === 'forbidden' && <AccessDenied permission="supply.hotels.read" />}{state === 'error' && <AdminServiceUnavailable onRetry={() => window.location.reload()} />}{state === 'ready' && hotel && <><PageHeader eyebrow={`HOTEL · ${hotel.id}`} title={hotel.name} description={`${hotel.city}, ${hotel.countryCode} · ${hotel.propertyType}`} actions={<StatusBadge status={status(hotel.contentStatus)} />} /><div className="workspace-panel" style={{ display: 'grid', gap: 14, padding: 22, maxWidth: 720 }}><label>HOTEL NAME<input value={name} onChange={(event) => setName(event.target.value)} className="input-wrap" /></label><p style={{ color: '#698088', fontSize: 12 }}>{hotel.address || 'No address recorded'} · {hotel.timeZone}</p><p style={{ color: '#698088', fontSize: 12 }}>Last updated {new Date(hotel.updatedAt).toLocaleString()}</p><button type="button" className="button primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save changes'}</button></div><div className="workspace-panel" style={{ marginTop: 16, padding: 22 }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><h2>Room types</h2><Link href={`/hotels/${hotel.id}/rooms/new`} className="button primary">+ Add room</Link></div>{hotel.roomTypes?.length ? hotel.roomTypes.map((room) => <p key={room.id}><Link href={`/hotels/${hotel.id}/rooms/${room.id}`}>{room.name}</Link> · {room.code} · max {room.maxOccupancy}</p>) : <p style={{ color: '#698088' }}>No active room types.</p>}</div></>}</div>
+const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.availability.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
+  rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rateplans: 'supply.rates.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', inventory: 'supply.availability.read', bookings: 'booking.read', audit: 'audit.read', reports: 'booking.read',
 }
+
+function Hotel360({ id }: { id: string }) {
+  const params = useSearchParams()
+  const tab = parseTab(params.get('tab'))
+  const propertySetup = !params.has('tab')
+  const can = useCan()
+  const { state, reload, refresh } = useOpsQuery(() => getHotel360(id), [id])
+  const visibleTabs = HOTEL_TABS.filter((t) => { if (t.id === 'quick') return can('supply.rates.read') && (can('supply.rates.manage') || can('supply.availability.manage')); const permission = TAB_PERMISSION[t.id]; return !permission || can(permission) })
+
+
+  return (
+    <div className={`admin-page ${propertySetup ? '' : 'hotel-management-page'}`}>
+      <OpsState state={state} onRetry={reload}>
+        {(data) => propertySetup && can('supply.rooms.read') ? (
+          <section className="hotel-property-setup" aria-label="Property Setup">
+            <div className="hotel-property-heading"><h1>Property Setup</h1><div className="hotel-property-actions">
+              <Link className="hotel-ui-button" href={hotelHref(id, 'setup')}><Building2 size={13} />Hotel Profile</Link>
+              {can('supply.hotels.manage') && <Link className="hotel-ui-button hotel-ui-green" href="/hotels/new"><Plus size={13} />Add &amp; Create New Hotel</Link>}
+              {can('supply.rooms.manage') && <Link className="hotel-ui-button hotel-ui-purple" href={`${hotelHref(id, 'rooms')}&room=new`}><Plus size={13} />Add Room Type</Link>}
+            </div></div>
+            <div className="hotel-selected-property"><span>Selected Hotel:</span><span className="hotel-selected-chip"><Building2 size={13} />{data.hotel.name}</span><em>(Change via the Property selector in the header)</em></div>
+            <RoomsPanel data={data} onChanged={refresh} compact />
+            <div className="hotel-management-link"><Link className="hotel-ui-button" href={`/hotels/${encodeURIComponent(id)}?tab=overview`}>Full Hotel Management<ChevronRight size={13} /></Link></div>
+          </section>
+        ) : (
+          <>
+            <div className="hotel-management-heading"><div><h1>{data.hotel.name}</h1><p>{data.hotel.city}, {data.hotel.countryCode} · {starsText(data.hotel.starRating)}<span className={`hotel-profile-status ${data.hotel.contentStatus.toLowerCase()}`}>{hotelLifecycleLabel(data.hotel.contentStatus)}</span></p></div><Link href="/hotels" className="hotel-ui-button">All hotels</Link></div>
+            <HotelManagementSummary data={data} onRefresh={refresh} />
+            <HotelManagementTabs data={data} tab={tab} visibleTabs={visibleTabs} />
+            <div role="tabpanel" id="hotel-panel" aria-label={HOTEL_TABS.find(item => item.id === tab)?.label} key={`${tab}-${params.get('view') ?? ''}`} style={{ marginTop: 12 }}>
+              {tab === 'overview' && <OverviewPanel data={data} onChanged={refresh} />}
+              {tab === 'setup' && <SetupPanel hotelId={id} onChanged={refresh} />}
+              {tab === 'rooms' && <RoomsPanel data={data} onChanged={refresh} />}
+              {tab === 'amenities' && <AmenitiesPanel hotelId={id} onChanged={refresh} />}
+              {tab === 'images' && <ImagesPanel hotelId={id} />}
+              {tab === 'policies' && <PoliciesPanel hotelId={id} onChanged={refresh} />}
+              {tab === 'mappings' && <MappingsPanel hotelId={id} />}
+              {tab === 'contracts' && <ContractsPanel hotelId={id} gates={data.gates} />}
+              {tab === 'rateplans' && <>{params.get('view') === 'promotions' && <section aria-label="Hotel deals and promotions"><h2 style={{ fontSize: 16, margin: '0 0 2px' }}>Hotel Deals &amp; Promotions</h2><p className="hotel-summary-note">Manage discounts, special offers and promotional rates. A promotion sells only after a different person approves it. Per-plan promotions of the older editor are listed with the rate plans below.</p><DealsOverview hotelId={id} newHref={`/commercial/promotions/new?hotelId=${encodeURIComponent(id)}`} /></section>}<RatePlansPanel hotelId={id} rooms={data.rooms} /></>}
+              {tab === 'rates' && (params.get('view') === 'grid' && can('supply.rates.manage') ? <RateGrid hotelId={id} onApplied={refresh} /> : <RatesInventoryPanel hotelId={id} rooms={data.rooms} />)}
+              {tab === 'inventory' && <InventoryPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'quick' && <QuickUpdatePanel hotelId={id} data={data} onChanged={refresh} />}
+              {tab === 'sellability' && <DistributionPanel hotelId={id} rooms={data.rooms} />}
+              {tab === 'bookings' && <BookingsPanel hotelId={id} />}
+              {tab === 'reports' && <ReportsPanel hotelId={id} />}
+              {tab === 'audit' && <AuditPanel hotelId={id} />}
+            </div>
+            <details className="hotel-management-details"><summary>Property details</summary>
+            <dl data-testid="hotel-header" className="hotel-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '8px 16px', margin: '0 0 12px' }}>
+              <div><dt>Commercial readiness</dt><dd><ReadinessChip value={data.readiness} blockers={data.blockers} /></dd></div>
+              <div><dt>Supply coverage (buyer-independent)</dt><dd><Chip tone={data.agentSellable ? 'ok' : 'bad'}>{data.agentSellable ? 'YES' : 'NO'}</Chip></dd></div>
+              <div><dt>Supplier</dt><dd>{data.suppliers.length ? data.suppliers.map((s) => s.displayName).join(', ') : '—'}</dd></div>
+              <div><dt>Hotel mapping</dt><dd><MappingChip value={data.hotelMapping} /></dd></div>
+              <div><dt>Contract</dt><dd><ContractChip value={data.contractState} /></dd></div>
+              <div><dt>Hotel code</dt><dd>{data.hotel.code ?? '—'}</dd></div>
+              <div><dt>Canonical ID</dt><dd><code>{data.hotel.id}</code></dd></div>
+              <div><dt>Room types</dt><dd>{data.rooms.length}</dd></div>
+              <HotelHeaderMetadata hotelId={id} updatedAt={data.hotel.updatedAt} contentStatus={data.hotel.contentStatus} />
+              <div><dt>Bookings / active holds</dt><dd>{data.counts.bookings ?? 'unavailable'} / {data.counts.activeHolds ?? 'unavailable'}</dd></div>
+            </dl>
+            <p style={{ color: 'var(--c-444444)', fontSize: 11, margin: '0 0 8px' }}>Assessed {data.window.from} → {data.window.to} ({data.window.days} nights).</p>
+            </details>
+          </>
+        )}
+      </OpsState>
+    </div>
+  )
+}
+
+function HotelWorkspace() {
+  const { id } = useParams<{ id: string }>()
+  // Remount before paint: no previous hotel data, drafts or pending responses survive a hotel switch.
+  return <Hotel360 key={id} id={id} />
+}
+export default function HotelDetailPage() { return <Suspense fallback={<LoadingState rows={6} />}><HotelWorkspace /></Suspense> }

@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/domain'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
+import { assertAgencyCredit } from './agency-credit'
+import { moveNight, reserveNight } from '../inventory/inventory-counters'
 
 export interface AuthoritativeHoldCommand extends InventoryHoldRequest {
   tenantId: string
@@ -44,6 +46,7 @@ export class InventoryHoldService {
           where: { tenantId_idempotencyKey: { tenantId: command.tenantId, idempotencyKey: command.idempotencyKey } },
         })
         if (existing) return this.existing(existing, fingerprint)
+        await assertAgencyCredit(tx, command.tenantId, command.userId, command.currency, BigInt(command.sellAmountMinor)) // ADR 0024
 
         const holdExpiry = new Date(Math.min(Date.parse(command.offerExpiresAt), Date.now() + 15 * 60_000))
         const hold = await tx.inventoryHold.create({ data: {
@@ -57,24 +60,14 @@ export class InventoryHoldService {
         } })
 
         for (const stayDate of stayDates(command.checkIn, command.checkOut)) {
-          const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-            UPDATE "DailyAvailability"
-               SET "held" = "held" + ${command.rooms}, "updated_at" = CURRENT_TIMESTAMP
-             WHERE "tenant_id" = ${command.tenantId}
-               AND "rate_plan_id" = ${command.ratePlanId}
-               AND "stay_date" = ${stayDate}
-               AND "stop_sell" = false
-               AND "sold" + "held" + ${command.rooms} <= "allotment"
-            RETURNING "id"
-          `)
-          if (rows.length !== 1) throw new ConflictException('Inventory unavailable')
+          const reserved = await reserveNight(tx, { tenantId: command.tenantId, ratePlanId: command.ratePlanId, stayDate, rooms: command.rooms })
           await tx.inventoryHoldNight.create({ data: {
-            tenantId: command.tenantId, holdId: hold.id, availabilityId: rows[0].id,
-            stayDate, quantity: command.rooms,
+            tenantId: command.tenantId, holdId: hold.id, availabilityId: reserved.availabilityId,
+            stayDate, quantity: command.rooms, counterKind: reserved.counterKind, poolDayId: reserved.poolDayId,
           } })
         }
 
-        const active = await tx.inventoryHold.update({ where: { id: hold.id }, data: { status: 'HELD' } })
+        const active = await tx.inventoryHold.update({ where: { tenantId_id: { tenantId: command.tenantId, id: hold.id } }, data: { status: 'HELD' } })
         await tx.auditEvent.create({ data: { tenantId: command.tenantId, userId: command.userId, actorType: 'USER',
           action: 'inventory.hold.created', entityType: 'inventory_hold', entityId: hold.id,
           payload: { requestId: command.requestId, ratePlanId: command.ratePlanId, rooms: command.rooms, checkIn: command.checkIn, checkOut: command.checkOut },
@@ -94,28 +87,63 @@ export class InventoryHoldService {
     }
   }
 
+  /**
+   * Atomically claims a HELD, unexpired hold for a booking attempt (HELD -> PROCESSING).
+   * The expiry sweeper only touches HELD rows, so once claimed the inventory cannot be released
+   * mid-checkout. Re-claiming an already PROCESSING hold is idempotent for safe retries.
+   */
+  async beginProcessing(tenantId: string, holdId: string, requestId: string, userId: string): Promise<void> {
+    await this.prisma.withTenant(tenantId, async tx => {
+      const claimed = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        UPDATE "InventoryHold"
+           SET "status" = 'PROCESSING'::"InventoryHoldStatus", "updated_at" = CURRENT_TIMESTAMP
+         WHERE "id" = ${holdId} AND "tenant_id" = ${tenantId}
+           AND "status" = 'HELD'::"InventoryHoldStatus" AND "expires_at" > CURRENT_TIMESTAMP
+        RETURNING "id"
+      `)
+      if (claimed.length === 1) {
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'inventory.hold.processing',
+          entityType: 'inventory_hold', entityId: holdId, payload: { requestId } } })
+        return
+      }
+      const current = await tx.inventoryHold.findFirst({ where: { id: holdId, tenantId }, select: { status: true } })
+      if (current?.status === 'PROCESSING') return
+      throw new ConflictException('Inventory hold is no longer active')
+    })
+  }
+
   async release(tenantId: string, holdId: string, requestId: string,
-    actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false): Promise<void> {
+    actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false, heldOnly = false): Promise<void> {
     await this.prisma.withTenant(tenantId, async tx => {
       const changed = await tx.inventoryHold.updateMany({
-        where: { id: holdId, tenantId, status: 'HELD' },
+        where: { id: holdId, tenantId, status: expired || heldOnly ? 'HELD' : { in: ['HELD', 'PROCESSING'] } },
         data: { status: expired ? 'EXPIRED' : 'RELEASED', releasedAt: new Date() },
       })
       if (changed.count === 0) return
       const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId }, orderBy: { stayDate: 'asc' } })
-      for (const night of nights) {
-        const restored = await tx.$executeRaw(Prisma.sql`
-          UPDATE "DailyAvailability"
-             SET "held" = "held" - ${night.quantity}, "updated_at" = CURRENT_TIMESTAMP
-           WHERE "id" = ${night.availabilityId} AND "tenant_id" = ${tenantId} AND "held" >= ${night.quantity}
-        `)
-        if (restored !== 1) throw new ConflictException('Inventory hold state is inconsistent')
-      }
+      for (const night of nights) await moveNight(tx, tenantId, night, 'release')
       await tx.auditEvent.create({ data: { tenantId, actorType: actor.type, userId: actor.type === 'USER' ? actor.userId : undefined,
         action: expired ? 'inventory.hold.expired' : 'inventory.hold.released',
         entityType: 'inventory_hold', entityId: holdId, payload: { requestId },
       } })
     })
+  }
+
+  /**
+   * Lets the agent who created a hold give the inventory back before it expires. Only a HELD hold can be released this
+   * way: once a booking attempt has claimed it (PROCESSING) or confirmed it, the booking flow owns it. Idempotent for a
+   * hold that is already RELEASED or EXPIRED.
+   */
+  async releaseOwn(tenantId: string, holdId: string, userId: string, requestId: string): Promise<{ holdId: string; status: 'RELEASED' | 'EXPIRED' }> {
+    const read = () => this.prisma.withTenant(tenantId, tx => tx.inventoryHold.findFirst({ where: { id: holdId, tenantId, createdByUserId: userId }, select: { status: true } }))
+    const hold = await read()
+    if (!hold) throw new NotFoundException('Inventory hold not found')
+    if (hold.status === 'RELEASED' || hold.status === 'EXPIRED') return { holdId, status: hold.status }
+    if (hold.status !== 'HELD') throw new ConflictException('Inventory hold can no longer be released')
+    await this.release(tenantId, holdId, requestId, { type: 'USER', userId }, false, true)
+    const after = await read()
+    if (after?.status !== 'RELEASED' && after?.status !== 'EXPIRED') throw new ConflictException('Inventory hold can no longer be released')
+    return { holdId, status: after.status }
   }
 
   async expireDue(tenantId: string, now = new Date()): Promise<number> {

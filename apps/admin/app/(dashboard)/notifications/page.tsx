@@ -1,15 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { FeatureUnavailable } from '@/components/common/FeatureUnavailable'
 import type { CancellationVoucherDeliveryRead } from '@bedbanks/contracts'
-import { PageHeader } from '@/components/common/PageHeader'
 import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
 import { getCancellationVouchers, dispatchCancellationVoucher } from '@/lib/data'
 import { formatMinorUnits } from '@/lib/minor-units'
 
 export default function NotificationsPage() {
   const [deliveries, setDeliveries] = useState<CancellationVoucherDeliveryRead[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [bookingId, setBookingId] = useState('bk_dubai_001')
@@ -34,10 +34,6 @@ export default function NotificationsPage() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    void loadDeliveries()
-  }, [])
 
   const triggerDispatch = async () => {
     try {
@@ -71,10 +67,10 @@ export default function NotificationsPage() {
 
   return (
     <div className="admin-page">
-      <PageHeader
-        eyebrow="COMMUNICATIONS · VOUCHER WORKFLOWS"
-        title="Automated Cancellation Voucher Dispatch"
-        description="Idempotent email and supplier webhook triggers for confirmed cancellation vouchers."
+      <FeatureUnavailable
+        eyebrow="COMMUNICATIONS"
+        title="Notifications"
+        reason="General notification delivery logs are not enabled for the Dubai MVP; cancellation voucher dispatch is available below."
       />
       {error && <div role="alert" className="admin-empty-state">{error}</div>}
       {loading && <p role="status">Loading cancellation voucher deliveries…</p>}

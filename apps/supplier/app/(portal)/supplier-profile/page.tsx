@@ -5,7 +5,7 @@ export default function SupplierProfilePage() {
     <SupplyWorkflowUnavailable
       eyebrow="Onboarding"
       title="Supplier profile"
-      description="Create, complete and submit your supplier profile for fBeds review."
+      description="Create, complete and submit your supplier profile for fabBeds review."
     />
   )
 }

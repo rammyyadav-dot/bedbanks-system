@@ -14,11 +14,11 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test",
+    "test": "node --test src/search-offers.test.cjs && node --import tsx --test smart-search.test.ts",
     "build": "tsc"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@bedbanks/money": "workspace:*"

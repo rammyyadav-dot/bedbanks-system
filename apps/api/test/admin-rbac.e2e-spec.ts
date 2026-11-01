@@ -56,6 +56,8 @@ describe('Admin dashboard HTTP authorization', () => {
     app.useGlobalFilters(new HttpExceptionFilter())
     app.useGlobalInterceptors(new ResponseInterceptor())
     await app.init()
+    // Listen up front: supertest 7.3 closes a server it started once no request is pending, which races requests built around an awaited login.
+    await app.listen(0, '127.0.0.1')
   }, 30000)
 
   afterAll(async () => {
@@ -90,7 +92,7 @@ describe('Admin dashboard HTTP authorization', () => {
     await request(app.getHttpServer()).get('/api/v1/admin/dashboard').set('Cookie', await login(deniedEmail)).expect(403)
     const denial = await prisma.auditEvent.findFirst({ where: { tenantId, action: 'permission.denied', userId: deniedUserId }, orderBy: { createdAt: 'desc' } })
     expect(denial).toMatchObject({ actorType: 'USER', entityType: 'admin_permission', entityId: 'dashboard.read' })
-    expect(denial?.payload).toEqual({ permission: 'dashboard.read' })
+    expect(denial?.payload).toEqual({ permission: 'dashboard.read', requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) }) // redacted: the permission and the request id only
   })
 
   it('distinguishes empty measured bookings from unavailable financial data', async () => {
@@ -116,7 +118,7 @@ describe('Admin dashboard HTTP authorization', () => {
     } })
     const pending = await prisma.booking.create({ data: {
       tenantId, reference: `RBAC-single-pending-${suffix}`, supplier: 'fixture-supplier',
-      hotelId: 'fixture-hotel', status: 'PENDING', currency: 'USD',
+      hotelId: 'fixture-hotel', status: 'PENDING_SUPPLIER', currency: 'USD',
       totalMinor: 1900n, idempotencyKey: `rbac-single-pending-${suffix}`, searchSnapshot: {},
     } })
     try {

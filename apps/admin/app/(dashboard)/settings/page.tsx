@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { apiRequest } from '@/lib/api/client'
+import type { MembershipSummary } from '@/lib/api/auth-client'
 import { Save } from 'lucide-react'
 import {
-  TENANT_SETTING_CURRENCIES, TENANT_SETTING_LANGUAGES, TENANT_SETTING_TIME_ZONES,
+  routes, TENANT_SETTING_CURRENCIES, TENANT_SETTING_LANGUAGES, TENANT_SETTING_TIME_ZONES,
   type TenantSettingsView, type UpdateTenantSettingsRequest,
 } from '@bedbanks/contracts'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -50,22 +52,36 @@ function saveErrorMessage(cause: unknown): string {
 }
 
 export default function SettingsPage() {
+  const [memberships, setMemberships] = useState<MembershipSummary[]>([])
+  const [selectedTenant, setSelectedTenant] = useState('')
+  const [contextLoaded, setContextLoaded] = useState(false)
+  useEffect(() => {
+    let active = true
+    apiRequest<{ memberships: MembershipSummary[] }>(routes.auth.me).then(identity => {
+      if (!active) return
+      setMemberships(identity.memberships)
+      if (identity.memberships.length === 1) setSelectedTenant(identity.memberships[0].tenantId)
+      setContextLoaded(true)
+    }).catch(() => { if (active) setContextLoaded(true) })
+    return () => { active = false }
+  }, [])
   const [view, setView] = useState<TenantSettingsView | null>(null)
   const [form, setForm] = useState<UpdateTenantSettingsRequest | null>(null)
   const [error, setError] = useState<LoadError | null>(null)
   const [save, setSave] = useState<SaveState>({ kind: 'idle' })
 
   const load = useCallback(async () => {
+    if (!selectedTenant) return
     setError(null)
     try {
-      const settings = await getTenantSettings()
+      const settings = await getTenantSettings(selectedTenant)
       setView(settings)
       setForm(toForm(settings))
     } catch (cause) {
       setView(null)
       setError(loadError(cause))
     }
-  }, [])
+  }, [selectedTenant])
   useEffect(() => { void load() }, [load])
 
   const dirty = useMemo(() => Boolean(view && form && JSON.stringify(toForm(view)) !== JSON.stringify(form)), [view, form])
@@ -83,7 +99,7 @@ export default function SettingsPage() {
     setSave({ kind: 'saving' })
     try {
       const payload: UpdateTenantSettingsRequest = { ...form, name: form.name.trim(), supportEmail: form.supportEmail?.trim() || null }
-      const saved = await updateTenantSettings(payload, crypto.randomUUID())
+      const saved = await updateTenantSettings(payload, crypto.randomUUID(), selectedTenant)
       setView(saved)
       setForm(toForm(saved))
       setSave({ kind: 'saved' })
@@ -92,6 +108,7 @@ export default function SettingsPage() {
     }
   }
 
+  if (contextLoaded && !selectedTenant) return <div className="admin-page"><PageHeader eyebrow="WORKSPACE" title="Settings" description="Choose the tenant whose workspace preferences you intend to manage." /><label className="tenant-field">Tenant context<select value={selectedTenant} onChange={e => setSelectedTenant(e.target.value)}><option value="">Select a tenant</option>{memberships.map(m => <option key={m.tenantId} value={m.tenantId}>{m.tenantName}</option>)}</select></label>{memberships.length === 0 && <p>No active tenant membership is available.</p>}</div>
   if (error === 'FORBIDDEN') return <div className="admin-page"><AccessDenied permission="settings.manage" /></div>
   if (error === 'UNAUTHENTICATED') return <div className="admin-page"><AuthRequired /></div>
   if (error) return <div className="admin-page"><AdminServiceUnavailable network={error === 'NETWORK'} onRetry={() => void load()} /></div>

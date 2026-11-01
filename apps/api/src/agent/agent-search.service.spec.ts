@@ -4,7 +4,9 @@ import type { AgentAuditService } from './audit.service'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import type { CachePort, CacheWriteOptions, CoordinationPort, LockLease } from '../common/cache/cache.port'
 
-const criteria = { destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+const stayStart = new Date(Date.now() + 30 * 86400000)
+const stayEnd = new Date(stayStart.getTime() + 3 * 86400000)
+const criteria = { destination: 'Dubai', checkIn: stayStart.toISOString().slice(0, 10), checkOut: stayEnd.toISOString().slice(0, 10),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED' }
 const identity = { user: { id: 'user-a' } } as AuthenticatedUser
 const hotel = {
@@ -140,6 +142,45 @@ describe('AgentSearchService cache boundary', () => {
     expect(results).toHaveLength(25)
     expect(results.every(result => result.status === 'available')).toBe(true)
     expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not cache contracted inventory results', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service, cache } = setup(search, new MemoryCache(), 'contracted-inventory')
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(cache.writes).toHaveLength(0)
+  })
+
+  it('does not cache when the adapter declares itself authoritative, whatever its name (an aggregate containing contracted inventory)', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const cache = new MemoryCache()
+    const supplier = { name: 'aggregate', authoritative: true, search } as unknown as SupplierAdapter
+    const service = new AgentSearchService(supplier, { record: jest.fn().mockResolvedValue(undefined) } as unknown as AgentAuditService, cache)
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(cache.writes).toHaveLength(0)
+  })
+
+  it('rejects a corrupted cache entry and searches again', async () => {
+    const cache = new MemoryCache()
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service } = setup(search, cache)
+    await service.execute(criteria, 'tenant-a', 'r1', identity)
+    const key = cache.writes[0].key
+    cache.values.set(key, { version: 1, hotels: [{ hotelId: 'h1', rooms: [{ rates: [{ tenantId: 'tenant-b', canonicalHotelId: 'h1', canonicalRoomTypeId: 'r1' }] }] }], pagination: { limit: 50, offset: 0 }, status: 'available' })
+    await service.execute(criteria, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a different cache entry for the next page', async () => {
+    const search = jest.fn().mockResolvedValue(supplierResult([hotel]))
+    const { service } = setup(search)
+    await service.execute({ ...criteria, limit: 25, offset: 0 }, 'tenant-a', 'r1', identity)
+    await service.execute({ ...criteria, limit: 25, offset: 25 }, 'tenant-a', 'r2', identity)
+    expect(search).toHaveBeenCalledTimes(2)
   })
 
   it('clamps configured TTL to a short bounded window', async () => {

@@ -7,11 +7,12 @@ const accessSections = [
   ['Roles', 'Manage platform roles and their permission bundles.', '/access/roles'],
   ['Permissions', 'Review the canonical permission catalogue and scopes.', '/access/permissions'],
   ['Assignments', 'Grant and revoke platform roles with auditability.', '/access/assignments'],
+  ['Tenants', 'Read-only tenant directory and summary. Opening a tenant is audited.', '/tenants'],
 ] as const
 
 export default function AccessPage() {
   const columns: DataTableColumn<(typeof accessSections)[number]>[] = [
-    { key: '0', header: 'Area', render: (r) => <Link href={r[2]} style={{ color: '#0d2631', fontWeight: 600, textDecoration: 'none' }}>{r[0]}</Link> },
+    { key: '0', header: 'Area', render: (r) => <Link href={r[2]} style={{ color: 'var(--c-111111)', fontWeight: 600, textDecoration: 'none' }}>{r[0]}</Link> },
     { key: '1', header: 'Purpose', render: (r) => r[1] },
     { key: '2', header: 'Open', render: (r) => <Link href={r[2]} className="admin-btn">Open</Link> },
   ]

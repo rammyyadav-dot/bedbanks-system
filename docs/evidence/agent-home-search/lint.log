@@ -1,0 +1,4 @@
+
+> @bedbanks/agent-portal@0.1.0 lint /workspace/bedbanks-system/apps/agent
+> eslint .
+

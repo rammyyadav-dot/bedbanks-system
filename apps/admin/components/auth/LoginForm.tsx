@@ -5,21 +5,22 @@ import { loginAction } from '@/lib/auth/actions';
 
 const initialState = { error: null };
 
-export function LoginForm() {
+export function LoginForm({ from }: { from?: string }) {
   const [state, dispatch, isPending] = useActionState(loginAction, initialState);
 
   return (
     <form action={dispatch}>
+      {from && <input type="hidden" name="from" value={from} />}
       {state.error && (
         <div
           role="alert"
           style={{
-            background: '#fff0ef',
-            border: '1px solid #f5c6c2',
-            borderRadius: 4,
+            background: 'var(--c-fbe3e4)',
+            border: '1px solid var(--c-e4e4e0)',
+            borderRadius: 'var(--fb-radius-chip)',
             padding: '10px 12px',
             fontSize: 11,
-            color: '#8c2e2a',
+            color: 'var(--c-b3141b)',
             marginBottom: 14,
           }}
         >

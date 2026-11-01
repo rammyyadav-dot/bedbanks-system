@@ -1,0 +1,156 @@
+import { Injectable, Logger, OnModuleDestroy, Optional, ServiceUnavailableException } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
+import { OPERATIONS_READ_DENIED } from '@bedbanks/contracts'
+import { databaseErrorCode, isDatabasePermissionDenied } from '../database/db-errors'
+import { PrismaService } from '../database/prisma.service'
+import { RuntimeRoleViolation } from '../database/runtime-db-identity'
+
+export const BOOKING_OPS_ENV = Symbol('BOOKING_OPS_ENV')
+
+const NOT_READABLE = 'This operations view is not readable by the API database role. Grants must be reviewed by a human; see ADR 0039.'
+
+/**
+ * The Admin booking module's own database connection (ADR 0039, owner answer 1).
+ *
+ * It connects with `BOOKING_OPS_DATABASE_URL` as the dedicated limited role (see `database/booking-ops-role.ts`) and is used by nothing else.
+ * Row-level security is not bypassed: every read runs in a transaction that sets the tenant, exactly like `PrismaService.withTenant`.
+ *
+ * If the URL is missing, equals the HTTP credential, cannot connect, or the role lacks a grant, callers get the existing sanitized 503
+ * `OPERATIONS_READ_DENIED`. It never falls back to the API role: "not readable" must never turn into reading with a broader principal, and
+ * never into an empty result. Nothing from the connection string or the database error is returned or logged.
+ */
+@Injectable()
+export class BookingOpsDatabase implements OnModuleDestroy {
+  private readonly logger = new Logger(BookingOpsDatabase.name)
+  private client: PrismaService | null = null
+  private verified = false
+  private readonly env: Record<string, string | undefined>
+
+  constructor(@Optional() env?: Record<string, string | undefined>) { this.env = env ?? process.env }
+
+  /** True when a distinct credential is configured. Says nothing about whether it works. */
+  configured(): boolean {
+    const url = this.env.BOOKING_OPS_DATABASE_URL
+    return Boolean(url) && url !== this.env.DATABASE_URL
+  }
+
+  private connection(): PrismaService {
+    if (!this.configured()) throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+    this.client ??= new PrismaService({ datasourceUrl: this.env.BOOKING_OPS_DATABASE_URL as string })
+    return this.client
+  }
+
+  /**
+   * P0-01: the booking connection is checked once, on first use, with the same identity rules as the HTTP client (restricted login only). A violation is
+   * logged loudly and answered with the sanitized 503; it never degrades to a different principal and the failure is not cached as success.
+   */
+  private async verify(client: PrismaService): Promise<void> {
+    if (this.verified) return
+    try {
+      await client.assertRestrictedRuntimeRole('Booking module')
+      this.verified = true
+    } catch (error) {
+      if (!(error instanceof RuntimeRoleViolation)) throw error
+      this.logger.error(error.message)
+      this.client = null
+      throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+    }
+  }
+
+  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      return await client.withTenant(tenantId, work, { isolationLevel: 'RepeatableRead' })
+    } catch (error) {
+      if (isAccessFailure(error)) {
+        this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`)
+        throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+      }
+      throw error
+    }
+  }
+
+  /**
+   * A write transaction (Phase 2). Same connection, same role, same tenant setting; ReadCommitted so that two operators racing on one booking get a clean
+   * compare-and-set conflict from `transitionBooking` instead of a serialization failure. The role's write grants are narrow (see booking-ops-role.ts).
+   */
+  async withTenantWrite<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      return await client.withTenant(tenantId, work, { isolationLevel: 'ReadCommitted' })
+    } catch (error) {
+      if (isAccessFailure(error)) {
+        this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`)
+        throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED })
+      }
+      throw error
+    }
+  }
+
+  /** Tenant ids that have a supplier job due, via the one SECURITY DEFINER function the role may execute. Ids only; no row is read across tenants. */
+  async dueTenants(now: Date): Promise<string[]> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_due_tenants: string }>>`SELECT "fbeds_booking_due_tenants"(${now}::timestamp)`
+      return rows.map((r) => r.fbeds_booking_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
+  /** ADR 0066: tenants with a confirmation email due (ids only), through the SECURITY DEFINER function. */
+  async emailDueTenants(now: Date): Promise<string[]> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_email_due_tenants: string }>>`SELECT "fbeds_booking_email_due_tenants"(${now}::timestamp)`
+      return rows.map((r) => r.fbeds_booking_email_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
+  /** Phase 6E: tenants with a Confirmed booking whose check-out date is before `today` (ids only), through the SECURITY DEFINER function. */
+  async checkoutDueTenants(today: string): Promise<string[]> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_checkout_due_tenants: string }>>`SELECT "fbeds_booking_checkout_due_tenants"(${today}::date)`
+      return rows.map((r) => r.fbeds_booking_checkout_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
+  /** Phase 6G: tenants with an open booking in a closable status that has not changed since `cutoff` (ids only), through the SECURITY DEFINER function. */
+  async closeDueTenants(cutoff: Date): Promise<string[]> {
+    const client = this.connection()
+    await this.verify(client)
+    try {
+      const rows = await client.$queryRaw<Array<{ fbeds_booking_close_due_tenants: string }>>`SELECT "fbeds_booking_close_due_tenants"(${cutoff}::timestamp)`
+      return rows.map((r) => r.fbeds_booking_close_due_tenants)
+    } catch (error) {
+      if (isAccessFailure(error)) { this.logger.error(`Booking module connection refused or lacks a grant (${databaseErrorCode(error)})`); throw new ServiceUnavailableException({ message: NOT_READABLE, code: OPERATIONS_READ_DENIED }) }
+      throw error
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.client?.$disconnect()
+    this.client = null
+  }
+}
+
+/** A refused connection, bad credential, missing role or missing grant. Anything else (a bug, a constraint) is not an access failure and propagates. */
+function isAccessFailure(error: unknown): boolean {
+  if (isDatabasePermissionDenied(error)) return true
+  const e = error as { name?: string; code?: string }
+  return e?.name === 'PrismaClientInitializationError' || (typeof e?.code === 'string' && CONNECTION_CODES.has(e.code))
+}
+const CONNECTION_CODES = new Set(['P1000', 'P1001', 'P1002', 'P1010', 'P1017'])

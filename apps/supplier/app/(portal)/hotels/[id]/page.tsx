@@ -1,22 +1,42 @@
 import Link from 'next/link'
-import { ArrowLeft, Building2, Image, MapPin, Pencil, Save } from 'lucide-react'
+import { ArrowLeft, MapPin } from 'lucide-react'
+import { StatusBadge } from '../../../../components/ui/StatusBadge'
+import { initialsOf } from '../../../../lib/status'
 import { notFound } from 'next/navigation'
 import { PageHeader } from '../../../../components/ui/PageHeader'
-import { StatusBadge } from '../../../../components/ui/StatusBadge'
-import { getSupplierAdapter } from '../../../../lib/adapter'
+import { SupplyWorkflowUnavailable } from '../../../../components/supply/SupplyWorkflowUnavailable'
+import { getHotel, SupplierApiError } from '../../../../lib/supplier-api'
+import { loadPortal } from '../../../../lib/portal'
 
 export default async function HotelDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const portal = await loadPortal()
+  if (portal.kind !== 'ready' || !portal.organization) return null
+  if (!portal.permissions.includes('supplier.extranet.hotels.read')) {
+    return <SupplyWorkflowUnavailable eyebrow="Hotel" title="Hotel unavailable" description="This membership cannot read hotels." />
+  }
   const { id } = await params
-  const hotel = (await getSupplierAdapter().listProperties()).find((item) => item.id === id)
-  if (!hotel) notFound()
-
-  return <div className="supplier-page">
-    <Link className="back-link" href="/hotels"><ArrowLeft size={12} /> Back to hotels</Link>
-    <PageHeader eyebrow={`${hotel.id} · ${hotel.supplierReference}`} title={hotel.name} description={`${hotel.stars}-star hotel in ${hotel.destination}, ${hotel.country}. Content changes remain in UI preview until approved API workflows are connected.`} actions={<><button className="btn"><Pencil size={13} /> Edit profile</button><button className="btn btn-primary"><Save size={13} /> Save draft</button></>} />
-    <div className="detail-layout"><section className="panel detail-main"><div className="detail-hero"><span><Building2 size={32} /></span><div><StatusBadge>{hotel.status}</StatusBadge><h2>{hotel.name}</h2><p><MapPin size={12} /> {hotel.destination}, {hotel.country} · {hotel.stars} star</p></div><div className="completion-score"><strong>{hotel.contentScore}%</strong><small>content complete</small></div></div>
-      <div className="tabs" role="tablist"><button className="active">Overview</button><button>Content</button><button>Photos</button><button>Rooms</button><button>Policies</button><button>Contacts</button></div>
-      <div className="form-section"><div><p>HOTEL DETAILS</p><h3>Core information</h3></div><div className="form-grid"><label>Hotel name<input value={hotel.name} readOnly /></label><label>Supplier reference<input value={hotel.supplierReference} readOnly /></label><label>Destination<input value={hotel.destination} readOnly /></label><label>Country<input value={hotel.country} readOnly /></label><label>Star rating<input value={`${hotel.stars} star`} readOnly /></label><label>Timezone<input value="Asia/Dubai (UTC+04:00)" readOnly /></label></div></div></section>
-      <aside className="detail-aside"><section className="panel checklist"><div className="panel-header"><div><p>READINESS</p><h2>Content checklist</h2></div><strong>{hotel.contentScore}%</strong></div>{['Core profile', 'Location & contacts', 'Facilities', 'Room types', 'Policies'].map((item, index) => <div className="check-row" key={item}><i className={index < 4 ? 'done' : ''}>{index < 4 ? '✓' : '!'}</i><span>{item}</span><small>{index < 4 ? 'Complete' : 'Review'}</small></div>)}</section><section className="panel media-card"><span><Image size={22} /></span><div><strong>24 hotel photos</strong><small>4 images need alt text</small></div><button className="row-action" aria-label="Open hotel photos"><ArrowLeft size={13} style={{ transform: 'rotate(180deg)' }} /></button></section></aside>
-    </div>
-  </div>
+  try {
+    const hotel = await getHotel(id)
+    return (
+      <div className="supplier-page">
+        <Link className="back-link" href="/hotels"><ArrowLeft size={15} aria-hidden="true" />Back to properties</Link>
+        <PageHeader eyebrow={`${hotel.city}, ${hotel.countryCode}`} title={hotel.name} description="This is the mapped hotel record. Profile edits, photos, and publication are unavailable." actions={<Link className="btn btn-primary" href={`/hotels/${hotel.id}/rooms`}>View rooms</Link>} />
+        <section className="panel">
+          <div className="detail-hero">
+            <span aria-hidden="true">{initialsOf(hotel.name)}</span>
+            <div><p className="page-eyebrow is-muted">{hotel.propertyType}</p><h2>Property record</h2><p><MapPin size={14} aria-hidden="true" />{hotel.city}, {hotel.countryCode}</p></div>
+          </div>
+          <dl className="detail-list detail-list-bordered">
+            <div><dt>Property type</dt><dd>{hotel.propertyType}</dd></div>
+            <div><dt>City</dt><dd>{hotel.city}</dd></div>
+            <div><dt>Content status</dt><dd><StatusBadge raw={hotel.contentStatus}>{hotel.contentStatus}</StatusBadge></dd></div>
+            <div><dt>Mapping</dt><dd><StatusBadge raw={hotel.mappingStatus}>{hotel.mappingStatus}</StatusBadge></dd></div>
+          </dl>
+        </section>
+      </div>
+    )
+  } catch (error) {
+    if (error instanceof SupplierApiError && error.status === 404) notFound()
+    return <SupplyWorkflowUnavailable eyebrow="Hotel" title="Hotel unavailable" description="The hotel could not be loaded. No substitute property is shown." />
+  }
 }

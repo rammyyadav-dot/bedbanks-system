@@ -1,0 +1,161 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException, PayloadTooLargeException, UnprocessableEntityException, UnsupportedMediaTypeException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
+import { createHash } from 'crypto'
+import { HOTEL_IMAGE_ERROR_CODES, HOTEL_IMAGE_LIMITS, type HotelImageList, type HotelImageReorder, type HotelImageUpdate, type HotelImageView } from '@bedbanks/contracts'
+import { PrismaService } from '../database/prisma.service'
+import { guardedRead } from '../admin-operations/operations-read'
+import { idParam } from '../admin-operations/query-params'
+import { inspectImage, isAllowedType } from './hotel-image-probe'
+
+type Tx = Prisma.TransactionClient
+/** Everything except the bytes: list queries must never read the "data" column. */
+const META = { id: true, contentType: true, bytes: true, width: true, height: true, altText: true, sortOrder: true, isPrimary: true, uploadedById: true, createdAt: true } as const
+type Row = Prisma.HotelImageGetPayload<{ select: typeof META }>
+const REORDERED = 'hotel.image.reordered'
+const UPLOADED = 'hotel.image.uploaded'; const UPDATED = 'hotel.image.updated'; const DELETED = 'hotel.image.deleted'
+
+/**
+ * Hotel images (ADR 0027). The type and size are read from the bytes, never trusted from the client. Every write for one hotel takes a
+ * per-hotel advisory lock, so the image count, the single primary and the ordering stay consistent under concurrent requests.
+ * Audit events carry ids, sizes and field names only; never the file, its name or its alt text.
+ */
+@Injectable()
+export class HotelImagesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private async hotel(tx: Tx, tenantId: string, hotelIdRaw: string): Promise<string> {
+    const id = idParam('hotelId', hotelIdRaw)
+    if (!id) throw new BadRequestException('Invalid hotelId')
+    const hotel = await tx.hotel.findFirst({ where: { id, tenantId }, select: { id: true } })
+    if (!hotel) throw new NotFoundException('Hotel not found')
+    return hotel.id
+  }
+  private lock(tx: Tx, hotelId: string) { return tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`hotel-images:${hotelId}`}, 0))`) }
+  private view(hotelId: string, r: Row): HotelImageView {
+    return { id: r.id, contentType: r.contentType as HotelImageView['contentType'], bytes: r.bytes, width: r.width, height: r.height, altText: r.altText, sortOrder: r.sortOrder, isPrimary: r.isPrimary, uploadedById: r.uploadedById, createdAt: r.createdAt.toISOString(), contentPath: `/admin/hotels/${hotelId}/images/${r.id}/content` }
+  }
+  private async listIn(tx: Tx, tenantId: string, hotelId: string): Promise<HotelImageList> {
+    const rows = await tx.hotelImage.findMany({ where: { tenantId, hotelId }, select: META, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] })
+    return { hotelId, items: rows.map((r) => this.view(hotelId, r)), limits: HOTEL_IMAGE_LIMITS }
+  }
+  private altText(raw: unknown): string {
+    const alt = typeof raw === 'string' ? raw.trim() : ''
+    if (alt.length < 1 || alt.length > HOTEL_IMAGE_LIMITS.altTextMax) throw new BadRequestException({ message: [`altText: required, 1 to ${HOTEL_IMAGE_LIMITS.altTextMax} characters`], error: 'Bad Request' })
+    return alt
+  }
+
+  async list(tenantId: string, hotelId: string): Promise<HotelImageList> {
+    return guardedRead(() => this.prisma.withTenant(tenantId, async (tx) => this.listIn(tx, tenantId, await this.hotel(tx, tenantId, hotelId))))
+  }
+
+  async upload(tenantId: string, userId: string, hotelIdRaw: string, bytes: Buffer, declaredType: string, altRaw: unknown, requestId: string | null): Promise<HotelImageView> {
+    if (!isAllowedType(declaredType) || bytes.length === 0) throw new UnsupportedMediaTypeException({ message: 'Send the image itself as image/jpeg, image/png or image/webp.', code: HOTEL_IMAGE_ERROR_CODES.unsupportedType })
+    if (bytes.length > HOTEL_IMAGE_LIMITS.maxBytes) throw new PayloadTooLargeException({ message: `An image can be at most ${HOTEL_IMAGE_LIMITS.maxBytes / 1024 / 1024} MB.`, code: HOTEL_IMAGE_ERROR_CODES.tooLarge })
+    const alt = this.altText(altRaw)
+    const probe = await inspectImage(bytes)
+    if (!probe || probe.contentType !== declaredType) throw new UnsupportedMediaTypeException({ message: 'The file is not a valid JPEG, PNG or WebP image.', code: HOTEL_IMAGE_ERROR_CODES.unsupportedType })
+    const { minWidth, minHeight, maxWidth, maxHeight } = HOTEL_IMAGE_LIMITS
+    if (probe.width < minWidth || probe.height < minHeight || probe.width > maxWidth || probe.height > maxHeight) {
+      throw new UnprocessableEntityException({ message: `Images must be between ${minWidth}x${minHeight} and ${maxWidth}x${maxHeight} pixels.`, code: HOTEL_IMAGE_ERROR_CODES.badDimensions })
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex')
+    try {
+      return await this.prisma.withTenant(tenantId, async (tx) => {
+        const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+        await this.lock(tx, hotelId)
+        const existing = await tx.hotelImage.findFirst({ where: { hotelId, sha256, tenantId }, select: { id: true } })
+        if (existing) throw new ConflictException({ message: 'This image is already on the hotel.', code: HOTEL_IMAGE_ERROR_CODES.duplicate, details: { existingImageId: existing.id } })
+        const agg = await tx.hotelImage.aggregate({ where: { tenantId, hotelId }, _count: true, _max: { sortOrder: true } })
+        if (agg._count >= HOTEL_IMAGE_LIMITS.maxPerHotel) throw new ConflictException({ message: `A hotel can have at most ${HOTEL_IMAGE_LIMITS.maxPerHotel} images.`, code: HOTEL_IMAGE_ERROR_CODES.limitReached })
+        const row = await tx.hotelImage.create({
+          data: { tenantId, hotelId, contentType: probe.contentType, bytes: bytes.length, width: probe.width, height: probe.height, sha256, altText: alt, sortOrder: (agg._max.sortOrder ?? -1) + 1, isPrimary: agg._count === 0, data: new Uint8Array(bytes), uploadedById: userId },
+          select: META,
+        })
+        await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: UPLOADED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId: row.id, bytes: row.bytes, width: row.width, height: row.height, contentType: row.contentType, primary: row.isPrimary } as Prisma.InputJsonValue } })
+        return this.view(hotelId, row)
+      })
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') throw new ConflictException({ message: 'This image is already on the hotel.', code: HOTEL_IMAGE_ERROR_CODES.duplicate })
+      throw error
+    }
+  }
+
+  async update(tenantId: string, userId: string, hotelIdRaw: string, imageIdRaw: string, body: HotelImageUpdate, requestId: string | null): Promise<HotelImageList> {
+    const imageId = idParam('imageId', imageIdRaw)
+    if (!imageId) throw new BadRequestException('Invalid imageId')
+    const keys = Object.keys(body ?? {})
+    const errors: string[] = []
+    for (const k of keys) if (!['altText', 'sortOrder', 'isPrimary'].includes(k)) errors.push(`${k}: is not an editable field`)
+    if (keys.length === 0) errors.push('Send at least one of altText, sortOrder, isPrimary')
+    if (body?.sortOrder !== undefined && (!Number.isInteger(body.sortOrder) || body.sortOrder < 0 || body.sortOrder > 1000)) errors.push('sortOrder: whole number from 0 to 1000')
+    if (body?.isPrimary !== undefined && body.isPrimary !== true) errors.push('isPrimary: can only be set to true; choose another image to replace the primary')
+    if (errors.length) throw new BadRequestException({ message: errors, error: 'Bad Request' })
+    const alt = body.altText !== undefined ? this.altText(body.altText) : undefined
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+      await this.lock(tx, hotelId)
+      const current = await tx.hotelImage.findFirst({ where: { id: imageId, hotelId, tenantId }, select: { id: true } })
+      if (!current) throw new NotFoundException('Image not found')
+      if (body.isPrimary) await tx.hotelImage.updateMany({ where: { hotelId, tenantId, isPrimary: true, NOT: { id: imageId } }, data: { isPrimary: false } })
+      await tx.hotelImage.update({ where: { id: imageId, tenantId }, data: { ...(alt !== undefined && { altText: alt }), ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }), ...(body.isPrimary && { isPrimary: true }) } })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: UPDATED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId, fields: keys.sort() } as Prisma.InputJsonValue } })
+      return this.listIn(tx, tenantId, hotelId)
+    })
+  }
+
+  /**
+   * Sets the whole order in one transaction. The request must name every image of the hotel exactly once; if the hotel changed in the
+   * meantime (an image added or deleted) the order is refused with 409 and nothing is written, so a stale screen cannot scramble it.
+   */
+  async reorder(tenantId: string, userId: string, hotelIdRaw: string, body: HotelImageReorder, requestId: string | null): Promise<HotelImageList> {
+    const ids = body?.imageIds
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > HOTEL_IMAGE_LIMITS.maxPerHotel || ids.some((v) => typeof v !== 'string' || !idParam('imageId', v))) {
+      throw new BadRequestException({ message: [`imageIds: the list of every image id, first to last (1 to ${HOTEL_IMAGE_LIMITS.maxPerHotel})`], error: 'Bad Request' })
+    }
+    if (new Set(ids).size !== ids.length) throw new BadRequestException({ message: ['imageIds: an image can appear only once'], error: 'Bad Request' })
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+      await this.lock(tx, hotelId)
+      const current = await tx.hotelImage.findMany({ where: { tenantId, hotelId }, select: { id: true } })
+      const have = new Set(current.map((c) => c.id))
+      if (have.size !== ids.length || ids.some((v) => !have.has(v))) throw new ConflictException({ message: 'The hotel images changed. Reload and reorder again.', code: HOTEL_IMAGE_ERROR_CODES.orderMismatch })
+      for (const [position, id] of ids.entries()) await tx.hotelImage.update({ where: { id, tenantId }, data: { sortOrder: position } })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: REORDERED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, count: ids.length } as Prisma.InputJsonValue } })
+      return this.listIn(tx, tenantId, hotelId)
+    })
+  }
+
+  async remove(tenantId: string, userId: string, hotelIdRaw: string, imageIdRaw: string, requestId: string | null): Promise<HotelImageList> {
+    const imageId = idParam('imageId', imageIdRaw)
+    if (!imageId) throw new BadRequestException('Invalid imageId')
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+      await this.lock(tx, hotelId)
+      const current = await tx.hotelImage.findFirst({ where: { id: imageId, hotelId, tenantId }, select: { id: true, isPrimary: true } })
+      if (!current) throw new NotFoundException('Image not found')
+      // A published hotel must keep a primary image (ADR 0058), the same rule as every other publication requirement.
+      const [status, remaining] = await Promise.all([tx.hotel.findFirst({ where: { id: hotelId, tenantId }, select: { contentStatus: true } }), tx.hotelImage.count({ where: { hotelId, tenantId, NOT: { id: imageId } } })])
+      if (status?.contentStatus === 'COMPLETE' && remaining === 0) throw new ConflictException({ message: 'A published hotel must keep at least one image. Add another image first, or change the hotel status.', code: 'HOTEL_PUBLICATION_REQUIREMENT_LOST' })
+      await tx.hotelImage.delete({ where: { id: imageId, tenantId } })
+      let promoted: string | null = null
+      if (current.isPrimary) {
+        const next = await tx.hotelImage.findFirst({ where: { hotelId, tenantId }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], select: { id: true } })
+        if (next) { await tx.hotelImage.update({ where: { id: next.id, tenantId }, data: { isPrimary: true } }); promoted = next.id }
+      }
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: DELETED, entityType: 'hotel', entityId: hotelId, payload: { outcome: 'allowed', requestId, imageId, wasPrimary: current.isPrimary, promotedImageId: promoted } as Prisma.InputJsonValue } })
+      return this.listIn(tx, tenantId, hotelId)
+    })
+  }
+
+  /** The stored bytes of one image of this hotel and tenant. */
+  async content(tenantId: string, hotelIdRaw: string, imageIdRaw: string): Promise<{ data: Buffer; contentType: string; sha256: string }> {
+    const imageId = idParam('imageId', imageIdRaw)
+    if (!imageId) throw new BadRequestException('Invalid imageId')
+    return guardedRead(() => this.prisma.withTenant(tenantId, async (tx) => {
+      const hotelId = await this.hotel(tx, tenantId, hotelIdRaw)
+      const row = await tx.hotelImage.findFirst({ where: { id: imageId, hotelId, tenantId }, select: { data: true, contentType: true, sha256: true } })
+      if (!row) throw new NotFoundException('Image not found')
+      return { data: Buffer.from(row.data), contentType: row.contentType, sha256: row.sha256 }
+    }))
+  }
+}

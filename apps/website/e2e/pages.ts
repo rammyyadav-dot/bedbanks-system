@@ -1,0 +1,1 @@
+export const primaryPages = ['/', '/hotels-suppliers', '/travel-buyers', '/how-it-works', '/connectivity', '/about', '/contact', '/request-demo', '/login', '/careers', '/privacy', '/portals'] as const

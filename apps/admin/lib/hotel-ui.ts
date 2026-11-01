@@ -1,0 +1,104 @@
+import {
+  COMMERCIAL_REASON_TEXT, type CommercialReadiness, type ReadinessAction, type ReadinessGateOutcome, type ContractState, type GateState, type HotelSection, type InventoryState, type IssueSeverity, type MappingState, type SupplyDataState,
+} from '@bedbanks/contracts'
+
+export type Tone = 'ok' | 'warn' | 'bad' | 'neutral'
+
+/** Display-only mappings of server-computed states to a tone and a label. Nothing here decides readiness. */
+export const readinessTone = (s: CommercialReadiness): Tone => (s === 'READY' ? 'ok' : s === 'PARTIAL' ? 'warn' : 'bad')
+export const mappingTone = (s: MappingState): Tone => (s === 'MAPPED' ? 'ok' : s === 'PENDING' ? 'warn' : 'bad')
+export const contractTone = (s: ContractState): Tone => (s === 'ACTIVE' ? 'ok' : s === 'EXPIRING' || s === 'INACTIVE' ? 'warn' : 'bad')
+export const ratesTone = (s: SupplyDataState): Tone => (s === 'OK' ? 'ok' : s === 'GAPS' ? 'bad' : 'neutral')
+export const inventoryTone = (s: InventoryState): Tone => (s === 'OK' ? 'ok' : s === 'STOP_SELL' ? 'warn' : s === 'NONE' ? 'neutral' : 'bad')
+export const severityTone = (s: IssueSeverity): Tone => (s === 'CRITICAL' ? 'bad' : s === 'HIGH' ? 'warn' : 'neutral')
+export const gateTone = (s: GateState): Tone => (s === 'PASS' ? 'ok' : s === 'WARN' ? 'warn' : s === 'FAIL' ? 'bad' : 'neutral')
+
+export const reasonText = (code: string): string => COMMERCIAL_REASON_TEXT[code] ?? code
+
+/**
+ * Tabs in the order a contracting team works a hotel (ADR 0067, F-16): content, rooms, supplier mapping, contract, rate plans, rates and
+ * inventory, then distribution and readiness; bookings, audit and reports after. Ids are stable deep links; only the order and labels moved.
+ */
+export const HOTEL_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'setup', label: 'Hotel Setup' },
+  { id: 'amenities', label: 'Amenities' },
+  { id: 'images', label: 'Images' },
+  { id: 'policies', label: 'Hotel Policies' },
+  { id: 'rooms', label: 'Rooms' },
+  { id: 'mappings', label: 'Supplier Mapping' },
+  { id: 'contracts', label: 'Contracts' },
+  { id: 'rateplans', label: 'Rate Plans' },
+  { id: 'rates', label: 'Rates & Inventory' },
+  { id: 'inventory', label: 'Inventory & Allotment' },
+  { id: 'quick', label: 'Quick Update' },
+  { id: 'sellability', label: 'Distribution & Readiness' },
+  { id: 'bookings', label: 'Bookings' },
+  { id: 'audit', label: 'Audit' },
+  { id: 'reports', label: 'Reports' },
+] as const
+export type HotelTabId = (typeof HOTEL_TABS)[number]['id']
+
+/** Unknown or missing tab values fall back to Overview rather than rendering nothing. */
+export function parseTab(value: string | null | undefined): HotelTabId {
+  return (HOTEL_TABS.find((tab) => tab.id === value)?.id ?? 'overview') as HotelTabId
+}
+/** A section named by an issue maps one-to-one onto a tab, so every issue links to where it is resolved. */
+export function sectionTab(section: HotelSection): HotelTabId { return section }
+/** Optional context so a link lands on the affected record: the first affected night and the room. Only these two are ever carried. */
+export interface HotelLinkContext { from?: string | null; roomTypeId?: string | null }
+export function hotelHref(hotelId: string, tab: HotelTabId = 'overview', context: HotelLinkContext = {}): string {
+  const query = new URLSearchParams()
+  if (tab !== 'overview') query.set('tab', tab)
+  if (context.from && /^\d{4}-\d{2}-\d{2}$/.test(context.from)) query.set('from', context.from)
+  if (context.roomTypeId) query.set('roomTypeId', context.roomTypeId)
+  const text = query.toString()
+  return text ? `/hotels/${hotelId}?${text}` : `/hotels/${hotelId}`
+}
+
+export const LIST_FILTER_KEYS = ['search', 'countryCode', 'destination', 'supplierId', 'contentStatus', 'readiness', 'mapping', 'contractState', 'issue', 'expiresWithinDays', 'propertyType', 'stars'] as const
+export type ListFilterKey = (typeof LIST_FILTER_KEYS)[number]
+
+/** Reads only known filters from a URL, so a pasted link cannot inject unknown parameters into the API call. */
+export function readListQuery(search: URLSearchParams | { get(name: string): string | null }): { filters: Partial<Record<ListFilterKey, string>>; page: number } {
+  const filters: Partial<Record<ListFilterKey, string>> = {}
+  for (const key of LIST_FILTER_KEYS) { const value = search.get(key); if (value) filters[key] = value }
+  const raw = Number(search.get('page') ?? '1')
+  return { filters, page: Number.isInteger(raw) && raw >= 1 ? raw : 1 }
+}
+export function listHref(filters: Partial<Record<ListFilterKey, string>>, page = 1): string {
+  const query = new URLSearchParams()
+  for (const key of LIST_FILTER_KEYS) { const value = filters[key]; if (value) query.set(key, value) }
+  if (page > 1) query.set('page', String(page))
+  const text = query.toString()
+  return text ? `/hotels?${text}` : '/hotels'
+}
+
+/** Stars as text, with a visible word for assistive technology and the no-rating case. */
+export const starsText = (stars: number | null): string => (stars === null ? 'No rating' : `${stars} star${stars === 1 ? '' : 's'}`)
+
+/** UNKNOWN is its own state: it is never shown with the failure tone, because "could not be read" is not "failed". */
+export const outcomeTone = (s: ReadinessGateOutcome): Tone => (s === 'PASS' ? 'ok' : s === 'FAIL' ? 'bad' : s === 'UNKNOWN' ? 'warn' : 'neutral')
+export const outcomeLabel = (s: ReadinessGateOutcome): string => (s === 'NOT_APPLICABLE' ? 'N/A' : s)
+/** Where a readiness blocker is resolved: the existing workspace tab, never a second editor. Unknown tabs fall back to Overview via parseTab. */
+export const readinessActionHref = (hotelId: string, action: ReadinessAction): string => hotelHref(hotelId, parseTab(action.tab))
+
+/** Primary workspace sections; legacy tab ids remain valid deep links into their section. */
+export const HOTEL_WORKSPACE_SECTIONS = [
+  { id: 'profile', label: '1. Profile Setup', defaultTab: 'overview', tabs: ['overview', 'setup', 'amenities', 'images', 'policies', 'audit'] },
+  { id: 'rooms', label: '2. Room Types', defaultTab: 'rooms', tabs: ['rooms'] },
+  { id: 'mapping', label: '3. Supplier Mapping', defaultTab: 'mappings', tabs: ['mappings'] },
+  { id: 'contracts', label: '4. Contracts', defaultTab: 'contracts', tabs: ['contracts'] },
+  { id: 'rateplans', label: '5. Rate Plans', defaultTab: 'rateplans', tabs: ['rateplans'] },
+  { id: 'quick', label: '6. Rates & Inventory', defaultTab: 'quick', tabs: ['quick', 'rates', 'inventory'] },
+  { id: 'distribution', label: '7. Distribution & Readiness', defaultTab: 'sellability', tabs: ['sellability'] },
+  { id: 'bookings', label: '8. Bookings – All Reservations', defaultTab: 'bookings', tabs: ['bookings'] },
+  { id: 'reports', label: '9. Reports', defaultTab: 'reports', tabs: ['reports'] },
+] as const
+export function workspaceSection(tab: HotelTabId) {
+  return HOTEL_WORKSPACE_SECTIONS.find(section => (section.tabs as readonly string[]).includes(tab))!
+}
+/** Labels describe persisted profile approval, never promise commercial sellability. */
+export function hotelLifecycleLabel(status: string): string {
+  return ({ DRAFT: 'Draft', INCOMPLETE: 'Draft (incomplete)', COMPLETE: 'Active', SUSPENDED: 'Suspended', ARCHIVED: 'Archived' } as Record<string, string>)[status] ?? status
+}

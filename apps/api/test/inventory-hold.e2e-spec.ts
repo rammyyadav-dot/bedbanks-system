@@ -302,6 +302,79 @@ describe('inventory hold PostgreSQL concurrency', () => {
     }
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'inventory.hold.expired', entityId: due.holdId } })).toBe(1)
   })
+  it('claims a hold for processing atomically: sweeper cannot expire it, expired holds cannot be claimed, claim/expiry race has one winner', async () => {
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, data: { allotment: 3, held: 0, sold: 0 } })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    const heldNights = () => prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, orderBy: { stayDate: 'asc' }, select: { held: true } })
+
+    // 1. A claimed hold survives a sweep that would otherwise have expired it, and the claim is idempotent.
+    const claimed = await holds.create({ ...command(`${suffix}-claim-a`), offerExpiresAt: new Date(Date.now() + 5_000).toISOString() })
+    await holds.beginProcessing(tenantId, claimed.holdId, 'claim-a', userId)
+    await holds.beginProcessing(tenantId, claimed.holdId, 'claim-a-retry', userId)
+    expect(await holds.expireDue(tenantId, new Date(Date.now() + 60_000))).toBe(0)
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: claimed.holdId } })).toMatchObject({ status: 'PROCESSING' })
+    expect(await heldNights()).toEqual([{ held: 1 }, { held: 1 }])
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'inventory.hold.processing', entityId: claimed.holdId } })).toBe(1)
+
+    // 2. Releasing a claimed hold (compensation) restores inventory exactly once.
+    await Promise.all([holds.release(tenantId, claimed.holdId, 'rel-1', { type: 'USER', userId }), holds.release(tenantId, claimed.holdId, 'rel-2', { type: 'USER', userId })])
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: claimed.holdId } })).toMatchObject({ status: 'RELEASED' })
+    expect(await heldNights()).toEqual([{ held: 0 }, { held: 0 }])
+    await expect(holds.beginProcessing(tenantId, claimed.holdId, 'claim-after-release', userId)).rejects.toThrow('no longer active')
+
+    // 3. A hold whose expiry has passed cannot be claimed, even before the sweeper runs.
+    const stale = await holds.create({ ...command(`${suffix}-claim-b`), offerExpiresAt: new Date(Date.now() + 5_000).toISOString() })
+    await prisma.inventoryHold.update({ where: { id: stale.holdId }, data: { expiresAt: new Date(Date.now() - 1_000), createdAt: new Date(Date.now() - 10_000) } })
+    await expect(holds.beginProcessing(tenantId, stale.holdId, 'claim-stale', userId)).rejects.toThrow('no longer active')
+    expect(await holds.expireDue(tenantId)).toBe(1)
+
+    // 4. Racing the claim against the sweeper yields exactly one outcome and consistent inventory.
+    const race = await holds.create({ ...command(`${suffix}-claim-c`), offerExpiresAt: new Date(Date.now() + 5_000).toISOString() })
+    const outcomes = await Promise.allSettled([holds.beginProcessing(tenantId, race.holdId, 'race-claim', userId), holds.expireDue(tenantId, new Date(Date.now() + 60_000))])
+    const status = (await prisma.inventoryHold.findUniqueOrThrow({ where: { id: race.holdId } })).status
+    expect(['PROCESSING', 'EXPIRED']).toContain(status)
+    expect(outcomes[0].status === 'fulfilled').toBe(status === 'PROCESSING')
+    expect(await heldNights()).toEqual(status === 'PROCESSING' ? [{ held: 1 }, { held: 1 }] : [{ held: 0 }, { held: 0 }])
+  })
+
+  it('lets only the creating agent release an un-booked hold, never a claimed one, and is idempotent', async () => {
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, data: { allotment: 3, held: 0, sold: 0 } })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    const heldNights = () => prisma.dailyAvailability.findMany({ where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } }, orderBy: { stayDate: 'asc' }, select: { held: true } })
+
+    const mine = await holds.create(command(`${suffix}-own-a`))
+    expect(await holds.releaseOwn(tenantId, mine.holdId, userId, 'rel-1')).toEqual({ holdId: mine.holdId, status: 'RELEASED' })
+    expect(await heldNights()).toEqual([{ held: 0 }, { held: 0 }])
+    expect(await holds.releaseOwn(tenantId, mine.holdId, userId, 'rel-2')).toEqual({ holdId: mine.holdId, status: 'RELEASED' }) // idempotent
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'inventory.hold.released', entityId: mine.holdId } })).toBe(1)
+
+    const other = await holds.create(command(`${suffix}-own-b`))
+    await expect(holds.releaseOwn(tenantId, other.holdId, 'someone-else', 'rel-x')).rejects.toThrow('not found')
+    const foreignTenant = await prisma.tenant.create({ data: { name: `${suffix}-own-t`, slug: `${suffix}-own-t` } })
+    try { await expect(holds.releaseOwn(foreignTenant.id, other.holdId, userId, 'rel-y')).rejects.toThrow('not found') } finally { await prisma.tenant.delete({ where: { id: foreignTenant.id } }) }
+    expect(await heldNights()).toEqual([{ held: 1 }, { held: 1 }])
+
+    await holds.beginProcessing(tenantId, other.holdId, 'claim', userId)
+    await expect(holds.releaseOwn(tenantId, other.holdId, userId, 'rel-z')).rejects.toThrow('can no longer be released')
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: other.holdId } })).toMatchObject({ status: 'PROCESSING' })
+    expect(await heldNights()).toEqual([{ held: 1 }, { held: 1 }])
+    await holds.release(tenantId, other.holdId, 'cleanup', { type: 'USER', userId })
+
+    // a release racing a booking claim has exactly one winner and consistent inventory
+    for (let round = 0; round < 5; round++) {
+      const racer = await holds.create(command(`${suffix}-own-race-${round}`))
+      const [released, claimed] = await Promise.allSettled([holds.releaseOwn(tenantId, racer.holdId, userId, `race-${round}`), holds.beginProcessing(tenantId, racer.holdId, `claim-${round}`, userId)])
+      const status = (await prisma.inventoryHold.findUniqueOrThrow({ where: { id: racer.holdId } })).status
+      expect(['RELEASED', 'PROCESSING']).toContain(status)
+      expect(released.status === 'fulfilled').toBe(status === 'RELEASED')
+      expect(claimed.status === 'fulfilled').toBe(status === 'PROCESSING')
+      expect(await heldNights()).toEqual(status === 'PROCESSING' ? [{ held: 1 }, { held: 1 }] : [{ held: 0 }, { held: 0 }])
+      if (status === 'PROCESSING') await holds.release(tenantId, racer.holdId, 'cleanup', { type: 'USER', userId })
+    }
+  })
+
   it('sweeps an expired hold through the real background runtime and leaves live holds', async () => {
     await prisma.dailyAvailability.updateMany({
       where: { ratePlanId, stayDate: { lt: new Date('2099-01-03') } },

@@ -14,16 +14,20 @@ describe('auth HTTP integration', () => {
   let passwordHash: string;
   const sessions = new Map<string, { id: string; tokenHash: string; expiresAt: Date; revokedAt: Date | null }>();
   const user = () => ({ id: 'u1', email: 'admin@example.test', name: 'Admin', status: 'ACTIVE', passwordHash });
+  const membership = { findMany: jest.fn(async () => []) };
   const db = {
     user: { findUnique: jest.fn(async () => user()), update: jest.fn(async () => user()) },
-    membership: { findMany: jest.fn(async () => []) },
+    membership,
     session: {
       create: jest.fn(async ({ data }) => { const row = { ...data, id: 's1', revokedAt: null }; sessions.set(data.tokenHash, row); return row; }),
       findUnique: jest.fn(async ({ where }) => { const row = sessions.get(where.tokenHash); return row ? { ...row, user: user() } : null; }),
       update: jest.fn(async () => ({})),
       updateMany: jest.fn(async ({ where, data }) => { const row = sessions.get(where.tokenHash); if (row) row.revokedAt = data.revokedAt; return { count: row ? 1 : 0 }; }),
     },
-    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: jest.fn(async (ops: unknown) => {
+      if (typeof ops === 'function') return ops({ $executeRaw: async () => 0, membership });
+      return Promise.all(ops as Promise<unknown>[]);
+    }),
   };
   beforeAll(async () => {
     passwordHash = await hashPassword('correct-password');
@@ -55,6 +59,14 @@ describe('auth HTTP integration', () => {
     expect(logout.headers['set-cookie'][0]).toContain('Secure');
     await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', cookie).expect(401);
     await request(app.getHttpServer()).post('/api/v1/auth/logout').set('Origin', 'http://localhost:3001').set('Cookie', cookie).expect(200);
+  });
+  it('throttles repeated failed sign-ins with 429 and Retry-After, even for the right password (CTO audit F08)', async () => {
+    const attempt = (password: string) => request(app.getHttpServer()).post('/api/v1/auth/login').set('Origin', 'http://localhost:3001').send({ email: 'target@example.test', password });
+    for (let i = 0; i < 5; i++) await attempt('wrong-password').expect(401);
+    const blocked = await attempt('correct-password').expect(429);
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+    expect(blocked.headers['set-cookie']).toBeUndefined();
+    await login().expect(200); // a different account from the same address is unaffected
   });
   it('rejects missing, forged and malformed cookies', async () => {
     await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);

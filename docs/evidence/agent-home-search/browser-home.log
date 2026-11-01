@@ -1,0 +1,24 @@
+PASS primary row has destination, stay, guests, Search; nationality/currency are secondary
+PASS home, calendar and guests stay in viewport at 1280px; Escape restores focus
+PASS home, calendar and guests stay in viewport at 768px; Escape restores focus
+PASS home, calendar and guests stay in viewport at 390px; Escape restores focus
+PASS invalid destination text cannot issue search
+PASS destination ArrowDown/Enter resolves a canonical city
+PASS calendar supports arrow-key day navigation and Escape focus restoration
+PASS Cancel discards date drafts
+PASS past, reverse and over-30-night dates are rejected; valid date-only stay applies
+PASS every child requires an explicit age, preserved after Apply
+PASS mixed-room runtime gap is explicit; Cancel never copies or discards applied guests
+PASS nationality search preserves canonical name/code; only server-supported AED is offered
+PASS canonical two-room context, child ages and nationality reach real API through same-origin proxy
+PASS [stub failure / real retry] failed pagination retains loaded results and retry appends the next real page
+PASS [stub] failed recheck stays unverified with a retry action
+PASS [stub] missing hotel/room mapping is an explicit unverified outcome
+PASS editing eligibility criteria invalidates previous results and authoritative recheck state
+PASS recent replay restores criteria and performs fresh search; individual removal works
+PASS same account switching tenant clears departed history and exposes no other tenant criteria
+PASS past-date recent replay restores criteria for correction and never reuses an offer
+PASS home and open calendar have no serious/critical WCAG A/AA axe violations
+PASS [stub] a slower old destination response cannot replace current suggestions
+PASS no page errors and no booking/hold/payment writes in home journey
+23/23 home checks passed

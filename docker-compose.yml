@@ -1,0 +1,33 @@
+# Local development dependencies only: PostgreSQL (with pgvector) and Redis, at the same pinned images CI certifies against (.github/workflows/ci.yml).
+# The applications themselves run with `pnpm dev`. This is NOT a deployment topology (production is AWS ECS: docs/runbooks/aws-ecs-deployment.md).
+# The credentials below are throwaway local values bound to 127.0.0.1; never reuse them anywhere else.
+#   docker compose up -d --wait
+# Connection strings for your untracked .env are in docs/LOCAL_SETUP.md. This file deliberately defines no application URL variable (tools/runtime-db-role-check.ts).
+name: fbeds-local
+services:
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: fbeds_dev
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - fbeds-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d fbeds_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    ports:
+      - '127.0.0.1:6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  fbeds-pgdata:

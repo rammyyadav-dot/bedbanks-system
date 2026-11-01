@@ -1,5 +1,5 @@
-import { AgentAuthGate } from '@/components/agent-auth-gate'
+import { MarketingHome } from '@/components/marketing-home'
 
 export default function Home() {
-  return <AgentAuthGate />
+  return <MarketingHome />
 }

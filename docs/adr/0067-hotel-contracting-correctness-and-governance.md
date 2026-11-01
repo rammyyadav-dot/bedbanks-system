@@ -1,0 +1,255 @@
+# ADR 0067: Hotel contracting correctness and governance (audit Phase 1)
+
+Status: Accepted. Implemented finding by finding; each section names what is built and what is not.
+
+## Context
+A contracting audit of the admin hotel module (17 Oct 2026), measured against how global bedbanks and DMC wholesalers load direct hotel contracts, found that the sellability engine is sound but the contract itself had no governance and several contract rules were stored without effect. Phase 1 fixes correctness and governance: F-01, F-02, F-03, F-04, F-06, F-07 and F-17.
+
+Constraints that apply throughout: tenant identity only from the session (1); a declared permission on every route (2); integer minor units (3); routes in `@bedbanks/contracts` first (4); audit events for privileged mutations (8); no placeholder presented as a capability (10); a reviewed forward migration with rollback notes, forced RLS and a tenant-index review for every new table.
+
+## F-01: Contract maker-checker and versioning
+
+**Problem.** Any holder of `supply.contracts.manage` could set a contract ACTIVE from a dropdown, and edit the supplier, currency, validity and markets of a live contract in place. `Contract.version` never moved. Rate plans, hotel publication and markups already required a second approver; the contract, the root commercial record, did not.
+
+**Decision.**
+- `status` is never written by `PATCH /supply/contracts/:id` (400 `CONTRACT_STATUS_VIA_LIFECYCLE_ONLY`), and `POST /supply/contracts` creates DRAFT only.
+- Single-actor moves, each version-guarded by `expectedUpdatedAt` and audited as `supply.contract.status_changed` with from/to: DRAFT → REVIEW (`submit`), REVIEW → DRAFT (`return-to-draft`) and ACTIVE → SUSPENDED (`suspend`, reason required). Stopping sales is always allowed.
+- Activation (DRAFT, REVIEW or SUSPENDED → ACTIVE) goes only through the existing maker-checker service with the new enforced, approval-only permission `contract.approve` (S3, refines `supply.contracts.manage`). The request is bound to the SHA-256 fingerprint of the canonical terms: the header and every cancellation, child and lead-time rule. A checker cannot approve if the terms moved after the request, and the execution re-checks the fingerprint and the activation readiness under a row lock (`SELECT … FOR UPDATE`). Readiness: an allowed status, validity that is ordered and not over, an active supplier, an approved hotel mapping when bound, a valid currency, and no rate plan the terms would break (currency, sale window, named cancellation set).
+- While a contract is ACTIVE or EXPIRED its terms are locked: header edits, policy creation and the new policy deletions answer 409 `CONTRACT_TERMS_LOCKED`. Direct edits take the same row lock, so they serialize with an approval being applied.
+- An ACTIVE contract changes only by an amendment: `POST /supply/contracts/:id/amendment-request` with the terms to change (code, validity, settlement currency, markets, nationalities, payment terms reference, and whole replacement sets of cancellation rules, child bands and the lead-time rule). The supplier and hotel binding identify a contract and are never amendable. The amendment is validated on filing and again on execution against the rate plans under the contract; it is applied in the same transaction that raises `version` by one.
+- Every executed approval appends one `ContractVersion` row: version, kind (ACTIVATION or AMENDMENT), the terms as reviewed, the fingerprint, requester, approver, executor and reason. A reactivation raises the version only when the terms differ from the last snapshot. Rows are immutable: a trigger refuses UPDATE and DELETE for every role, and the contract foreign key is RESTRICT.
+- `GET /supply/contracts/:id/lifecycle` returns status, version, fingerprint, whether terms are editable, the activation checklist, the open request with the caller's flags and the version history.
+- Policy rules can now be deleted while the terms are editable. A delete that would empty a cancellation set still named by a refundable plan is refused.
+
+**Admin.** The contract page drops the status dropdown and gains a lifecycle panel: status and version, checklist, submit / return / request activation / suspend, approve or reject for a second user, withdraw for the requester, apply once approved, and the version history. On an ACTIVE contract the form sends only the changed header terms as an amendment with a reason, and a staged policy editor files cancellation, child and lead-time changes as one amendment.
+
+**Tests.** Unit: lifecycle transitions, fingerprint stability, activation checks, amendment validation and conflicts, version rule. End to end (`contract-approval.e2e-spec.ts`): DRAFT-only creation, PATCH refusal, single-actor transitions, binding and staleness, self-approval refusal, voiding by an edit and recovery, exactly-once execution under concurrency, locks on every term, amendment to version 2 with replaced policies and audit, suspension and reactivation to version 3, and immutability against the database owner. Suites that only need an ACTIVE contract seed it with `test/contract-status-fixture.ts`, like the existing rate-plan status fixture.
+
+**Not built.** Automatic expiry of contracts after `validTo` (a contract stays ACTIVE and its nights stop selling by validity), contract termination (`contract.terminate` stays planned), and recording the contract version on each booking (bookings already freeze their cancellation terms).
+
+**Rollback.** Revert the application change; drop the trigger, function, table and enum as listed in migration `202611200001_contract_versions`. Contracts keep their status and version.
+
+## F-02: The contract booking lead time is enforced
+
+**Problem.** A contract's lead-time rule (minimum hours before arrival, maximum days ahead) was saved, shown on the Policies and Contracts tabs and counted, but the stay evaluator never read it, so agents could book inside a cut-off the hotel contracted for.
+
+**Decision.** `ContractedStaySnapshot.leadTimeRule` is a required field and `StayPlanInput.contract.leadTimeRules` must be loaded, so a loader that forgets it fails type-check (and `buildStaySnapshot` refuses at run time). `evaluateContractedStay` adds two reasons, both in the "Stay rules" gate:
+- `LEAD_TIME_TOO_SHORT`: the booking is less than `minLeadHours` before the start of the check-in day in the hotel's zone. Midnight is the stricter reading; a later check-in hour never shortens the cut-off.
+- `LEAD_TIME_TOO_LONG`: check-in is more than `maxLeadDays` hotel-local days after today.
+An unusable hotel zone fails closed for whichever side is set. Because Agent search, recheck, hold, Admin readiness, the commercial assessment and rate certification all use this one evaluator, they all enforce it. The strict runtime role gains SELECT on `BookingLeadTimeRule` (and on `ChildPolicy`, for F-03); both tables keep their contract-joined RLS.
+
+**Tests.** Unit: both bounds at the minute in Dubai time, no rule, and an invalid zone. End to end: Agent search hides the hotel while either rule blocks the stay and shows it again once the rule is removed.
+
+## F-03: One child policy
+
+**Problem.** A contract child policy (age band, extra bed, supplement) was stored and shown, but pricing read only the rate plan's own child lines. A dead `evaluateCommercialRules` function priced contract child bands and mandatory supplements but was never called. Children could therefore be refused, or sold on terms other than the contract's.
+
+**Decision.**
+- A rate plan's own CHILD lines govern it. A plan with no CHILD line inherits the contract's child bands (`effectiveGuestLines`). An inherited band is charged per child per night on the same basis (NET or SELL) as that night's rate, in the band's currency or the plan's when none is set. A band whose contract recorded no supplement cannot price a child who must be charged (`CHILD_PRICE_MISSING`): never priced as free.
+- Children may fill base places that adults leave empty. The oldest children take those places at no extra charge, and only the remaining children are priced by band. So 1 adult + 1 child in a double pays the double rate, which is common practice. A party must still have at least one adult and fill the base occupancy.
+- Agent search pre-selects a plan whose base occupancy is within the whole party when it has guest lines or its contract has child bands; the evaluator decides. The rate certification simulator uses the same effective lines, so its independent recomputation still agrees.
+- `evaluateCommercialRules` and its types are removed. Compulsory supplements are designed in Phase 2.
+
+**Admin.** The child band form now takes the supplement per child per night in the settlement currency (0 for free) and explains which plans it governs. The guest-price panel says whether its own lines or the contract policy apply.
+
+**Tests.** Unit: inheritance, plan override, the INHERIT basis, the unpriced band, currency mismatch, and base places filled by the oldest child. End to end: Agent search prices an extra child aged 8 from the contract band, a child aged 3 free, 1 adult + 1 child at the double rate, and returns nothing for an age no band covers.
+
+## F-06: One date convention: "valid to" is the last stay night
+
+**Problem.** Agent search, recheck and hold read `Contract.validTo` and `RatePlan.validTo` as the last check-out date, while markups, promotions, rate and availability loading, the calendar import and the Sellability Inspector read the same field as the last night. Hotels write contract periods as stay nights (01 Nov – 31 Oct), so a contract keyed as written never sold its last night, yet the import accepted rates for it.
+
+**Decision.** `validFrom` and `validTo` of contracts and rate plans are the first and last stay nights, inclusive, everywhere. The stay evaluator compares the stay's last night (check-out minus one day) with `validTo`. The Agent candidate query and the hold double-check bound `validTo` by the last night. Expiry, rate loading, import, markups and promotions already used this meaning. The admin labels now read "First stay night (valid from)" and "Last stay night (valid to)", and the rate plan's window "Last stay night on sale".
+
+**Data.** Migration `202611200002_valid_to_is_last_night` moves every stored `validTo` back one day, so each contract and plan sells exactly the nights it sold before. It lifts forced RLS for its own transaction only, because the table owner would otherwise update no row. A row whose `validTo` equals `validFrom` sold nothing under the old meaning and is left unchanged; it now covers that one night. Operators can list such rows with `SELECT id, code FROM "Contract" WHERE valid_to = valid_from`. `ContractVersion` snapshots taken before the migration keep the reviewed value under the old meaning. The migration also changes the term fingerprint of every contract it touches, so any request open at release time can no longer be approved and must be filed again.
+
+**Also fixed.** The hold double-check required a plan occupancy of at least the whole party, which contradicted guest-line pricing (ADR 0057 S6) and F-03. It now requires a base occupancy within the party, and the evaluator decides the rest.
+
+## F-07: The Sellability Inspector uses the shared evaluator
+
+**Problem.** `POST /supply/sellability`, behind the admin Sellability Inspector, ran an older single-night function, `evaluateNightSellability`. Compared with the Agent evaluator it marked NET rates unsellable even when a markup rule existed, read minimum stay from the arrival night only, ignored the release time, skipped markets, closed to arrival and departure, freshness, inventory mode and pools, treated `validTo` as a night, and reported an unpublished hotel only as a warning. Staff got a different answer from the one agents got.
+
+**Decision.** The endpoint loads the plan through `assessPlanSelect`, the one select now shared with Admin hotel operations and rate certification, plus the hotel's star rating, the mappings and the active markup rules. Without stay context it judges the night with `evaluatePlanNight`, which leaves out stay-only rules exactly as the hotel assessment does. With `checkInDate` and `nights` it judges the whole stay with `evaluateContractedStay` and every stay rule. No buyer is named, so market, nationality and agency rules are not evaluated, and the screen says so. `evaluateNightSellability` and its types are removed. The response keeps its shape. `warnings` is now always empty: an unpublished hotel is the reason `HOTEL_INACTIVE`, and a pending room mapping is `SUPPLIER_MAPPING_INVALID`, as for the Agent. `occupancy` must be 1 to 20.
+
+**Tests.** The supply, golden-path and 100-hotel suites now arrange a published, rated, mapped hotel before expecting "eligible", and assert the Agent's reasons otherwise. The scale suite ends its contract on the last stay night and proves that night sells while the next is outside the contract.
+
+## F-04: Local charges paid at the hotel are disclosed
+
+**Problem.** Every contracted offer carried tax and fee 0, and the plan's "taxes included" and "fees included" flags never left the API. Charges such as Dubai's Tourism Dirham existed only as free text on the private hotel profile. Agents, vouchers and the confirmation email never mentioned them, so guests met an unannounced charge at the desk.
+
+**Decision.**
+- `HotelProfile.local_charges` (JSONB array, at most 10) holds structured charges: kind (TOURISM_DIRHAM, CITY_TAX, MUNICIPALITY_FEE, RESORT_FEE, OTHER), a label for agents, an amount in integer minor units, a currency, a basis (per room or per person, per night or per stay) and an optional night cap (Tourism Dirham: 30). Hotel Setup validates and replaces the whole set; the Policies tab has the editor.
+- Agent offers carry `priceIncludes { taxes, fees }` from the plan and `payAtHotel[]`, each with `estimatedTotalMinor` for the searched stay: nights (capped), rooms and every guest. They are never added to the total, and the totals invariants are unchanged. The domain validator copies both fields only after validating them.
+- The voucher and invoice show a "Payable at the hotel, not included in the price" section; the confirmation email lists each charge. The agent portal shows them under each rate and in the checkout summary, with what the price includes.
+- Agent search reads only the `localCharges` column of the profile; contacts stay private.
+
+**Not built.** Taxes are still not itemised inside the price (`taxAmountMinor` stays 0 for contracted inventory). A VAT breakdown on the invoice is a finance decision.
+
+## F-17: Readiness judges children by age
+
+**Problem.** Hotel readiness accepted child ages but did not pass them to the evaluator, so every plan with child prices failed with `CHILD_AGES_REQUIRED`. Its note claimed "no per-age child pricing is modelled", which has not been true since ADR 0057 S6. The hotel stay diagnostic did not take ages at all and marked child policy "not assessed".
+
+**Decision.** Readiness, the hotel stay diagnostic and its per-night verdicts pass the child ages to the shared evaluator. The stay diagnostic now requires one age (0-17) per child, exactly as Agent search does. Children are judged by the plan's child lines or the contract child policy (F-03), so the diagnostic reports `childPolicyAssessed: true` and no longer adds `CHILD_POLICY_NOT_ASSESSED`. The readiness note states how children are priced and that extra-bed availability is not checked. The admin stay checker asks for child ages when children are entered.
+
+## F-20 and F-15: Contract header terms and the minimum-stay reading
+
+**Problem.** A contract recorded only code, dates, currency and markets. Whether rates were net or commissionable (and at what commission), the payment terms, when and where it was signed, and whether the allotment was guaranteed lived outside the system. No one owned a contract, and nothing warned before it ran out. A night's minimum stay always applied to any stay crossing that night, while many hotel contracts mean it only for arrivals on that night.
+
+**Decision.**
+- `Contract` gains reviewed header terms: `rateType` (NET, COMMISSIONABLE), `commissionBp` (integer basis points, 1-5000, present only for COMMISSIONABLE), `paymentTermsDays` (0-365), `signedAt`, `signedDocumentRef` (a reference, never the document), `allotmentType` (GUARANTEED, NON_GUARANTEED, FREE_SALE) and `minStayMode` (STAY_THROUGH, default and the previous behaviour, or ARRIVAL). Null means "not recorded" and is never filled with a default. Migration `202611200004_contract_header_terms` adds the columns and a check constraint mirroring the API rules.
+- Header terms are part of the contract fingerprint (F-01). They are editable while DRAFT, REVIEW or SUSPENDED (400 `CONTRACT_HEADER_INVALID` on a bad value or combination) and change on an ACTIVE contract only through an approved amendment. Amendments send them top-level; the stored request and version snapshot nest them under `header`, and both shapes parse to the same change, so execution re-validates exactly what was reviewed.
+- Governance fields `ownerUserId` (a member of the tenant, otherwise 400 `CONTRACT_OWNER_INVALID`) and `renewalReminderDays` (1-365, default 60) are not terms: a PATCH naming only them is accepted on an ACTIVE contract, and refused only once EXPIRED.
+- The hotel Contracts tab lists rate type, commission, allotment type and the minimum-stay reading, and shows RENEW (`renewalDue`) from the reminder window before the last stay night until expiry while the contract is ACTIVE or SUSPENDED.
+- The shared stay evaluator takes `minStayMode` as a required snapshot field, so every loader (Agent search, recheck and hold, the inspector, readiness, certification) must load it. In ARRIVAL mode only the check-in night's minimum stay applies; the plan's own minimum stay always applies.
+
+**Not built.** Commission is recorded, not yet used: sell prices for commissionable contracts still come from the plan's rates and markup rules (Phase 3, F-11). The renewal flag is shown, not sent: no reminder email or task is created. The owner is entered as a user id; there is no member picker yet.
+
+## F-08: Release per period
+
+**Problem.** Release was one number per rate plan. Hotel contracts set a longer release over peak periods (for example 21 days over New Year, 3 days otherwise), which could only be modelled by cloning the plan per period. New plans released at 00:00 hotel time, while most contracts say 18:00.
+
+**Decision.**
+- `DailyAvailability.release_days` (0-365, null by default) is the release for a check-in on that night. The shared evaluator reads the check-in night's value and falls back to the plan's; a mid-stay night's value is ignored. The plan's release time applies either way. The hold double-check reads the same override, so Agent search, recheck and hold agree.
+- Quick Update sets it (`restrictions.releaseDays`, null clears) with a preview line per night. The calendar import takes a `release_days` column (a number, or `plan` to clear), and the calendar edit and apply routes accept `releaseDays` with before and after in the audit. The hotel calendar shows each night's release, or "Plan".
+- New rate plans default to an 18:00 release time. Existing plans keep their stored time.
+
+Migration `202611200005_release_per_night` adds the nullable column with a range check and changes the default. No stored behaviour changes.
+
+## F-10: Cancellation by nights, no-show rules, a client buffer and one deadline instant
+
+**Problem.**
+- A cancellation tier could only charge a percent or a fixed amount. Hotel contracts usually say "1 night" or "2 nights".
+- There was no no-show term.
+- The DMC sold the hotel's own deadlines, so it had no time left to cancel with the hotel inside the free window.
+- The offer's deadline was hotel-local midnight, while the quote measured whole 24-hour days back from check-in. Across a DST change the two could disagree.
+- "Stay has started" used UTC midnight.
+
+**Decision.**
+- **Penalty forms.** A rule charges exactly one of `penaltyPercent`, `penaltyMinor` or `penaltyNights` (1-30). A nights penalty is the cancellable amount × min(nights, stay nights) / stay nights, in integer minor units, rounded down.
+- **No-show.** `kind` is CANCELLATION (a tier) or NO_SHOW. A no-show rule has `daysBeforeCheckin` 0, and there is at most one per set; the database and both authoring paths enforce this. It never decides a deadline or a cancellation penalty. It is disclosed in the offer summary, and on the voucher and the confirmation email as "No-show: …".
+- **Client buffer.** `Contract.clientBufferDays` (0-30, a reviewed header term) moves every tier the buyer is sold that many days earlier. Offer deadlines, frozen terms and legacy bookings all use the buyer's tiers. A buffer added later does not reach bookings already made.
+- **Frozen terms.** A booking freezes the buyer's tiers, the no-show rule, the stay length and the buffer. A frozen nights rule with an unknown stay length is manual review, never free. The Admin booking penalty quote reads the same terms.
+- **One deadline instant.** `penaltyStartsAt(checkIn, days, timeZone)` is hotel-local 00:00 on the day `days` before check-in. The offer deadline, the cancellation quote and the "stay has started" cut-off all use it.
+- **Authoring.** The create endpoint and amendments share one validator (400 `CANCELLATION_POLICY_INVALID`; 409 `CANCELLATION_NO_SHOW_EXISTS`). Admin adds a rule kind and a percent-or-nights choice, and the contract form takes the buffer.
+
+Migration `202611200006_cancellation_nights_no_show_buffer` adds the columns with checks; every existing rule is a CANCELLATION tier and every contract has a buffer of 0.
+
+**Completion.** ADR 0106 applies the frozen no-show clause through the finance outbox and settlement paths. Nights remain pro rata of the total, not each night's own price.
+
+## F-05: Rates per occupancy (single, double, triple)
+
+**Problem.** A plan priced one occupancy. Hotel contracts quote single, double and triple rates for the same room and board, so operators cloned a plan per occupancy. A single traveller could not book a double plan at all (fewer guests than the base occupancy), and a derived plan dropped every occupancy but its own.
+
+**Decision.**
+- **No schema change.** `DailyRate` was already keyed by occupancy. A plan may now carry a rate for any occupancy from 1 to the room's `maxOccupancy`.
+- **Writes.** The calendar edit and apply routes accept such rows (400 above the room's capacity). The calendar import accepts an `occupancy` column within the same range. Quick Update's price change takes an optional `occupancy`, so "single use" is priced across a selection in one step.
+- **Choosing the occupancy.** The shared snapshot builder takes the party and picks the occupancy that prices the stay with `pricedOccupancy`: the party's adult count when every night has a rate for exactly that many adults, otherwise the plan's own occupancy. Guest lines and the contract child policy apply on top as before. One stay never mixes occupancies.
+- **Same choice everywhere.** Agent search, recheck and hold, the Sellability Inspector's stay check, the hotel stay diagnostic and readiness all use this choice, so Admin and Agent agree. A single-night verdict and rate certification still judge the plan's own occupancy.
+- **Derived plans.** A derived plan derives every occupancy of its parent.
+
+**Not built.** The hotel calendar grid shows the plan's own occupancy only; other occupancies are visible through import and export and the inspector. Activation still requires rates for the plan's own occupancy, which stays the base the plan is certified on.
+
+## Board and compulsory supplements
+
+**Problem.** Contracts state supplements on top of the room rate: half board at so much per adult per night on a bed-and-breakfast rate, or compulsory gala dinners on 24 and 31 December. There was nowhere to record them. Operators baked them into nightly rates by hand, or left them out, and a compulsory charge went missing from the price.
+
+**Decision.**
+- **Table.** `ContractSupplement` holds:
+  - `kind`: BOARD, which names the board it prices, or COMPULSORY.
+  - A name, and an optional rate plan of the contract.
+  - `basis`: per adult, per child, per person or per room. `frequency`: per night or once per stay.
+  - An amount in integer minor units in the settlement currency, and an optional window of stay nights.
+
+  Migration `202611200007_contract_supplements` adds it with checks and forced RLS through the owning contract. The API database role reads it, and writes stay on the privileged supply-authoring path.
+- **Reviewed terms.** Supplements are part of the fingerprint. They are authored while the terms are editable (`POST/DELETE /supply/contracts/:id/supplements`, 400 `CONTRACT_SUPPLEMENT_INVALID`), and on an ACTIVE contract they change as one replacement set through an approved amendment. A board must be an active board of the tenant and a plan must be on the contract; this is checked when the request is filed and again when it is applied.
+- **Pricing.** The shared stay evaluator takes the plan's supplements as a required snapshot field: BOARD supplements of the plan's board plus every COMPULSORY one, each optionally limited to the plan. It adds them per room after the promotion (never discounted) and before the markup (a NET rate's supplement is marked up with it).
+  - A per-stay supplement is charged once, on the first stay night in its window.
+  - A supplement whose window misses the stay, or that counts nobody, is not applied.
+  - A supplement in another currency is refused with `SUPPLEMENT_CURRENCY_MISMATCH`.
+- **Disclosure.** Agent offers name the included supplements (`supplements[]`, informational: already in the total), and the portal shows them under the rate and at checkout. Admin has a supplements panel on the contract and stages supplements in the policy amendment.
+
+**Not built.** A board supplement does not create a new board offer from another plan; the plan sold on that board carries it. Supplements per child age band are not modelled (PER_CHILD counts every child).
+
+## F-09: Combinable, partial-stay and hotel-wide offers
+
+**Problem.**
+- Exactly one promotion applied, so "early bird combinable with long stay", a standard contract clause, could not be sold.
+- A promotion with a stay window required every night inside it, so a stay crossing into a promotional period got nothing, while hotels discount the nights inside it.
+- A discount always covered the extra-guest lines, which hotels often exclude.
+- A hotel-wide offer meant editing every plan one by one.
+
+**Decision.**
+- **Three new fields.** `RatePlanPromotion` gains `combinable` (default false), `stayWindowMode` (WHOLE_STAY, the default and today's rule, or NIGHTS_IN_WINDOW) and `discountBase` (ROOM_AND_GUESTS, the default, or ROOM_ONLY). Migration `202611200008_promotion_combinable_partial_stay` adds them; a check makes NIGHTS_IN_WINDOW require a stay window. Existing promotions are unchanged.
+- **Stacking.** The best single promotion is computed as before. Separately, every applicable combinable promotion is applied in turn: FREE_NIGHTS first, then by id, each on what the previous left, with a room-only base shrinking by what was already taken. The buyer gets whichever saves more; the single promotion wins a tie. A stack of one is the single promotion. The offer names the stack, for example "Early bird + Long stay".
+- **NIGHTS_IN_WINDOW.** One night inside the window is enough for the promotion to apply, and only those nights are discounted; free nights are chosen among them.
+- **ROOM_ONLY.** Only the room rate of each night is discounted; extra adult and child lines stay full price, and a free night waives the room rate only.
+- **Plan fingerprint.** The plan fingerprint includes the new fields only when they differ from the defaults, so approvals bound to unchanged promotions stay valid.
+- **Hotel-wide offer.** `POST /supply/hotels/:hotelId/promotions/bulk-apply` adds one promotion to 1-100 plans of a hotel in one transaction. Each plan's whole promotion set is validated; any invalid plan (another hotel's, expired, a duplicate name, too many promotions) refuses the request with every problem listed and changes nothing. Every plan version moves, and each plan and the request are audited. An idempotency key replays the first result. Admin offers it as a "Hotel-wide offer" panel on the hotel's Rate plans tab; the plan promotions editor takes the three options.
+
+## F-14: Season loading and relative updates
+
+**Problem.** Quick Update set one price per batch. Loading a contract season by season meant one batch per season, and "+5% from 1 November" meant retyping every rate.
+
+**Decision.** A Quick Update price change is exactly one of four modes, each previewed per night and applied atomically as before:
+- `amount` with a basis: set one price, as today.
+- `seasons`: up to 12 non-overlapping windows, each with its own amount, plus one basis. Every date in scope must fall in a season, otherwise that night is invalid and nothing is written.
+- `adjustPercentBp`: signed basis points (-9000 to 100000) applied to each stored rate, rounded half away from zero.
+- `adjustAmount`: signed major units added to each stored rate.
+
+An adjustment needs a stored rate and keeps its basis. A night without a rate, or with an unverified basis, is reported, never treated as zero. A result of zero or below is refused. Percent adjustments may span currencies; the other modes need one currency. Admin's price panel offers the four modes with season rows.
+
+## F-13: Price-change guardrails
+
+**Problem.** A typo (45 for 450, 4500 for 450) in Quick Update, the rate grid, the rates workbench or a CSV import was written as entered.
+
+**Decision.**
+- `PRICE_GUARDRAIL.maxChangeBp` (5000, that is 50%) defines a large change: one that moves a stored rate by more than that share of its value. A first price is not a change.
+- Quick Update preview flags each such night (`warnings`, `counts.largePriceChanges`). The calendar preview lists them (`largePriceChanges`).
+- Applying needs `confirmLargeChanges: true`; without it the apply is refused with 409 `PRICE_GUARDRAIL_CONFIRMATION_REQUIRED` and nothing is written. The legacy single and bulk rate routes take the same flag.
+- The Quick Update audit records the count and the confirmation.
+- Admin shows the flagged prices and a confirmation checkbox on every apply screen, and keeps Apply disabled until it is ticked.
+
+The threshold is a platform constant for now; a per-tenant setting can replace it without changing the rule.
+
+## F-16: Tabs follow the contracting workflow
+
+**Problem.** The hotel workspace put Bookings and Quick Update before Room Types and Rate Plans, and grouped contracts with rate plans and readiness. A contracting manager works a hotel in a fixed order (content, rooms, supplier mapping, contract, plans, rates and inventory, then distribution), and the order on screen did not match it.
+
+**Decision.** `HOTEL_TABS` and the nine workspace sections now follow that order:
+1. Profile setup: overview, hotel setup, amenities, images, hotel policies.
+2. Room types.
+3. Supplier mapping.
+4. Contracts.
+5. Rate plans.
+6. Rates and inventory: Quick Update, rates, allotment.
+7. Distribution and readiness.
+8. Bookings.
+9. Reports.
+
+Audit stays with the profile section, at the end of the tab bar. Tab ids are unchanged, so every deep link and readiness action still lands where it did. A test checks that each section's tabs come before the next section's.
+
+## F-11: Client and market markup tiers with exclusion lists
+
+**Problem.** Markup was one tier per target (tenant default, supplier, hotel). A DMC prices per client and per source market ("UK agents +12%, our top wholesaler +8%"). It also needs exceptions ("+12% for the UK except two hotels on a fixed net-to-sell deal"). Neither could be expressed, so every client paid the same margin.
+
+**Decision.**
+- **New fields.** `CommercialMarkupRule` gains an optional `agencyId` (client tier) and `market` (ISO-3166 alpha-2, matched against the buying agency's country), plus `excludedHotelIds` and `excludedSupplierIds`. Migration `202611270001_markup_client_market_tiers` adds them. It also rebuilds the "one ACTIVE rule per target" unique index, whose target now includes the client and market tiers.
+- **Precedence.** A client tier outranks a market tier, which outranks a generic rule; within each tier, hotel outranks supplier outranks tenant default. Ties go to the later start date.
+- **Exclusions.** A rule that excludes the hotel or supplier is skipped there, so the next rule applies. A hotel rule takes no hotel exclusions and a supplier rule no supplier exclusions.
+- **Unknown buyer.** A tier the buyer does not have never applies. Without a buyer, as in Admin readiness and the markup impact view, only generic rules apply.
+- **Who is buying.** When any active rule depends on the buyer, Agent search and recheck read the buying agency and its country once. A failed read throws, so a buyer-specific markup is never replaced by a generic one on a guess. The hotel stay diagnostic passes the selected agency.
+- **Authoring.** Agency, hotels and suppliers are checked inside the tenant. The approval binds the tiers and exclusions, so a rule changed after approval cannot be activated. Approvals filed before this change still compare correctly. Admin's markup form takes a client, a market and hotel exclusions; the rules list shows them.
+
+## F-12: Controlled FX
+
+**Problem.** A contract could only be sold in its own settlement currency. A Dubai DMC contracting in AED and selling to UK or US agents in GBP or USD had no rate, no buffer for movement until settlement, and no record of the rate on the booking. Any conversion would have happened outside the system.
+
+**Decision.**
+- **The rate.** A new tenant-scoped `FxRate` (migration `202611270002_controlled_fx_rates`, forced RLS) holds a base (contract) currency, a quote (selling) currency, and `rateScaled`: quote major units per one base major unit, times 10^8, as an integer. It also holds `bufferBp` (0 to 2000), which is added on top to cover movement until the DMC pays the hotel. There is one ACTIVE rate per pair, enforced by a partial unique index. Rates are immutable; only the status moves.
+- **Maker-checker.** A rate is created as DRAFT and becomes ACTIVE through the same approval lifecycle as markups (`fx.activate`, S3, refines `supply.rates.manage`). The approval binds the pair, rate and buffer. Execution retires the rate it replaces in the same transaction. Every step is audited; activation and retirement are FINANCIAL_CONTROL compliance evidence (migration `202611270003_fx_compliance_classification`).
+- **Conversion.** `supply/fx.ts` uses BigInt only. The stay's total, net, promotion saving and supplements are converted once, half up, respecting each currency's minor digits; no float touches money. The shared evaluator prices in the contract currency and converts at the end, so every rule (markup, child policy, offers) is applied exactly as for a same-currency sale.
+- **Search and recheck.** Agent search loads the ACTIVE rates into the requested currency and also considers plans in those base currencies. With no rate, a contract in another currency is simply not offered. A failed or malformed rate read throws `CommercialControlUnavailableError('fx_rates')` instead of dropping or guessing. The stored offer remembers its contract currency, and recheck reprices at the rate ACTIVE now: a changed rate is `price_changed` and a retired one is `unavailable`, never the old figure.
+- **Booking.** When the booking currency differs from the contract's, the ACTIVE rate with its buffer is frozen on `Booking.fxRate`, and reports convert with it. A booking is refused (409 `FX_RATE_CHANGED`) when no rate is in force or the rate was activated after the hold was priced, so the agent re-checks at today's rate.
+- **Cancellation limits.** Percent and nights penalties apply to the converted price. A fixed-amount cancellation penalty in the contract currency still cannot be frozen on a booking in another currency; `freezeCancellationTerms` refuses it, so such a plan is bookable only in its own currency. Converting fixed penalties is follow-up work.
+- **Admin.** Commercial → FX rates lists rates with their effective rate, and drafts, requests, approves, activates and retires them. The buttons come from the API's own flags.
+
+**Rollback.** Retire every ACTIVE rate: contracts are again offered only in their own currency. The table can then be dropped by a reviewed forward migration. `Booking.fxRate` predates this change and keeps its values.

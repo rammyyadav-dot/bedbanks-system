@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function SettingsPage() {
-  return <OperationalModule config={moduleConfigs.settings} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Settings"
+      description="Workspace settings are not available."
+    />
+  )
 }

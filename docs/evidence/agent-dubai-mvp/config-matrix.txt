@@ -1,0 +1,7 @@
+valid hosted -> OK https://api.example.com/api/v1
+missing on Vercel -> REFUSED: API_INTERNAL_URL is required for Vercel portal deployments
+insecure hosted -> REFUSED: API_INTERNAL_URL must use HTTPS and a non-loopback host on Vercel
+loopback hosted -> REFUSED: API_INTERNAL_URL must use HTTPS and a non-loopback host on Vercel
+credentials -> REFUSED: API_INTERNAL_URL must not contain credentials, query parameters or fragments
+wrong path -> REFUSED: API_INTERNAL_URL must end in exactly /api/v1
+local default (non-Vercel) -> OK http://localhost:3002/api/v1

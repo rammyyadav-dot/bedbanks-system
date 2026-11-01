@@ -164,7 +164,7 @@ describe('Phase 2: Supplier GDS Adapters, Wallet/Ledger Adjustments & Voucher No
         availableCreditMinor: 475000n,
       })
       expect(tx.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wal_aed_1' },
+        where: { id: 'wal_aed_1', tenantId: 'ten_1' },
         data: { cachedBalance: -25000n },
       })
       expect(tx.auditEvent.create).toHaveBeenCalledTimes(1)

@@ -8,13 +8,17 @@
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "target": "ES2021",
+    "lib": ["ES2023"],
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
+      "@bedbanks/connectors-core": ["../../packages/connectors/core/src/index.ts"],
       "@bedbanks/contracts": ["../../packages/contracts/src/index.ts"],
       "@bedbanks/domain": ["../../packages/domain/src/index.ts"],
       "@bedbanks/money": ["../../packages/money/src/index.ts"],
+      "@bedbanks/pricing": ["../../packages/pricing/src/index.ts"],
+      "@bedbanks/tracing": ["../../packages/tracing/src/index.ts"],
       "@bedbanks/domain/search-offers": ["../../packages/domain/src/search-offers.d.cts"]
     },
     "incremental": true,

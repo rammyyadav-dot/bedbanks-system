@@ -8,10 +8,24 @@ import { CancellationNotificationService } from './cancellation-notification.ser
 import { AuthModule } from '../auth/auth.module'
 import { MappingController } from './mapping.controller'
 import { MappingService } from './mapping.service'
+import { RatePlanMappingService } from './rate-plan-mapping.service'
+import { RatePlanOpsDatabase } from './rate-plan-ops-database'
+import { ApprovalsModule } from '../approvals/approvals.module'
+import { RatePlanApprovalController } from './rate-plan-approval.controller'
+import { RatePlanApprovalService } from './rate-plan-approval.service'
+import { RatePlanCloneDatabase } from './rate-plan-clone-database'
+import { RatePlanExpirySweeper } from './rate-plan-expiry-sweeper.service'
+import { ContractApprovalController } from './contract-approval.controller'
+import { ContractApprovalService } from './contract-approval.service'
+import { RoomEventsController } from './room-events.controller'
+import { RoomEventsService } from './room-events.service'
+import { EventSupplementsController } from './event-supplements.controller'
+import { EventSupplementsService } from './event-supplements.service'
+import { MarketValidityService } from '../agent/market-validity.service'
 
 @Module({
-  imports: [AuthModule],
-  controllers: [SupplyController, MappingController],
-  providers: [SupplyService, MappingService, AgentAuditService, CancellationPolicyService, LedgerService, CancellationNotificationService],
+  imports: [AuthModule, ApprovalsModule],
+  controllers: [SupplyController, MappingController, RatePlanApprovalController, ContractApprovalController, RoomEventsController, EventSupplementsController],
+  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, CancellationPolicyService, LedgerService, CancellationNotificationService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService, MarketValidityService],
 })
 export class SupplyModule {}

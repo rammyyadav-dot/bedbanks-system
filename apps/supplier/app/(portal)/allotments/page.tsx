@@ -1,3 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
-export default function AllotmentsPage() { return <OperationalModule config={moduleConfigs.allotments} /> }
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Allotments"
+      description="Allotments are not available."
+    />
+  )
+}

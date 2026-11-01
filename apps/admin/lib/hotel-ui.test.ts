@@ -1,0 +1,66 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { COMMERCIAL_ISSUE_CATEGORIES, COMMERCIAL_REASON_TEXT, HOTEL_STAR_RATING_MISSING } from '@bedbanks/contracts'
+import { HOTEL_TABS, contractTone, hotelHref, inventoryTone, listHref, mappingTone, parseTab, readListQuery, readinessTone, outcomeTone, outcomeLabel, readinessActionHref, reasonText, sectionTab, severityTone, starsText } from './hotel-ui'
+
+test('readiness, mapping, contract and inventory states map to tones without inventing states', () => {
+  assert.deepEqual(['READY', 'PARTIAL', 'BLOCKED'].map((s) => readinessTone(s as never)), ['ok', 'warn', 'bad'])
+  assert.deepEqual(['MAPPED', 'PENDING', 'REJECTED', 'NONE'].map((s) => mappingTone(s as never)), ['ok', 'warn', 'bad', 'bad'])
+  assert.deepEqual(['ACTIVE', 'EXPIRING', 'INACTIVE', 'EXPIRED', 'NONE'].map((s) => contractTone(s as never)), ['ok', 'warn', 'warn', 'bad', 'bad'])
+  assert.deepEqual(['OK', 'STOP_SELL', 'GAPS', 'EXHAUSTED', 'NONE'].map((s) => inventoryTone(s as never)), ['ok', 'warn', 'bad', 'bad', 'neutral'])
+  assert.deepEqual(['CRITICAL', 'HIGH', 'WARNING'].map((s) => severityTone(s as never)), ['bad', 'warn', 'neutral'])
+})
+
+test('every canonical reason code the Admin can receive has plain wording, and unknown codes are shown verbatim, never hidden', () => {
+  for (const code of ['SUPPLIER_MAPPING_INVALID', 'OUTSIDE_CONTRACT_VALIDITY', 'DAILY_RATE_MISSING_OR_INVALID', 'AVAILABILITY_MISSING', 'STOP_SELL', 'NO_INVENTORY', 'POOL_EXHAUSTED', 'INVENTORY_CLOSED', 'ON_REQUEST_ONLY', 'INVENTORY_STALE', 'CLOSED_TO_DEPARTURE', 'RELEASE_DAYS_NOT_MET', 'OCCUPANCY_UNSUPPORTED', 'RATE_CURRENCY_MISMATCH', HOTEL_STAR_RATING_MISSING, 'MIN_STAY_NOT_MET']) {
+    assert.ok(COMMERCIAL_REASON_TEXT[code], code)
+    assert.equal(reasonText(code), COMMERCIAL_REASON_TEXT[code])
+  }
+  assert.equal(reasonText('SOME_FUTURE_CODE'), 'SOME_FUTURE_CODE')
+})
+
+test('tabs: every issue section is a real tab, unknown tab values fall back to overview, and links are stable', () => {
+  const ids = HOTEL_TABS.map((t) => t.id) as string[]
+  for (const section of ['overview', 'rooms', 'mappings', 'contracts', 'rates', 'inventory', 'sellability'] as const) assert.ok(ids.includes(sectionTab(section)), section)
+  assert.equal(parseTab('rates'), 'rates'); assert.equal(parseTab('rateplans'), 'rateplans'); assert.equal(parseTab('nonsense'), 'overview'); assert.equal(parseTab(null), 'overview'); assert.equal(parseTab('__proto__'), 'overview')
+  assert.equal(hotelHref('h1'), '/hotels/h1'); assert.equal(hotelHref('h1', 'rates'), '/hotels/h1?tab=rates'); assert.equal(hotelHref('a b/c', 'rooms'), '/hotels/a b/c?tab=rooms')
+  assert.equal(hotelHref('h1', 'rates', { from: '2030-06-15', roomTypeId: 'room-9' }), '/hotels/h1?tab=rates&from=2030-06-15&roomTypeId=room-9')
+  assert.equal(hotelHref('h1', 'rates', { from: 'not-a-date' }), '/hotels/h1?tab=rates') // only a real calendar day is carried
+  assert.equal(hotelHref('h1', 'overview', { from: null, roomTypeId: null }), '/hotels/h1')
+  assert.equal(COMMERCIAL_ISSUE_CATEGORIES.length, 15)
+})
+
+test('list filters round-trip through the URL and unknown parameters are dropped', () => {
+  const parsed = readListQuery(new URLSearchParams('search=palm&readiness=BLOCKED&page=3&evil=1&tenantId=x'))
+  assert.deepEqual(parsed, { filters: { search: 'palm', readiness: 'BLOCKED' }, page: 3 })
+  assert.equal(listHref(parsed.filters, parsed.page), '/hotels?search=palm&readiness=BLOCKED&page=3')
+  assert.equal(listHref({}), '/hotels'); assert.equal(listHref({ mapping: 'NONE' }, 1), '/hotels?mapping=NONE')
+  assert.equal(readListQuery(new URLSearchParams('page=0')).page, 1); assert.equal(readListQuery(new URLSearchParams('page=abc')).page, 1); assert.equal(readListQuery(new URLSearchParams('page=2.5')).page, 1)
+})
+
+test('stars text is explicit for assistive technology and for a missing rating', () => {
+  assert.equal(starsText(5), '5 stars'); assert.equal(starsText(1), '1 star'); assert.equal(starsText(null), 'No rating')
+})
+
+test('readiness outcomes: UNKNOWN is never the failure tone, and every action lands on a real existing tab', () => {
+  assert.deepEqual((['PASS', 'FAIL', 'UNKNOWN', 'NOT_APPLICABLE'] as const).map(outcomeTone), ['ok', 'bad', 'warn', 'neutral'])
+  assert.equal(outcomeLabel('NOT_APPLICABLE'), 'N/A'); assert.equal(outcomeLabel('UNKNOWN'), 'UNKNOWN')
+  const ids = HOTEL_TABS.map((t) => t.id) as string[]
+  for (const tab of ['setup', 'rooms', 'amenities', 'images', 'policies', 'mappings', 'contracts', 'rates', 'inventory', 'sellability', 'audit'] as const) assert.ok(ids.includes(tab), tab)
+  assert.equal(readinessActionHref('h1', { tab: 'mappings', label: 'x', permission: null }), '/hotels/h1?tab=mappings')
+  assert.equal(readinessActionHref('h1', { tab: 'nonsense' as never, label: 'x', permission: null }), '/hotels/h1')
+})
+
+test('nine primary sections follow the contracting workflow and cover every legacy hotel URL exactly once (ADR 0067, F-16)', async () => {
+  const { HOTEL_WORKSPACE_SECTIONS, workspaceSection } = await import('./hotel-ui')
+  assert.equal(HOTEL_WORKSPACE_SECTIONS.length, 9)
+  assert.deepEqual(HOTEL_WORKSPACE_SECTIONS.map(s => s.id), ['profile', 'rooms', 'mapping', 'contracts', 'rateplans', 'quick', 'distribution', 'bookings', 'reports'])
+  // The tab bar walks the same order: every tab of a section comes before every tab of the next one.
+  const position = (id: string) => HOTEL_TABS.findIndex((t) => t.id === id)
+  for (let i = 1; i < HOTEL_WORKSPACE_SECTIONS.length; i++) assert.ok(Math.max(...HOTEL_WORKSPACE_SECTIONS[i - 1]!.tabs.filter((t) => t !== 'audit').map(position)) < Math.min(...HOTEL_WORKSPACE_SECTIONS[i]!.tabs.map(position)), HOTEL_WORKSPACE_SECTIONS[i]!.id)
+  for (const t of HOTEL_TABS) {
+    assert.equal(HOTEL_WORKSPACE_SECTIONS.filter(s => (s.tabs as readonly string[]).includes(t.id)).length, 1, t.id)
+    assert.ok(workspaceSection(t.id))
+  }
+  assert.equal(workspaceSection(parseTab('mappings')).id, 'mapping'); assert.equal(workspaceSection(parseTab('rates')).id, 'quick'); assert.equal(workspaceSection(parseTab('contracts')).id, 'contracts')
+})

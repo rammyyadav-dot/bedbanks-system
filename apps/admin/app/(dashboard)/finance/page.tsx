@@ -1,5 +1,5 @@
-import { CapabilityUnavailable } from '@/components/common/CapabilityUnavailable'
+import { FeatureUnavailable } from '@/components/common/FeatureUnavailable'
 
-export default function FinancePage() {
-  return <CapabilityUnavailable eyebrow="FINANCE" title="Finance" description="Wallet balances, ledger and payments across tenants." />
+export default function Page() {
+  return <FeatureUnavailable eyebrow="FINANCE" title="Finance" reason="Wallet, ledger and payment operations are not enabled for the Dubai MVP. Financial mutations remain behind release certification and no balances are displayed." />
 }

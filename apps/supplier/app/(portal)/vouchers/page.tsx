@@ -1,3 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
-export default function VouchersPage() { return <OperationalModule config={moduleConfigs.vouchers} /> }
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Vouchers"
+      description="Vouchers are not available."
+    />
+  )
+}

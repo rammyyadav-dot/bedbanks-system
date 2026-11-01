@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { ConnectorDefinitionRead, ExecuteSupplierCancellationResult } from '@bedbanks/contracts'
-import { PageHeader } from '@/components/common/PageHeader'
-import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
+import Link from 'next/link'
+import type { CancellationRow, ConnectorDefinitionRead, ExecuteSupplierCancellationResult } from '@bedbanks/contracts'
+import { OpsListPage } from '@/components/ops/OpsListPage'
+import { Money, Tag, when } from '@/components/ops/ops-ui'
+import { getOpsCancellations } from '@/lib/data/operations'
 import {
   getConnectors,
   ingestConnectorInventory,
@@ -13,9 +15,7 @@ import { formatMinorUnits } from '@/lib/minor-units'
 
 export default function CancellationsPage() {
   const [connectors, setConnectors] = useState<ConnectorDefinitionRead[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
+  const [connectorsError, setConnectorsError] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState('')
   const [connectorId, setConnectorId] = useState('')
   const [currency, setCurrency] = useState('AED')
@@ -43,10 +43,7 @@ export default function CancellationsPage() {
         if (rows[0]) setConnectorId(rows[0].id)
       })
       .catch(() => {
-        if (active) setError('Connector registry is unavailable. No fallback data is shown.')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
+        if (active) setConnectorsError('Connector registry is unavailable.')
       })
     return () => { active = false }
   }, [])
@@ -92,26 +89,31 @@ export default function CancellationsPage() {
     }
   }
 
-  const connectorColumns: DataTableColumn<ConnectorDefinitionRead>[] = [
-    { key: 'name', header: 'Connector', render: (c) => c.name },
-    { key: 'type', header: 'Transport', render: (c) => c.type },
-    { key: 'version', header: 'Version', render: (c) => c.version },
-    { key: 'health', header: 'Health', render: (c) => c.healthState },
-    { key: 'status', header: 'Status', render: (c) => c.status },
-  ]
-
   return (
-    <div className="admin-page">
-      <PageHeader
-        eyebrow="BOOKINGS · CANCELLATIONS & GDS ADAPTERS"
-        title="Supplier Cancellations & Real-Time Adapters"
-        description="Execute idempotent bedbank/GDS cancellations, reconcile supplier penalty discrepancies, and ingest real-time XML/JSON inventory."
+    <div style={{ display: 'grid', gap: 20 }}>
+      <OpsListPage<CancellationRow>
+        eyebrow="CANCELLATIONS"
+        title="Cancellations & refunds"
+        description="Recorded cancellations compared with the refunds actually posted to the wallet ledger, plus supplier GDS adapter execution."
+        load={getOpsCancellations}
+        getRowId={(c) => c.bookingId}
+        emptyTitle="No cancellations"
+        emptyDescription="The query succeeded and this tenant has no cancellation records."
+        columns={[
+          { key: 'reference', header: 'Booking', render: (c) => <Link href={`/bookings/${c.bookingId}`} style={{ fontWeight: 600 }}>{c.reference}</Link> },
+          { key: 'hotel', header: 'Hotel', render: (c) => c.hotelName ?? '—' },
+          { key: 'checkIn', header: 'Check-in', render: (c) => c.checkIn ?? '—' },
+          { key: 'total', header: 'Booking total', align: 'right', render: (c) => <Money minor={c.totalMinor} currency={c.currency} /> },
+          { key: 'recorded', header: 'Refund recorded', align: 'right', render: (c) => <Money minor={c.refundMinor} currency={c.currency} /> },
+          { key: 'posted', header: 'Refund posted', align: 'right', render: (c) => <Money minor={c.refundPosted} currency={c.currency} /> },
+          { key: 'match', header: 'Reconciled', render: (c) => <Tag tone={c.refundMatches ? 'ok' : 'bad'}>{c.refundMatches ? 'MATCH' : 'MISMATCH'}</Tag> },
+          { key: 'at', header: 'Cancelled', render: (c) => when(c.createdAt) },
+        ]}
       />
-      {error && <div role="alert" className="admin-empty-state">{error}</div>}
-      {loading && <p role="status">Loading supplier connectors…</p>}
 
-      <section className="admin-card" aria-label="Automated Supplier Cancellation Execution" style={{ marginBottom: 20 }}>
+      <section className="admin-card" aria-label="Automated Supplier Cancellation Execution">
         <h2>Automated Supplier Cancellation Execution</h2>
+        {connectorsError && <p role="alert">{connectorsError}</p>}
         <div className="admin-filter-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
           <input aria-label="Booking ID" placeholder="Booking ID" value={bookingId} onChange={(e) => setBookingId(e.target.value)} className="admin-filter-select" />
           <select aria-label="Connector" value={connectorId} onChange={(e) => setConnectorId(e.target.value)} className="admin-filter-select">
@@ -135,20 +137,20 @@ export default function CancellationsPage() {
         </div>
         {executionMessage && <p role="status" style={{ marginTop: 10 }}>{executionMessage}</p>}
         {executionResult && (
-          <div style={{ marginTop: 12, padding: 14, background: '#f5f8f9', borderRadius: 6, fontSize: 13, display: 'grid', gap: 6 }}>
+          <div style={{ marginTop: 12, padding: 14, background: 'var(--c-f6f6f4)', borderRadius: 6, fontSize: 13, display: 'grid', gap: 6 }}>
             <div><strong>Execution State:</strong> {executionResult.executionStatus} · <strong>Refund State:</strong> {executionResult.refundStatus}</div>
             <div><strong>Supplier Cancellation Ref:</strong> {executionResult.supplierCancellationRef ?? 'None (reconciliation required)'}</div>
             <div><strong>Customer Liability / Refund:</strong> {formatMinorUnits(executionResult.customerLiabilityMinor, executionResult.currency)} / {formatMinorUnits(executionResult.refundMinor, executionResult.currency)}</div>
             <div><strong>Ledger Refund Entry ID:</strong> {executionResult.ledgerEntryId ?? 'Not posted'}</div>
             <div><strong>Dispatched Voucher IDs:</strong> {executionResult.voucherNotificationIds.length ? executionResult.voucherNotificationIds.join(', ') : 'None'}</div>
             {executionResult.discrepancyReviewRequired && (
-              <div role="alert" style={{ color: '#9e2a2b', fontWeight: 600 }}>Discrepancy blocked automatic confirmation: supplier penalty ({formatMinorUnits(executionResult.supplierPenaltyMinor ?? '0', executionResult.currency)}) exceeds accepted customer liability.</div>
+              <div role="alert" style={{ color: 'var(--c-b3141b)', fontWeight: 600 }}>Discrepancy blocked automatic confirmation: supplier penalty ({formatMinorUnits(executionResult.supplierPenaltyMinor ?? '0', executionResult.currency)}) exceeds accepted customer liability.</div>
             )}
           </div>
         )}
       </section>
 
-      <section className="admin-card" aria-label="Real-Time XML/JSON Inventory Ingestion" style={{ marginBottom: 20 }}>
+      <section className="admin-card" aria-label="Real-Time XML/JSON Inventory Ingestion">
         <h2>Real-Time XML / JSON Inventory Adapter Ingestion</h2>
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', gap: 10 }}>
@@ -169,13 +171,6 @@ export default function CancellationsPage() {
           {ingestStatus && <p role="status">{ingestStatus}</p>}
         </div>
       </section>
-
-      <DataTable
-        columns={connectorColumns}
-        data={connectors}
-        getRowId={(c) => c.id}
-        emptyTitle={loading ? 'Loading connectors' : 'No bedbank or GDS connectors registered'}
-      />
     </div>
   )
 }

@@ -1,0 +1,54 @@
+name: Terraform check
+
+# Static and offline only: no AWS credentials, no apply. Runs the same checks documented in docs/aws-verification-evidence.md.
+on:
+  pull_request:
+    paths:
+      - 'infra/aws/**'
+      - 'tools/aws-*'
+      - 'tools/workflow-lint*'
+      - 'tools/ecs-migrate*'
+      - 'scripts/ecs-migrate.sh'
+      - 'docs/adr/0055-*'
+      - '.github/workflows/**'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          # No dependencies are installed here; setup-node v5 would otherwise auto-cache pnpm before pnpm exists.
+          package-manager-cache: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.9.8
+      - run: terraform -chdir=infra/aws/terraform fmt -check -recursive
+      - run: terraform -chdir=infra/aws/terraform init -backend=false
+      - run: terraform -chdir=infra/aws/terraform validate
+      # Mock-provider plan tests: staging exposure, production edge, DNS authorization and budget guards.
+      - run: terraform -chdir=infra/aws/terraform test
+      - name: Governance guard (region, tags, OIDC trust, no apply in CI, booking off)
+        run: |
+          node tools/aws-governance-check.mjs
+          node --test tools/aws-governance-check.test.mjs
+      - name: Operator scripts and plan reviewer (ShellCheck, stubbed script tests, plan reviewer tests)
+        run: |
+          shellcheck scripts/set-staging-github-vars.sh infra/aws/plan-staging.sh infra/aws/audit/account-audit.sh scripts/neon-staging-branch.sh scripts/ecs-migrate.sh
+          node --test tools/aws-plan-review.test.mjs tools/aws-plan-staging.test.mjs tools/aws-account-audit.test.mjs tools/aws-golive-preflight.test.mjs tools/ecs-migrate.test.mjs
+      - name: Static security analysis (checkov, baseline in infra/aws/terraform/.checkov.yaml)
+        run: |
+          python3 -m pip install --quiet checkov==3.2.0
+          checkov --config-file infra/aws/terraform/.checkov.yaml -d infra/aws/terraform
+      - name: Workflow lint (actionlint + ShellCheck; a missing ShellCheck is a failure, not a pass)
+        run: |
+          bash <(curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          tools/workflow-lint.sh ./actionlint
+          ACTIONLINT=./actionlint node --test tools/workflow-lint.test.mjs

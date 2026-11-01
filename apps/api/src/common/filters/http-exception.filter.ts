@@ -7,6 +7,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { COMMERCIAL_CONTROL_UNAVAILABLE, DATABASE_ROLE_NOT_PERMITTED } from '@bedbanks/contracts';
+import { databaseErrorCode, isDatabasePermissionDenied } from '../../database/db-errors';
+import { CommercialControlUnavailableError, logCommercialControlFailure } from '../../supply/commercial-controls';
 
 export interface ApiErrorResponse {
   success: false;
@@ -35,8 +38,23 @@ const STATUS_CODE_MAP: Record<number, string> = {
   [HttpStatus.NOT_FOUND]: 'NOT_FOUND',
   [HttpStatus.CONFLICT]: 'CONFLICT',
   [HttpStatus.UNPROCESSABLE_ENTITY]: 'UNPROCESSABLE_ENTITY',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'TOO_MANY_REQUESTS',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'SERVICE_UNAVAILABLE',
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'INTERNAL_SERVER_ERROR',
 };
+
+/** A domain-specific, machine-readable code (e.g. OPERATIONS_READ_DENIED) that an exception may carry in its body. */
+const EXPLICIT_CODE = /^[A-Z][A-Z0-9_]{2,47}$/;
+function explicitCode(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null || !('code' in body)) return undefined;
+  const code = (body as { code: unknown }).code;
+  return typeof code === 'string' && EXPLICIT_CODE.test(code) ? code : undefined;
+}
+
+/** Constructor names are developer-chosen identifiers; anything else is reported as a generic name. */
+function safeErrorName(name: string): string {
+  return /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name) ? name : 'Error';
+}
 
 /**
  * Catches every exception thrown anywhere in the app (NestJS
@@ -57,11 +75,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const { status, code, message, details } = this.resolveException(exception);
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(
-        `${request.method} ${request.url} -> ${status}`,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+    if (exception instanceof CommercialControlUnavailableError) {
+      logCommercialControlFailure(this.logger, exception, request.requestId);
+    } else if (!(exception instanceof HttpException) && isDatabasePermissionDenied(exception)) {
+      // Infrastructure configuration, not a caller decision: structured diagnostic without SQL, table names or values.
+      this.logger.error(JSON.stringify({ event: 'database_role_not_permitted', dbCode: databaseErrorCode(exception), method: request.method, path: request.path, requestId: request.requestId ?? 'unknown' }));
+    } else if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // Path without query string; error name only. Messages and stacks can carry tokens, PII or supplier payloads.
+      this.logger.error(JSON.stringify({
+        event: 'server_error',
+        method: request.method,
+        path: request.path,
+        status,
+        errorName: exception instanceof Error ? safeErrorName(exception.name) : 'NonError',
+        requestId: request.requestId ?? 'unknown',
+      }));
     }
 
     const errorResponse: ApiErrorResponse = {
@@ -86,13 +114,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();
-      const code = STATUS_CODE_MAP[status] ?? 'HTTP_ERROR';
+      const code = explicitCode(body) ?? STATUS_CODE_MAP[status] ?? 'HTTP_ERROR';
 
       // ValidationPipe throws a BadRequestException whose response body
       // is { message: string[], error: 'Bad Request', statusCode: 400 }.
       if (typeof body === 'object' && body !== null && 'message' in body) {
         const rawMessage = (body as { message: unknown }).message;
-        const details = Array.isArray(rawMessage) ? rawMessage : [];
+        // A domain exception may attach structured `details` (e.g. readiness checks); validation arrays still win.
+        const explicitDetails = (body as { details?: unknown }).details;
+        const details = Array.isArray(rawMessage) ? rawMessage : Array.isArray(explicitDetails) ? explicitDetails : [];
         const message = Array.isArray(rawMessage)
           ? 'Request validation failed'
           : String(rawMessage);
@@ -103,6 +133,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
         status,
         code,
         message: typeof body === 'string' ? body : exception.message,
+        details: [],
+      };
+    }
+
+    // A mandatory commercial control that could not be read (ADR 0031): refuse, never serve unrestricted.
+    if (exception instanceof CommercialControlUnavailableError) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: COMMERCIAL_CONTROL_UNAVAILABLE,
+        message: 'A required commercial control could not be verified, so the request was refused.',
+        details: [],
+      };
+    }
+
+    // An authorized operation that the runtime database role has no privilege for is a configuration failure, not a 403 (ADR 0031).
+    if (isDatabasePermissionDenied(exception)) {
+      return {
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+        code: DATABASE_ROLE_NOT_PERMITTED,
+        message: 'This operation is not available: the service database role is not configured for it.',
         details: [],
       };
     }

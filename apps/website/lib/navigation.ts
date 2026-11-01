@@ -3,29 +3,28 @@ import type { PortalKey } from './site-config'
 export type NavigationItem = { label: string; href: string; description?: string }
 
 export const primaryNavigation: NavigationItem[] = [
-  { label: 'Solutions', href: '/solutions' },
-  { label: 'Platform', href: '/platform' },
-  { label: 'Inventory', href: '/inventory' },
-  { label: 'Connectivity', href: '/connectivity' },
-  { label: 'Resources', href: '/resources' },
-  { label: 'Company', href: '/about' },
+  { label: 'About fabbeds', href: '/about' },
+  { label: 'Hotels & Suppliers', href: '/hotels-suppliers' },
+  { label: 'Travel Buyers', href: '/travel-buyers' },
+  { label: 'How It Works', href: '/how-it-works' },
+  { label: 'Technology & Connectivity', href: '/connectivity' },
+  { label: 'Contact Us', href: '/contact' },
 ]
 
 export const footerNavigation = {
-  explore: primaryNavigation.slice(0, 5),
+  explore: primaryNavigation.slice(1, 5),
   company: [
-    { label: 'About fBeds', href: '/about' },
+    { label: 'About fabbeds', href: '/about' },
     { label: 'Careers', href: '/careers' },
     { label: 'Contact', href: '/contact' },
     { label: 'Privacy', href: '/privacy' },
-    { label: 'Request a demo', href: '/request-demo' },
+    { label: 'Register for Access', href: '/request-demo' },
   ],
 } satisfies Record<string, NavigationItem[]>
 
 export const publicRoutes = [
-  '/', '/solutions', '/solutions/travel-agencies', '/solutions/tour-operators', '/solutions/dmcs',
-  '/solutions/hotels', '/solutions/travel-technology', '/platform', '/inventory', '/connectivity',
-  '/about', '/resources', '/contact', '/request-demo', '/login', '/careers', '/privacy', '/portals',
+  '/', '/hotels-suppliers', '/travel-buyers', '/how-it-works', '/connectivity',
+  '/about', '/contact', '/request-demo', '/login', '/careers', '/privacy', '/portals',
 ] as const
 
 export const portalLabels: Record<PortalKey, string> = {

@@ -1,9 +1,20 @@
-// Browser-side access to authoritative /api/v1 endpoints. Server components use ./server.
+// Authoritative Admin API access. No mock or fallback data lives in this module.
 
 import {
+  contractLifecycleRoutes,
   routes,
+  supplyRoutes,
+  type ContractActivationRequestInput,
+  type ContractAmendmentRequestInput,
+  type ContractApprovalExecuteResult,
+  type ContractApprovalView,
+  type ContractLifecycleView,
+  type ContractTransitionInput,
   type TenantSettingsView,
   type UpdateTenantSettingsRequest,
+  type SellabilityRequest,
+  type SellabilityResult,
+  type SupplyCapabilities,
   type ContractPoliciesRead,
   type CancellationPolicyRead,
   type CancellationPolicyWrite,
@@ -20,6 +31,31 @@ import {
   type PostLedgerAdjustmentResult,
   type DispatchCancellationVoucherRequest,
   type CancellationVoucherDeliveryRead,
+  type CalendarImportPreview,
+  type CalendarImportRequest,
+  type CalendarEdit,
+  type CalendarPreview,
+  type RatePlanReadiness,
+  type RatePlanCloneRequest,
+  type RatePlanCapabilities,
+  type RatePlanActivationApproval,
+  type RatePlanActivationRequestInput,
+  type RatePlanApprovalExecuteResult,
+  type RatePlanGuestPrices,
+  type RatePlanGuestPricesInput,
+  type RatePlanPromotions,
+  type RatePlanPromotionsInput,
+  type HotelPromotionBulkApplyInput,
+  type HotelPromotionBulkApplyResult,
+  type RatePlanDerivation,
+  type RatePlanDerivationInput,
+  type SourceMarketGroupRead,
+  type SourceMarketGroupWrite,
+  type SourceMarketGroupUpdate,
+  type ContractMarketValidityUpsertRequest,
+  type ContractMarketValidityProfileRead,
+  type RatePlanMarketValidationRequest,
+  type RatePlanMarketValidationResult,
 } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
@@ -28,9 +64,9 @@ export async function getDashboard({ range }: DashboardQuery): Promise<AdminDash
   return apiRequest<AdminDashboardView>(`/admin/dashboard?range=${encodeURIComponent(range)}`)
 }
 
-export async function getTenantSettings() { return apiRequest<TenantSettingsView>(routes.admin.settings) }
-export async function updateTenantSettings(input: UpdateTenantSettingsRequest, idempotencyKey: string) {
-  return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(input) })
+export async function getTenantSettings(tenantId?: string) { return apiRequest<TenantSettingsView>(routes.admin.settings, tenantId ? { headers: { 'x-fbeds-tenant-id': tenantId } } : {}) }
+export async function updateTenantSettings(input: UpdateTenantSettingsRequest, idempotencyKey: string, tenantId?: string) {
+  return apiRequest<TenantSettingsView>(routes.admin.settings, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...(tenantId ? { 'x-fbeds-tenant-id': tenantId } : {}) }, body: JSON.stringify(input) })
 }
 
 export async function createPlatformRole(input: { id: string; name: string; description?: string }) { return apiRequest('/platform/access/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
@@ -38,9 +74,16 @@ export async function updatePlatformRole(roleId: string, input: { id: string; na
 export async function setPlatformRolePermissions(roleId: string, permissionIds: string[]) { return apiRequest(`/platform/access/roles/${roleId}/permissions`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permissionIds }) }); }
 export async function assignPlatformRole(input: { userId: string; roleId: string }) { return apiRequest('/platform/access/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function revokePlatformRole(userId: string, roleId: string) { return apiRequest(`/platform/access/assignments/${userId}/${roleId}`, { method: 'DELETE' }); }
-export async function getHotels(): Promise<Array<{ id: string }>> { return apiRequest<Array<{ id: string }>>('/supply/hotels'); }
+export interface HotelRecord { id: string; name: string; city: string; countryCode: string; timeZone: string; contentStatus: string }
+export async function getHotels() { return apiRequest<HotelRecord[]>('/supply/hotels'); }
 export async function getHotel(id: string) { return apiRequest(`/supply/hotels/${id}`); }
-export async function getRooms() { return apiRequest('/supply/room-types'); }
+export async function getRooms() { return apiRequest<RoomTypeRecord[]>('/supply/room-types'); }
+export interface RoomTypePortfolioRow { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean; hotel: { id: string; name: string } }
+/** Server-paginated, server-filtered and server-sorted room types (the unpaged getRooms stays for pickers only). */
+export async function getRoomTypePortfolio(params: Record<string, string | number | boolean>) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
+  return apiRequest<import('@bedbanks/contracts').Paged<RoomTypePortfolioRow>>(`${supplyRoutes.roomTypePortfolio}?${query}`)
+}
 export async function getRoomsByHotel(hotelId: string) { return apiRequest(`/supply/hotels/${hotelId}/rooms`); }
 export interface SupplySupplier { id: string; type: string; status: string; legalName: string; displayName: string; countryCode: string; defaultCurrency: string; contactMetadata: Record<string, unknown>; createdAt: string; updatedAt: string }
 export interface SupplierList { items: SupplySupplier[]; page: number; pageSize: number; total: number }
@@ -52,10 +95,19 @@ export async function updateSupplier(id: string, input: Partial<Omit<SupplySuppl
 export async function getBoardBasesAdmin() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases/admin'); }
 export async function createBoardBasis(input: { code: string; name: string; description?: string; isActive?: boolean }) { return apiRequest<BoardBasisRecord>('/supply/board-bases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function updateBoardBasis(id: string, input: { name?: string; description?: string | null; isActive?: boolean }) { return apiRequest<BoardBasisRecord>(`/supply/board-bases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+const json = { 'Content-Type': 'application/json' }
 export interface AdminContract {
-  id: string; code: string; validFrom: string; validTo: string; settlementCurrency: string; status: string;
+  id: string; code: string; validFrom: string; validTo: string; settlementCurrency: string; status: string; supplierId: string; supplierHotelMappingId: string | null;
+  salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null;
   supplier: { id: string; displayName: string };
+  supplierHotelMapping?: { id: string; hotelId: string; status: string } | null;
 }
+export interface CancellationPolicyRecord { id: string; policySet?: string | null; kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent: number | null; penaltyMinor: string | null; penaltyNights?: number | null; currency: string | null }
+export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
+export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
+export interface SupplementRecord extends Omit<import('@bedbanks/contracts').ContractSupplementTerm, 'stayFrom' | 'stayTo'> { id: string; stayFrom: string | null; stayTo: string | null }
+export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
+export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 export async function getContractPolicies(contractId: string) {
   return apiRequest<ContractPoliciesRead>(`/supply/contracts/${encodeURIComponent(contractId)}/policies`)
@@ -74,32 +126,78 @@ export async function simulateContractCancellationPolicy(contractId: string, inp
     body: JSON.stringify(input),
   })
 }
+/** Server-paginated, server-filtered and server-sorted contract list (the unpaged getContracts stays for pickers only). */
+export async function getContractPortfolio(params: Record<string, string | number | boolean>) {
+  const query = new URLSearchParams(Object.entries(params).map(([key, value]) => [key, String(value)]))
+  return apiRequest<import('@bedbanks/contracts').Paged<AdminContract>>(`${supplyRoutes.contractPortfolio}?${query}`)
+}
+export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
+export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
+export async function createCancellationPolicy(contractId: string, input: { kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyNights?: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor?: string; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+// Contract lifecycle and maker-checker (ADR 0067). Routes come from @bedbanks/contracts.
+const cl = contractLifecycleRoutes
+const withContract = (path: string, contractId: string) => path.replace(':contractId', encodeURIComponent(contractId))
+const withApproval = (path: string, approvalId: string) => path.replace(':approvalId', encodeURIComponent(approvalId))
+export async function getContractLifecycle(contractId: string) { return apiRequest<ContractLifecycleView>(withContract(cl.lifecycle, contractId)) }
+export async function transitionContract(contractId: string, action: 'submit' | 'returnToDraft' | 'suspend', input: ContractTransitionInput) { return apiRequest<{ contractId: string; status: string }>(withContract(cl[action], contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function requestContractActivation(contractId: string, input: ContractActivationRequestInput) { return apiRequest<ContractApprovalView>(withContract(cl.activationRequest, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function requestContractAmendment(contractId: string, input: ContractAmendmentRequestInput) { return apiRequest<ContractApprovalView>(withContract(cl.amendmentRequest, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function decideContractApproval(approvalId: string, decision: 'approve' | 'reject', reason: string) { return apiRequest<ContractApprovalView>(withApproval(cl[decision], approvalId), { method: 'POST', headers: json, body: JSON.stringify({ reason }) }) }
+export async function cancelContractApproval(approvalId: string) { return apiRequest<ContractApprovalView>(withApproval(cl.cancel, approvalId), { method: 'POST' }) }
+export async function executeContractApproval(approvalId: string) { return apiRequest<ContractApprovalExecuteResult>(withApproval(cl.execute, approvalId), { method: 'POST' }) }
+export async function deleteCancellationPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteCancellationPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function deleteChildPolicy(contractId: string, policyId: string) { return apiRequest(withContract(cl.deleteChildPolicy, contractId).replace(':policyId', encodeURIComponent(policyId)), { method: 'DELETE' }) }
+export async function createSupplement(contractId: string, input: import('@bedbanks/contracts').ContractSupplementTerm) { return apiRequest(withContract(cl.supplements, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function deleteSupplement(contractId: string, supplementId: string) { return apiRequest(withContract(cl.deleteSupplement, contractId).replace(':supplementId', encodeURIComponent(supplementId)), { method: 'DELETE' }) }
+export async function deleteLeadTimeRule(contractId: string) { return apiRequest(withContract(cl.deleteLeadTimeRule, contractId), { method: 'DELETE' }) }
+export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
+export async function getHotelMappings() { return apiRequest<HotelMappingRecord[]>('/supply/mappings/hotels'); }
+export async function getBoardBases() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases'); }
+export interface RoomTypeRecord { id: string; hotelId: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean }
 export interface AdminDailyRate {
-  id: string; tenantId: string; ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; updatedAt: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
   ratePlan: { id: string; code: string; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
 }
 export async function getDailyRates(from: string, to = from, ratePlanId?: string) { return apiRequest<AdminDailyRate[]>(`/supply/daily-rates?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${ratePlanId ? `&ratePlanId=${encodeURIComponent(ratePlanId)}` : ''}`); }
 export async function updateDailyRate(input: { ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string }) { return apiRequest('/supply/daily-rates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function bulkUpdateDailyRates(rows: Array<{ ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string }>) { return apiRequest('/supply/daily-rates/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }); }
-export async function checkSellability(input: { ratePlanId: string; stayDate: string; occupancy: number }) { return apiRequest<{ eligible: boolean; status: string; reasons: string[] }>('/supply/sellability', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function checkSellability(input: SellabilityRequest) { return apiRequest<SellabilityResult>(supplyRoutes.sellability, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export async function getCapabilities() { return apiRequest<SupplyCapabilities>(supplyRoutes.capabilities); }
 
 export interface AdminAvailabilityRow {
-  id: string; tenantId: string; ratePlanId: string; stayDate: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number;
+  id: string; tenantId: string; ratePlanId: string; stayDate: string; updatedAt: string; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number;
   ratePlan: { id: string; code: string; releaseDays: number; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
 }
-export async function getInventory(from: string, to = from) { return apiRequest<AdminAvailabilityRow[]>(`/supply/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`); }
+export async function getInventory(from: string, to = from, ratePlanId?: string) { return apiRequest<AdminAvailabilityRow[]>(`/supply/availability?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${ratePlanId ? `&ratePlanId=${encodeURIComponent(ratePlanId)}` : ''}`); }
 export async function updateAvailability(input: { ratePlanId: string; stayDate: string; allotment: number; sold?: number; stopSell?: boolean; minStay?: number }) { return apiRequest('/supply/availability', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function bulkUpdateAvailability(rows: Array<{ ratePlanId: string; stayDate: string; allotment: number; sold?: number; stopSell?: boolean; minStay?: number }>) { return apiRequest('/supply/availability/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }); }
 export interface AdminRatePlan {
   id: string; tenantId: string; contractId: string; roomTypeId: string; boardBasisId: string; code: string; status: string; occupancy: number; currency: string;
   refundable: boolean; taxesIncluded: boolean; feesIncluded: boolean; minStay: number; maxStay: number | null; releaseDays: number;
-  contract: { id: string; code: string; supplier: { id: string; displayName: string } };
+  /** Optional sale window (ISO instants at midnight UTC) and payment type; null means inherit the contract term / not recorded. */
+  validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null;
+  /** Name of the contract's cancellation rule set this plan uses; null = the contract default rules. */
+  cancellationPolicySet?: string | null;
+  /** Buyer markets and guest nationalities this plan is sold to, on top of the contract's own lists. Empty = no extra restriction. */
+  salesMarkets?: string[]; nationalities?: string[];
+  /** Set when the plan sells from a shared inventory pool: its own allotment value is then not used. */
+  inventoryPoolId?: string | null;
+  /** Set when the plan is derived from another plan (ADR 0058, S10b): it has no rates of its own. */
+  derivedFromId?: string | null;
+  /** Row version: activate and suspend must echo it so a stale view cannot overwrite a concurrent change. */
+  updatedAt?: string;
+  contract: { id: string; code: string; supplier: { id: string; displayName: string }; status?: string; validFrom?: string; validTo?: string; salesMarkets?: unknown };
   roomType: { id: string; name: string; hotel: { id: string; name: string } };
   boardBasis: { id: string; code: string; name: string };
 }
 export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supply/rate-plans'); }
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
-export async function updateRatePlan(id: string, input: Partial<Pick<AdminRatePlan, 'status' | 'occupancy' | 'currency' | 'refundable' | 'taxesIncluded' | 'feesIncluded' | 'minStay' | 'maxStay' | 'releaseDays'>>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
+export interface RatePlanInput { contractId: string; roomTypeId: string; boardBasisId: string; code: string; occupancy: number; currency: string; refundable?: boolean; taxesIncluded?: boolean; feesIncluded?: boolean; minStay?: number; maxStay?: number | null; releaseDays?: number; validFrom?: string | null; validTo?: string | null; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL' | null; cancellationPolicySet?: string | null; salesMarkets?: string[]; nationalities?: string[] }
+export async function createRatePlan(input: RatePlanInput) { return apiRequest<AdminRatePlan>('/supply/rate-plans', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
+export async function updateRatePlan(id: string, input: Partial<RatePlanInput>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
 
 export async function getConnectors() { return apiRequest<ConnectorDefinitionRead[]>('/supply/connectors'); }
@@ -144,3 +242,100 @@ export async function dispatchCancellationVoucher(input: DispatchCancellationVou
     body: JSON.stringify(input),
   });
 }
+
+export type { CalendarEdit, CalendarPreview } from '@bedbanks/contracts'
+export type { CalendarImportPreview } from '@bedbanks/contracts'
+export const previewCalendarImport = (input: CalendarImportRequest) => apiRequest<CalendarImportPreview>(supplyRoutes.calendarImportPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
+export const previewCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarPreview, { method: 'POST', headers: json, body: JSON.stringify(input) })
+export const applyCalendar = (input: CalendarEdit) => apiRequest<CalendarPreview>(supplyRoutes.calendarApply, { method: 'POST', headers: json, body: JSON.stringify(input) })
+
+export async function getRatePlanPortfolio(input: { search?: string; status?: string; page: number; pageSize: number }) {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
+  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean; statusCounts?: Record<'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', number> }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
+}
+
+// Rate-plan lifecycle (activation readiness, activate/suspend, clone). The API owns every rule; the browser only displays the verdict.
+export type { RatePlanReadiness } from '@bedbanks/contracts'
+const planPath = (path: string, ratePlanId: string) => path.replace(':ratePlanId', encodeURIComponent(ratePlanId))
+export const getRatePlanCapabilities = () => apiRequest<RatePlanCapabilities>(supplyRoutes.ratePlanCapabilities)
+export const getRatePlanReadiness = (ratePlanId: string) => apiRequest<RatePlanReadiness>(planPath(supplyRoutes.ratePlanReadiness, ratePlanId))
+export const activateRatePlan = (ratePlanId: string, expectedUpdatedAt: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanActivate, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt }) })
+export const suspendRatePlan = (ratePlanId: string, expectedUpdatedAt: string, reason: string) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanSuspend, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify({ expectedUpdatedAt, reason }) })
+// Four-eye activation (ADR 0057, S5). The API decides who may do what; these only carry the calls.
+const approvalPath = (path: string, approvalId: string) => path.replace(':approvalId', encodeURIComponent(approvalId))
+// Child and extra-adult price lines (ADR 0057, S6).
+export const getGuestPrices = (ratePlanId: string) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId))
+export const getDerivation = (ratePlanId: string) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId))
+export const replaceDerivation = (ratePlanId: string, input: RatePlanDerivationInput) => apiRequest<RatePlanDerivation>(planPath(supplyRoutes.ratePlanDerivation, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
+export const getPromotions = (ratePlanId: string) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId))
+export const bulkApplyPromotion = (hotelId: string, input: HotelPromotionBulkApplyInput) => apiRequest<HotelPromotionBulkApplyResult>(supplyRoutes.hotelPromotionsBulkApply.replace(':hotelId', encodeURIComponent(hotelId)), { method: 'POST', headers: json, body: JSON.stringify(input) })
+export const replacePromotions = (ratePlanId: string, input: RatePlanPromotionsInput) => apiRequest<RatePlanPromotions>(planPath(supplyRoutes.ratePlanPromotions, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
+export const replaceGuestPrices = (ratePlanId: string, input: RatePlanGuestPricesInput) => apiRequest<RatePlanGuestPrices>(planPath(supplyRoutes.ratePlanGuestPrices, ratePlanId), { method: 'PUT', headers: json, body: JSON.stringify(input) })
+export const getActivationApproval = (ratePlanId: string) => apiRequest<RatePlanActivationApproval | null>(planPath(supplyRoutes.ratePlanActivationApproval, ratePlanId))
+export const requestRatePlanActivation = (ratePlanId: string, input: RatePlanActivationRequestInput) => apiRequest<RatePlanActivationApproval>(planPath(supplyRoutes.ratePlanActivationRequest, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify(input) })
+export const approveRatePlanActivation = (approvalId: string, reason: string) => apiRequest<RatePlanActivationApproval>(approvalPath(supplyRoutes.ratePlanApprovalApprove, approvalId), { method: 'POST', headers: json, body: JSON.stringify({ reason }) })
+export const rejectRatePlanActivation = (approvalId: string, reason: string) => apiRequest<RatePlanActivationApproval>(approvalPath(supplyRoutes.ratePlanApprovalReject, approvalId), { method: 'POST', headers: json, body: JSON.stringify({ reason }) })
+export const cancelRatePlanActivation = (approvalId: string) => apiRequest<RatePlanActivationApproval>(approvalPath(supplyRoutes.ratePlanApprovalCancel, approvalId), { method: 'POST' })
+export const executeRatePlanActivation = (approvalId: string) => apiRequest<RatePlanApprovalExecuteResult>(approvalPath(supplyRoutes.ratePlanApprovalExecute, approvalId), { method: 'POST' })
+export const cloneRatePlan = (ratePlanId: string, input: RatePlanCloneRequest) => apiRequest<AdminRatePlan>(planPath(supplyRoutes.ratePlanClone, ratePlanId), { method: 'POST', headers: json, body: JSON.stringify(input) })
+export async function getHotelRatePlans(hotelId: string, input: { search?: string; status?: string; page: number; pageSize: number }) {
+  const query = new URLSearchParams({ hotelId })
+  for (const [key, value] of Object.entries(input)) if (value !== undefined && value !== '') query.set(key, String(value))
+  return apiRequest<{ items: AdminRatePlan[]; total: number; page: number; pageSize: number; hasMore: boolean; statusCounts?: Record<'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', number> }>(`${supplyRoutes.ratePlanPortfolio}?${query}`)
+}
+
+// Source Market Profiling, Grouping & Contract/Rate Plan Market Validity (ADR 0104).
+export type {
+  SourceMarketGroupRead,
+  SourceMarketGroupWrite,
+  SourceMarketGroupUpdate,
+  MarketValidityRuleRead,
+  MarketValidityRuleWrite,
+  ContractMarketValidityUpsertRequest,
+  ContractMarketValidityProfileRead,
+  RatePlanMarketValidationRequest,
+  RatePlanMarketValidationResult,
+} from '@bedbanks/contracts'
+
+export const getSourceMarketGroups = () =>
+  apiRequest<SourceMarketGroupRead[]>(supplyRoutes.sourceMarketGroups)
+
+export const createSourceMarketGroup = (input: SourceMarketGroupWrite) =>
+  apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroups, {
+    method: 'POST',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const updateSourceMarketGroup = (groupId: string, input: SourceMarketGroupUpdate) =>
+  apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroup.replace(':groupId', encodeURIComponent(groupId)), {
+    method: 'PATCH',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const getContractMarketValidity = (contractId: string) =>
+  apiRequest<ContractMarketValidityProfileRead>(supplyRoutes.contractMarketValidity.replace(':contractId', encodeURIComponent(contractId)))
+
+export const upsertContractMarketValidity = (contractId: string, input: ContractMarketValidityUpsertRequest) =>
+  apiRequest<ContractMarketValidityProfileRead>(supplyRoutes.contractMarketValidity.replace(':contractId', encodeURIComponent(contractId)), {
+    method: 'POST',
+    headers: json,
+    body: JSON.stringify(input),
+  })
+
+export const deleteContractMarketValidityRule = (contractId: string, ruleId: string) =>
+  apiRequest<{ id: string; deleted: boolean }>(
+    supplyRoutes.contractMarketValidityRule
+      .replace(':contractId', encodeURIComponent(contractId))
+      .replace(':ruleId', encodeURIComponent(ruleId)),
+    { method: 'DELETE' },
+  )
+
+export const validateRatePlanMarket = (ratePlanId: string, input: RatePlanMarketValidationRequest) =>
+  apiRequest<RatePlanMarketValidationResult>(
+    supplyRoutes.ratePlanValidateMarket.replace(':ratePlanId', encodeURIComponent(ratePlanId)),
+    { method: 'POST', headers: json, body: JSON.stringify(input) },
+  )
+

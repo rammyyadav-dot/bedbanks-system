@@ -7,9 +7,9 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test",
+    "test": "node --import tsx --test markup.test.ts cascade.test.ts",
     "build": "tsc"
   },
   "dependencies": { "@bedbanks/money": "workspace:*" },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": { "typescript": "^5.9.3" }
 }

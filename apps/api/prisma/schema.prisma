@@ -37,11 +37,499 @@ enum Status {
   SUSPENDED
 }
 
+/// Booking lifecycle (ADR 0039, docs/booking-module-spec.md). `Closed` is not a status: it is a lock (`closedAt`, added later).
+/// Only the booking transition function may write this (Phase 2). The hold/prebook intake machine is `BookingTransactionState`.
 enum BookingStatus {
-  PENDING
+  PENDING_SUPPLIER
+  ON_REQUEST
   CONFIRMED
+  AMEND_REQUESTED
+  CANCEL_REQUESTED
   CANCELLED
+  CHECKED_OUT
+  NO_SHOW
+  REJECTED
   FAILED
+}
+
+/// How a booking arrived (spec workflow A). Existing bookings all came through the Agent portal.
+enum BookingChannel {
+  PORTAL
+  API
+  MANUAL
+}
+
+enum BookingPaymentMode {
+  CREDIT
+  PREPAID
+  PAY_AT_HOTEL
+}
+
+enum BookingPaymentStatus {
+  PAID
+  UNPAID
+  OVERDUE
+}
+
+enum BookingGuestType {
+  ADULT
+  CHILD
+}
+
+enum BookingFinanceEventType {
+  NO_SHOW
+  CONFIRMED
+  ON_REQUEST_HOLD
+  HOLD_RELEASED
+  CANCELLED
+  PENALTY_DECIDED
+  PENALTY_WAIVED
+  AMENDED
+}
+
+/// Outcome of the Finance consumer for one BookingFinanceEvent (ADR 0076). POSTED and SKIPPED are final; REVIEW_REQUIRED is retried and blocks the booking's later events.
+enum BookingFinancePostingStatus {
+  POSTED
+  SKIPPED
+  REVIEW_REQUIRED
+}
+
+enum SupplierPayableKind {
+  ACCRUAL
+  ADJUSTMENT
+  REVERSAL
+}
+
+/// A supplier payment recorded against posted payables (ADR 0077). PROPOSED by one person, APPROVED (recorded) or REJECTED by another.
+enum SupplierSettlementStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// What a supplier's payment terms count from (ADR 0078): the guest's check-out, the check-in, or the confirmation of the booking.
+enum SupplierTermsBasis {
+  CHECK_OUT
+  CHECK_IN
+  CONFIRMATION
+}
+
+enum BookingAmendmentStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum BookingOpsPriority {
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+}
+
+enum BookingSupplierJobKind {
+  BOOK
+  CANCEL
+  STATUS_CHECK
+}
+
+enum BookingSupplierJobStatus {
+  QUEUED
+  RUNNING
+  RETRY_WAIT
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+
+enum BookingActorType {
+  USER
+  SYSTEM
+  SUPPLIER
+}
+
+enum BookingDocumentType {
+  VOUCHER
+  INVOICE
+  CREDIT_NOTE
+  CANCELLATION_NOTE
+}
+
+/// Clients, Service and Distribution (ADR 0019). Record-keeping and exposure control only: nothing here moves money,
+/// sets a credit limit, or changes a booking. A restriction hides inventory from one agency's members in Agent search.
+enum AgencyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+/// Credit limit for one agency in one currency (ADR 0024). No row means no limit is configured (not enforced).
+/// Integer minor units only. Changed only through an approved maker-checker request.
+model AgencyCreditLimit {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agencyId    String   @unique @map("agency_id")
+  agency      Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  currency    String   @db.Char(3)
+  limitMinor  BigInt   @map("limit_minor")
+  updatedById String   @map("updated_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, agencyId])
+}
+
+/// Hotel image (ADR 0027). Bytes are stored in PostgreSQL behind a storage port; list queries must omit `data`.
+model HotelImage {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String   @map("hotel_id")
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  contentType  String   @map("content_type")
+  bytes        Int
+  width        Int
+  height       Int
+  sha256       String   @db.Char(64)
+  altText      String   @map("alt_text")
+  sortOrder    Int      @default(0) @map("sort_order")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  data         Bytes
+  uploadedById String   @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([hotelId, sha256])
+  @@index([tenantId, hotelId, sortOrder])
+}
+
+model Agency {
+  distributionClients DistributionClient[]
+  markupRules CommercialMarkupRule[]
+  bookings Booking[]
+  id          String       @id @default(cuid())
+  tenantId    String       @map("tenant_id")
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// Short stable code, unique per tenant (for example `GULF-TRAVEL`).
+  code        String
+  name        String
+  countryCode String?      @map("country_code") @db.Char(2)
+  status      AgencyStatus @default(ACTIVE)
+  /// Business notes only. Never guest PII, card data or credentials.
+  notes       String?
+  createdById String       @map("created_by_id")
+  createdBy   User         @relation("AgencyCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  members      AgencyMember[]
+  cases        ServiceCase[]
+  restrictions DistributionRestriction[]
+  creditLimit  AgencyCreditLimit?
+  accounts     Wallet[]
+  fundingReceipts FundingReceipt[]
+  commissionPayouts AgencyCommissionPayout[]
+  ledgerAdjustments LedgerAdjustment[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+}
+
+/// A user belongs to at most one agency per tenant.
+model AgencyMember {
+  agencyId  String   @map("agency_id")
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([agencyId, userId])
+  @@unique([tenantId, userId])
+  @@index([tenantId, agencyId])
+}
+
+enum ServiceCaseCategory {
+  BOOKING
+  HOTEL
+  SUPPLIER
+  AGENCY
+  OTHER
+}
+
+enum ServiceCasePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceCaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+/// A support case. It observes other records through optional links and never changes them.
+model ServiceCase {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// Human reference, unique per tenant (`SC-` plus eight characters).
+  reference   String
+  subject     String
+  /// Describe the problem with identifiers. Do not enter guest names, contact details or card data.
+  description String
+  category    ServiceCaseCategory
+  priority    ServiceCasePriority @default(NORMAL)
+  status      ServiceCaseStatus   @default(OPEN)
+  bookingId   String?             @map("booking_id")
+  booking     Booking?            @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  hotelId     String?             @map("hotel_id")
+  hotel       Hotel?              @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String?             @map("supplier_id")
+  supplier    Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  agencyId    String?             @map("agency_id")
+  agency      Agency?             @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  openedById  String              @map("opened_by_id")
+  openedBy    User                @relation("CaseOpener", fields: [openedById], references: [id], onDelete: Restrict)
+  assigneeId  String?             @map("assignee_id")
+  assignee    User?               @relation("CaseAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  resolvedAt  DateTime?           @map("resolved_at")
+  closedAt    DateTime?           @map("closed_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  notes ServiceCaseNote[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+  @@index([tenantId, assigneeId, status])
+  @@index([tenantId, bookingId])
+}
+
+/// Append-only: the API role is granted INSERT and SELECT only.
+model ServiceCaseNote {
+  id        String      @id @default(cuid())
+  tenantId  String      @map("tenant_id")
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  caseId    String      @map("case_id")
+  case      ServiceCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  authorId  String      @map("author_id")
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  body      String
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([tenantId, caseId, createdAt])
+}
+
+enum DistributionScope {
+  HOTEL
+  SUPPLIER
+}
+
+enum DistributionRestrictionStatus {
+  ACTIVE
+  RETIRED
+}
+
+/// Hides one hotel, or all of one supplier's inventory, from the members of one agency in Agent search, recheck and hold.
+/// At most one ACTIVE restriction per (agency, scope, target): a partial unique index in the migration.
+model DistributionRestriction {
+  id          String                        @id @default(cuid())
+  tenantId    String                        @map("tenant_id")
+  tenant      Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId    String                        @map("agency_id")
+  agency      Agency                        @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  scope       DistributionScope
+  hotelId     String?                       @map("hotel_id")
+  hotel       Hotel?                        @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String?                       @map("supplier_id")
+  supplier    Supplier?                     @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  status      DistributionRestrictionStatus @default(ACTIVE)
+  reason      String
+  createdById String                        @map("created_by_id")
+  createdBy   User                          @relation("RestrictionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  retiredAt   DateTime?                     @map("retired_at")
+  createdAt   DateTime                      @default(now()) @map("created_at")
+  updatedAt   DateTime                      @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([tenantId, agencyId, status])
+}
+
+/// Percent markup applied to NET daily rates (ADR 0018). Rules are immutable once created: only the status moves
+/// (DRAFT to ACTIVE through an approved request, ACTIVE or DRAFT to RETIRED). At most one ACTIVE rule exists per
+/// (tenant, scope, supplier, hotel): a partial unique index in the migration, which Prisma cannot model.
+enum MarkupScope {
+  TENANT_DEFAULT
+  SUPPLIER
+  HOTEL
+}
+
+enum MarkupRuleStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+/// ADR 0067 F-12: a tenant-controlled exchange rate for selling a contract in another currency. Activated maker-checker, like markup rules.
+enum FxRateStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+model FxRate {
+  id            String       @id @default(cuid())
+  tenantId      String       @map("tenant_id")
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// The contract (settlement) currency converted from, and the currency sold in.
+  baseCurrency  String       @map("base_currency") @db.Char(3)
+  quoteCurrency String       @map("quote_currency") @db.Char(3)
+  /// Quote major units per one base major unit, times 10^8 (an integer; never a float).
+  rateScaled    BigInt       @map("rate_scaled")
+  /// Added on top of the rate to cover movement until settlement, 0 to 2000 basis points.
+  bufferBp      Int          @default(0) @map("buffer_bp")
+  status        FxRateStatus @default(DRAFT)
+  reason        String
+  createdById   String       @map("created_by_id")
+  createdBy     User         @relation("FxRateCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt   DateTime?    @map("activated_at")
+  retiredAt     DateTime?    @map("retired_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+}
+
+model CommercialMarkupRule {
+  id          String           @id @default(cuid())
+  tenantId    String           @map("tenant_id")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  scope       MarkupScope
+  supplierId  String?          @map("supplier_id")
+  supplier    Supplier?        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  hotelId     String?          @map("hotel_id")
+  hotel       Hotel?           @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  /// ADR 0067 F-11: an optional client tier (one agency) and market tier (buyer agency country). A rule naming either applies only to that
+  /// buyer and outranks a rule without; null on both is the generic rule. Exclusions carve hotels or suppliers out of a broad rule.
+  agencyId    String?          @map("agency_id")
+  agency      Agency?          @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  market      String?          @db.Char(2)
+  excludedHotelIds    String[] @default([]) @map("excluded_hotel_ids")
+  excludedSupplierIds String[] @default([]) @map("excluded_supplier_ids")
+  /// 0 to 10000 (zero to one hundred percent). Integer basis points only.
+  basisPoints Int              @map("basis_points")
+  /// First and last night the rule applies to (inclusive). validTo null means open-ended.
+  validFrom   DateTime         @map("valid_from") @db.Date
+  validTo     DateTime?        @map("valid_to") @db.Date
+  status      MarkupRuleStatus @default(DRAFT)
+  reason      String
+  createdById String           @map("created_by_id")
+  createdBy   User             @relation("MarkupRuleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt DateTime?        @map("activated_at")
+  retiredAt   DateTime?        @map("retired_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([tenantId, scope, supplierId, hotelId])
+}
+
+/// Maker-checker foundation (ADR 0016). A request records who asked for a sensitive action and who decided it.
+/// Approval never executes the action and never replaces domain validation; the owning canonical service does that.
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  /// An APPROVED request that its owning service has claimed and run. Single use.
+  EXECUTED
+  /// Waited too long: PENDING past the TTL from the request, or APPROVED past the TTL from the decision (ADR 0095).
+  EXPIRED
+}
+
+model ApprovalRequest {
+  id             String                @id @default(cuid())
+  tenantId       String                @map("tenant_id")
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// A permission key from the catalogue, for example `refund.approve`.
+  action         String
+  entityType     String                @map("entity_type")
+  entityId       String                @map("entity_id")
+  requestId      String                @map("request_id")
+  status         ApprovalRequestStatus @default(PENDING)
+  requestedById  String                @map("requested_by_id")
+  requestedBy    User                  @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reason         String
+  /// Minimal before/after state. Never guest PII, credentials or raw supplier payloads.
+  beforeState    Json?                 @map("before_state")
+  proposedState  Json?                 @map("proposed_state")
+  decidedById    String?               @map("decided_by_id")
+  decidedBy      User?                 @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?             @map("decided_at")
+  decisionReason String?               @map("decision_reason")
+  executedById   String?               @map("executed_by_id")
+  executedBy     User?                 @relation("ApprovalExecutor", fields: [executedById], references: [id], onDelete: Restrict)
+  executedAt     DateTime?             @map("executed_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  @@unique([tenantId, action, requestId])
+  @@index([tenantId, status])
+  @@index([tenantId, entityType, entityId])
+}
+
+/// Outbound supplier side-effect boundary. Independent of Booking and AuditEvent.
+enum SupplierMutationOperation {
+  PREBOOK
+  BOOK
+  CANCEL
+}
+
+/// PREPARED: not sent. SENDING/UNKNOWN: may have been sent. ACKNOWLEDGED/REJECTED/RESOLVED: observed.
+enum SupplierMutationStatus {
+  PREPARED
+  SENDING
+  ACKNOWLEDGED
+  REJECTED
+  UNKNOWN
+  RESOLVED
+}
+
+/// How a night's stock is sold (ADR 0030). One explicit semantic per plan-night, never a magic quantity.
+enum InventoryMode {
+  ALLOTMENT
+  FREE_SALE
+  ON_REQUEST
+  CLOSED
+}
+
+/// Where inventory data came from. Supplier sources must carry `freshUntil` or they are treated as stale.
+enum InventorySource {
+  CONTRACT
+  ADMIN
+  SUPPLIER_API
+  SUPPLIER_FEED
+  SYSTEM
+}
+
+enum InventoryPoolStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Which counter a held or sold night was taken from, recorded at reservation time so later release, confirmation and cancellation
+/// always return to the same counter even if pool membership changes.
+enum InventoryCounterKind {
+  PLAN_ROW
+  POOL_DAY
+  NONE
 }
 
 enum InventoryHoldStatus {
@@ -49,6 +537,8 @@ enum InventoryHoldStatus {
   RECHECKED
   HOLD_PENDING
   HELD
+  PROCESSING
+  CONFIRMED
   RELEASED
   EXPIRED
   FAILED
@@ -65,6 +555,8 @@ enum LedgerEntryType {
   HOLD
   RELEASE
   REFUND
+  ADJUSTMENT
+  REVERSAL
 }
 
 enum SupplierType {
@@ -88,6 +580,7 @@ enum ContentStatus {
   INCOMPLETE
   COMPLETE
   SUSPENDED
+  ARCHIVED
 }
 
 enum ContractStatus {
@@ -104,11 +597,221 @@ enum MappingStatus {
   REJECTED
 }
 
+/// Extranet access for one supplier organization. This is not an admin role.
+enum SupplierMembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
 enum RatePlanStatus {
   DRAFT
   ACTIVE
   SUSPENDED
   EXPIRED
+}
+
+/// Payment model of a rate plan (ADR 0057). Deposit is not modelled: it needs money semantics that are not decided.
+enum RatePaymentType {
+  PREPAID
+  PAY_AT_HOTEL
+}
+
+/// What a guest line prices (ADR 0057, S6). CHILD is a per-night amount for a child whose age falls in the band; EXTRA_ADULT is per-night for each adult
+/// beyond the plan's base occupancy and always stores the sentinel band 18-99 so one unique key keeps a single such line per plan.
+enum GuestPriceKind {
+  CHILD
+  EXTRA_ADULT
+}
+
+/// Per-night price of an additional guest on a rate plan, on top of the plan's base nightly rate (ADR 0057, S6). Zero is an explicit free guest.
+/// A plan with no rows here keeps the original flat-occupancy rule. NET or SELL must match the basis of the nightly rate it is added to.
+model RatePlanGuestPrice {
+  id          String          @id @default(cuid())
+  tenantId    String          @map("tenant_id")
+  ratePlanId  String          @map("rate_plan_id")
+  ratePlan    RatePlan        @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  kind        GuestPriceKind
+  minAge      Int             @map("min_age")
+  maxAge      Int             @map("max_age")
+  amountMinor BigInt          @map("amount_minor")
+  amountBasis RateAmountBasis @map("amount_basis")
+  currency    String          @db.Char(3)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, kind, minAge, maxAge])
+  @@index([tenantId, ratePlanId])
+}
+
+/// How a derived rate plan adjusts its parent's nightly rate (ADR 0058, S10b).
+enum DerivedRateMode {
+  PERCENT_BP
+  FIXED_MINOR
+}
+
+/// Promotion kinds (ADR 0058). At most one applies to a stay; they never stack.
+enum PromotionKind {
+  EARLY_BIRD
+  LAST_MINUTE
+  LONG_STAY
+  FREE_NIGHTS
+}
+
+/// A promotion on one rate plan (ADR 0058, S10a): a percentage off every night (EARLY_BIRD, LAST_MINUTE, LONG_STAY) or the cheapest nights free
+/// (FREE_NIGHTS), under booking-lead, length-of-stay and date-window conditions. Applied by the one stay evaluator to the nightly net before the markup.
+enum PromotionStayWindowMode {
+  WHOLE_STAY
+  NIGHTS_IN_WINDOW
+}
+
+enum PromotionDiscountBase {
+  ROOM_AND_GUESTS
+  ROOM_ONLY
+}
+
+model RatePlanPromotion {
+  id          String        @id @default(cuid())
+  tenantId    String        @map("tenant_id")
+  ratePlanId  String        @map("rate_plan_id")
+  ratePlan    RatePlan      @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  kind        PromotionKind
+  name        String        @db.VarChar(80)
+  nameKey     String        @map("name_key") @db.VarChar(80)
+  percentBp   Int?          @map("percent_bp")
+  minLeadDays Int?          @map("min_lead_days")
+  maxLeadDays Int?          @map("max_lead_days")
+  minNights   Int?          @map("min_nights")
+  freeNights  Int?          @map("free_nights")
+  bookFrom    DateTime?     @map("book_from") @db.Date
+  bookTo      DateTime?     @map("book_to") @db.Date
+  stayFrom    DateTime?     @map("stay_from") @db.Date
+  stayTo      DateTime?     @map("stay_to") @db.Date
+  /// ADR 0067 F-09: may stack with other combinable promotions of the plan.
+  combinable  Boolean       @default(false)
+  /// WHOLE_STAY: every night inside the stay window. NIGHTS_IN_WINDOW: applies to the nights inside it.
+  stayWindowMode PromotionStayWindowMode @default(WHOLE_STAY) @map("stay_window_mode")
+  /// ROOM_ONLY: the extra-guest lines are not discounted.
+  discountBase PromotionDiscountBase @default(ROOM_AND_GUESTS) @map("discount_base")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@unique([ratePlanId, nameKey])
+  @@index([tenantId, ratePlanId])
+}
+
+/// Hotel deals and promotions (ADR 0089). A deal is authored at hotel level, approved by a second person, and priced by the ONE stay evaluator
+/// (ADR 0058): ACTIVE deals are loaded next to RatePlanPromotion rows and become PromotionRule objects. Nothing is compiled into RatePlanPromotion.
+enum HotelDealKind {
+  PERCENT_OFF
+  EARLY_BIRD
+  FLASH_SALE
+  STAY_X_PAY_Y
+  SUBSEQUENT_NIGHTS
+  EVERY_NTH_FREE
+  FIXED_OFF
+}
+
+enum HotelDealStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  SUSPENDED
+  EXPIRED
+  ARCHIVED
+}
+
+enum HotelDealAmountScope {
+  PER_NIGHT
+  PER_STAY
+}
+
+model HotelDeal {
+  id                String                @id @default(cuid())
+  tenantId          String                @map("tenant_id")
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId           String                @map("hotel_id")
+  hotel             Hotel                 @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  code              String                @db.VarChar(40)
+  codeKey           String                @map("code_key") @db.VarChar(40)
+  name              String                @db.VarChar(80)
+  kind              HotelDealKind
+  status            HotelDealStatus       @default(DRAFT)
+  /// Only a tie-break between equal savings. Never overrides a commercial guard or an eligibility rule.
+  priority          Int                   @default(0)
+  percentBp         Int?                  @map("percent_bp")
+  amountMinor       BigInt?               @map("amount_minor")
+  currency          String?               @db.Char(3)
+  amountScope       HotelDealAmountScope? @map("amount_scope")
+  minNights         Int?                  @map("min_nights")
+  freeNights        Int?                  @map("free_nights")
+  fromNight         Int?                  @map("from_night")
+  minLeadDays       Int?                  @map("min_lead_days")
+  bookFrom          DateTime?             @map("book_from") @db.Date
+  bookTo            DateTime?             @map("book_to") @db.Date
+  stayFrom          DateTime?             @map("stay_from") @db.Date
+  stayTo            DateTime?             @map("stay_to") @db.Date
+  /// Bit 0 Monday .. bit 6 Sunday of the NIGHT's hotel-local date. Null means every day.
+  weekdays          Int?
+  stayWindowMode    PromotionStayWindowMode @default(WHOLE_STAY) @map("stay_window_mode")
+  discountBase      PromotionDiscountBase   @default(ROOM_AND_GUESTS) @map("discount_base")
+  combinable        Boolean               @default(false)
+  stackingGroup     String?               @map("stacking_group") @db.VarChar(40)
+  incompatibleDealIds String[]            @default([]) @map("incompatible_deal_ids")
+  /// Channels the deal applies to (PORTAL, API). Empty means every channel the platform can name.
+  channels          String[]              @default([])
+  /// Buyer markets (the buying agency's country, ISO alpha-2). Empty means every market.
+  sourceMarkets     String[]              @default([]) @map("source_markets")
+  /// Explicit agencies of this tenant. Empty means every agency.
+  agencyIds         String[]              @default([]) @map("agency_ids")
+  maxDiscountBp     Int?                  @map("max_discount_bp")
+  minSellFloorMinor BigInt?               @map("min_sell_floor_minor")
+  minMarginBp       Int?                  @map("min_margin_bp")
+  /// SUPPLIER only (the discount reduces the supplier net, ADR 0058). Any other funding needs a finance decision.
+  fundingSource     String                @default("SUPPLIER") @map("funding_source") @db.VarChar(16)
+  activeFrom        DateTime?             @map("active_from") @db.Date
+  activeTo          DateTime?             @map("active_to") @db.Date
+  publicDescription String?               @map("public_description") @db.VarChar(500)
+  internalNotes     String?               @map("internal_notes") @db.VarChar(2000)
+  version           Int                   @default(1)
+  /// SHA-256 of the canonical terms, set when the deal is submitted; an approval is bound to it.
+  termsFingerprint  String?               @map("terms_fingerprint") @db.Char(64)
+  approvalId        String?               @map("approval_id")
+  statusReason      String?               @map("status_reason") @db.VarChar(500)
+  statusChangedAt   DateTime?             @map("status_changed_at")
+  statusChangedById String?               @map("status_changed_by_id")
+  activatedAt       DateTime?             @map("activated_at")
+  activatedById     String?               @map("activated_by_id")
+  idempotencyKey    String                @map("idempotency_key") @db.VarChar(80)
+  createdById       String                @map("created_by_id")
+  createdBy         User                  @relation("HotelDealCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  ratePlans HotelDealRatePlan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, codeKey])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, hotelId, status])
+  @@index([tenantId, status])
+}
+
+/// The rate plans a deal applies to. Editable only while the deal is a DRAFT (database trigger); a plan must belong to the deal's hotel.
+model HotelDealRatePlan {
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  dealId     String    @map("deal_id")
+  deal       HotelDeal @relation(fields: [tenantId, dealId], references: [tenantId, id], onDelete: Restrict)
+  ratePlanId String    @map("rate_plan_id")
+  ratePlan   RatePlan  @relation(fields: [tenantId, ratePlanId], references: [tenantId, id], onDelete: Restrict)
+
+  @@id([dealId, ratePlanId])
+  @@index([tenantId, ratePlanId])
 }
 
 /// Declares the commercial meaning of DailyRate.amountMinor. Legacy rows are
@@ -142,6 +845,57 @@ enum ConnectorExecutionStatus {
 }
 
 model Tenant {
+  supplierStatements SupplierStatement[]
+  supplierStatementLines SupplierStatementLine[]
+  reconciliationRuns ReconciliationRun[]
+  bankStatements BankStatement[]
+  bankStatementEntries BankStatementEntry[]
+  bankMatchFindings BankMatchFinding[]
+  ledgerChainLinks LedgerChainLink[]
+  bookingCreditNotes BookingCreditNote[]
+  agencyCommissionPayouts AgencyCommissionPayout[]
+  financePeriodCloses FinancePeriodClose[]
+  glAccounts GlAccount[]
+  glCategoryMappings GlCategoryMapping[]
+  ledgerAdjustments LedgerAdjustment[]
+  reconciliationFindings ReconciliationFinding[]
+  reconciliationDecisions ReconciliationDecision[]
+  bookingRooms BookingRoom[]
+  bookingGuests BookingGuest[]
+  bookingEvents BookingEvent[]
+  bookingSupplierJobs BookingSupplierJob[]
+  bookingSupplierCalls BookingSupplierCall[]
+  bookingEmails BookingEmail[]
+  bookingOpsStates BookingOpsState[]
+  bookingFinanceEvents BookingFinanceEvent[]
+  bookingFinancePostings BookingFinancePosting[]
+  supplierSettlements SupplierSettlement[]
+  supplierPaymentTerms SupplierPaymentTerms[]
+  supplierPayableEntries SupplierPayableEntry[]
+  bookingAmendments BookingAmendment[]
+  bookingSavedViews BookingSavedView[]
+  bookingBulkOperations BookingBulkOperation[]
+  bookingBulkOperationItems BookingBulkOperationItem[]
+  agencies Agency[]
+  distributionClients DistributionClient[]
+  distributionCredentials DistributionCredential[]
+  distributionAccessTokens DistributionAccessToken[]
+  inventoryPools InventoryPool[]
+  hotelImages HotelImage[]
+  agencyCreditLimits AgencyCreditLimit[]
+  fundingReceipts FundingReceipt[]
+  hotelProfiles HotelProfile[]
+  hotelExternalIdentifiers HotelExternalIdentifier[]
+  hotelAmenities HotelAmenity[]
+  roomAmenities RoomAmenity[]
+  agencyMembers AgencyMember[]
+  serviceCases ServiceCase[]
+  serviceCaseNotes ServiceCaseNote[]
+  distributionRestrictions DistributionRestriction[]
+  fxRates FxRate[]
+  hotelDeals HotelDeal[]
+  hotelDealRatePlans HotelDealRatePlan[]
+  markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
@@ -153,17 +907,27 @@ model Tenant {
   roles       Role[]
   roleAssignments UserRole[]
   bookings    Booking[]
+  bookingDocuments BookingDocument[]
   wallets     Wallet[]
   ledger      LedgerEntry[]
   auditEvents AuditEvent[]
   suppliers   Supplier[]
   hotels      Hotel[]
+  hotelSearchIndexes HotelSearchIndex[]
   boardBases  BoardBasis[]
   contracts   Contract[]
   connectorDefinitions ConnectorDefinition[]
   inventoryUpdateEvents InventoryUpdateEvent[]
   inventoryHolds InventoryHold[]
+  supplierMutations SupplierMutation[]
+  approvalRequests ApprovalRequest[]
   settings    TenantSettings?
+  controlProfile TenantControlProfile?
+  supplierMemberships SupplierMembership[]
+  supplierRoomDrafts SupplierRoomDraft[]
+  supplierChangeSets SupplierChangeSet[]
+  roomEvents RoomEvent[]
+  eventSupplements EventSupplement[]
 
   @@map("tenants")
 }
@@ -189,6 +953,26 @@ model TenantSettings {
 }
 
 model User {
+  bookingSupplierJobs BookingSupplierJob[] @relation("BookingSupplierJobRequester")
+  bookingFinanceActed BookingFinanceEvent[] @relation("BookingFinanceActor")
+  bookingAmendmentsRequested BookingAmendment[] @relation("BookingAmendmentRequester")
+  bookingAmendmentsDecided BookingAmendment[] @relation("BookingAmendmentDecider")
+  bookingOpsAssigned BookingOpsState[] @relation("BookingOpsAssignee")
+  bookingOpsAssignedBy BookingOpsState[] @relation("BookingOpsAssignedBy")
+  bookingOpsAcknowledged BookingOpsState[] @relation("BookingOpsAcknowledgedBy")
+  bookingOpsEscalated BookingOpsState[] @relation("BookingOpsEscalatedBy")
+  bookingOpsResolved BookingOpsState[] @relation("BookingOpsResolvedBy")
+  bookingsAsAgent Booking[] @relation("BookingAgent")
+  bookingsAssigned Booking[] @relation("BookingAssignee")
+  agencyMemberships AgencyMember[]
+  agenciesCreated Agency[] @relation("AgencyCreator")
+  casesOpened ServiceCase[] @relation("CaseOpener")
+  casesAssigned ServiceCase[] @relation("CaseAssignee")
+  caseNotes ServiceCaseNote[]
+  restrictionsCreated DistributionRestriction[] @relation("RestrictionCreator")
+  markupRulesCreated CommercialMarkupRule[] @relation("MarkupRuleCreator")
+  fxRatesCreated FxRate[] @relation("FxRateCreator")
+  hotelDealsCreated HotelDeal[] @relation("HotelDealCreator")
   id           String    @id @default(cuid())
   email        String    @unique
   name         String?
@@ -200,9 +984,14 @@ model User {
 
   memberships Membership[]
   sessions    Session[]
+  passwordResetTokens PasswordResetToken[]
   roles       UserRole[]
+  supplierMemberships SupplierMembership[]
   platformRoleAssignments PlatformRoleAssignment[]
   auditEvents AuditEvent[]
+  approvalsRequested ApprovalRequest[] @relation("ApprovalRequester")
+  approvalsDecided ApprovalRequest[] @relation("ApprovalDecider")
+  approvalsExecuted ApprovalRequest[] @relation("ApprovalExecutor")
 
   @@map("users")
 }
@@ -212,6 +1001,7 @@ model User {
 model Membership {
   id        String   @id @default(cuid())
   role      String   @default("member")
+  revokedAt DateTime? @map("revoked_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -221,9 +1011,33 @@ model Membership {
   tenantId String @map("tenant_id")
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  savedViews BookingSavedView[]
+  bulkOperations BookingBulkOperation[]
+
   @@unique([userId, tenantId])
   @@index([tenantId])
   @@map("memberships")
+}
+
+/// Business governance only. Does not author pricing, balances or distribution entitlements.
+model TenantControlProfile {
+  tenantId String @id @map("tenant_id")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  business Json
+  registrationKey String @unique @map("registration_key")
+  classification String @default("BUYER")
+  country String @db.Char(2)
+  stage String @default("DRAFT")
+  complianceStatus String @default("PENDING") @map("compliance_status")
+  complianceApprovedBy String? @map("compliance_approved_by")
+  updatedBy String @map("updated_by")
+  version Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([classification, country])
+  @@index([stage])
+  @@map("tenant_control_profiles")
 }
 
 /// Opaque, database-backed session (P0-D). The raw session token is
@@ -244,6 +1058,23 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// ADR 0091: single-use password-reset token. Only SHA-256(token) is stored, never the token itself.
+/// User-scoped like Session (a user exists before any tenant context), so there is no tenant column or RLS policy.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Permission {
@@ -324,13 +1155,16 @@ model PlatformRoleAssignment {
 }
 
 model Booking {
+  serviceCases ServiceCase[]
+  reconciliationFindings ReconciliationFinding[]
+  creditNotes BookingCreditNote[]
   id             String         @id @default(cuid())
   tenantId       String         @map("tenant_id")
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   reference      String         @unique
   supplier       String
   hotelId        String         @map("hotel_id")
-  status         BookingStatus  @default(PENDING)
+  status         BookingStatus  @default(PENDING_SUPPLIER)
   currency       String
   totalMinor     BigInt         @map("total_minor")
   idempotencyKey String         @map("idempotency_key")
@@ -338,9 +1172,532 @@ model Booking {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
   cancellations  Cancellation[]
+  documents      BookingDocument[]
+  supplierMutations SupplierMutation[]
 
+  // ---- Admin booking module (ADR 0039). Every new column is nullable or defaulted, so existing rows stay valid. A null is "unknown", never zero or false.
+  /// The agency (the bedbank's customer) that made the booking. Null: not derivable for older bookings, shown as "Unassigned" and visible only to operator-level readers.
+  agencyId            String?               @map("agency_id")
+  agency              Agency?               @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  /// The agent who made it. A user can be removed, so this is SET NULL; the agency link above is the durable one.
+  agentUserId         String?               @map("agent_user_id")
+  agentUser           User?                 @relation("BookingAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
+  channel             BookingChannel        @default(PORTAL)
+  /// Supplier organization that owns this booking (ADR 0061 Amendment 1). Set once at creation from hold -> rate plan -> contract; null for connector, manual and
+  /// unattributable historical bookings. Immutable once non-null (database trigger). Never derived from `supplier`, a name or request input.
+  supplierId          String?               @map("supplier_id")
+  supplierOrganization Supplier?            @relation("BookingSupplierOrganization", fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  agentRef            String?               @map("agent_ref")
+  /// Non-binding guest requests from checkout (ADR 0066): { codes: string[], note?: string }. Shown to the hotel as "not guaranteed"; never priced, never logged.
+  specialRequests     Json?                 @map("special_requests")
+  /// The supplier's own answer, kept apart from `status` (a free supplier word such as CONFIRMED or ON_REQUEST).
+  supplierStatus      String?               @map("supplier_status")
+  supplierRef         String?               @map("supplier_ref")
+  hotelConfirmationNo String?               @map("hotel_confirmation_no")
+  /// Promoted from the frozen search snapshot so the list can filter and sort on them.
+  checkIn             DateTime?             @map("check_in") @db.Date
+  checkOut            DateTime?             @map("check_out") @db.Date
+  nights              Int?
+  /// Integer minor units in `currency` (the sell amount is `totalMinor`). Unknown stays null.
+  netMinor            BigInt?               @map("net_minor")
+  markupMinor         BigInt?               @map("markup_minor")
+  /// Foreign-exchange rate frozen at booking time. Reports convert with this, never today's rate.
+  fxRate              Decimal?              @map("fx_rate") @db.Decimal(18, 8)
+  paymentMode         BookingPaymentMode?   @map("payment_mode")
+  paymentStatus       BookingPaymentStatus? @map("payment_status")
+  isRefundable        Boolean?              @map("is_refundable")
+  /// Free-cancellation deadline in UTC; shown in hotel local time.
+  cancelDeadline      DateTime?             @map("cancel_deadline")
+  assignedToId        String?               @map("assigned_to_id")
+  assignedTo          User?                 @relation("BookingAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  /// Optimistic version: bumped by the transition function (Phase 2).
+  version             Int                   @default(1)
+  /// "Closed" is a lock, not a status (spec decision 2): the last real status stays visible.
+  closedAt            DateTime?             @map("closed_at")
+  rooms               BookingRoom[]
+  guests              BookingGuest[]
+  events              BookingEvent[]
+  supplierJobs        BookingSupplierJob[]
+  emails              BookingEmail[]
+  opsState            BookingOpsState?
+  financeEvents       BookingFinanceEvent[]
+  financePostings     BookingFinancePosting[]
+  payableEntries      SupplierPayableEntry[]
+  amendments          BookingAmendment[]
+  /// The cancellation rules frozen with the booking (Phase 5): { rules: [{ daysBeforeCheckin, penaltyPercent | penaltyMinor }], frozenAt, source }. Written at creation only.
+  cancellationPolicy  Json?                 @map("cancellation_policy")
+  supplierCalls       BookingSupplierCall[]
+
+  @@unique([tenantId, id])
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status])
+  @@index([tenantId, status, checkIn])
+  @@index([tenantId, agencyId, status])
+  @@index([tenantId, supplierRef])
+  @@index([tenantId, hotelConfirmationNo])
+  @@index([tenantId, agentRef])
+  @@index([tenantId, cancelDeadline])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, supplierId, createdAt])
+  @@index([tenantId, supplierId, status])
+  @@index([tenantId, supplierId, checkIn])
+}
+
+/// The booked room product(s). `quantity` rooms of this type and board; occupancy is per room.
+model BookingRoom {
+  id         String         @id @default(cuid())
+  tenantId   String         @map("tenant_id")
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId  String         @map("booking_id")
+  booking    Booking        @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  position   Int            @default(1)
+  quantity   Int            @default(1)
+  roomTypeId String?        @map("room_type_id")
+  roomName   String?        @map("room_name")
+  boardCode  String?        @map("board_code")
+  adults     Int
+  children   Int            @default(0)
+  childAges  Int[]          @map("child_ages")
+  rateKey    String?        @map("rate_key")
+  sellMinor  BigInt?        @map("sell_minor")
+  netMinor   BigInt?        @map("net_minor")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  guests     BookingGuest[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, bookingId])
+}
+
+/// Guest personal data: masked for readers without `booking.pii.view`; every unmasked read is audited. Never logged.
+model BookingGuest {
+  id        String           @id @default(cuid())
+  tenantId  String           @map("tenant_id")
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId String           @map("booking_id")
+  booking   Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  roomId    String?          @map("room_id")
+  room      BookingRoom?     @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: NoAction)
+  title     String?
+  firstName String           @map("first_name")
+  lastName  String           @map("last_name")
+  /// 1-based room within the booking room line (identical rooms share one line with a quantity). Null for bookings made before ADR 0066.
+  roomNumber Int?           @map("room_number")
+  isLead    Boolean          @default(false) @map("is_lead")
+  type      BookingGuestType @default(ADULT)
+  age       Int?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId, bookingId])
+  @@index([tenantId, lastName])
+}
+
+/// Immutable lifecycle log. One row per status change, written by the transition function in the same transaction (Phase 2).
+/// A database trigger rejects UPDATE and DELETE. Rows written by the migration backfill say so in `payload`.
+enum BookingBulkActionType {
+  ASSIGN_OWNER
+  ACKNOWLEDGE
+}
+
+enum BookingBulkStatus {
+  PENDING
+  PROCESSING
+  PARTIAL
+  SUCCEEDED
+  FAILED
+}
+
+enum BookingBulkSelectionMode {
+  EXPLICIT_IDS
+}
+
+enum BookingBulkItemStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// One bulk request (ADR 0039, Phase 6C): orchestration record only. The effect of each item is made by the existing single-booking service. Idempotent by the
+/// unique key (tenant, requester, action, idempotency key). Stores ids, counts and stable codes, never guest data or exception text.
+model BookingBulkOperation {
+  id                 String                   @id @default(cuid())
+  tenantId           String                   @map("tenant_id")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  requestedByUserId  String                   @map("requested_by_user_id")
+  membership         Membership               @relation(fields: [requestedByUserId, tenantId], references: [userId, tenantId], onDelete: Cascade)
+  actionType         BookingBulkActionType    @map("action_type")
+  status             BookingBulkStatus        @default(PENDING)
+  selectionMode      BookingBulkSelectionMode @default(EXPLICIT_IDS) @map("selection_mode")
+  requestVersion     Int                      @default(1) @map("request_version")
+  actionPayload      Json                     @default("{}") @map("action_payload")
+  idempotencyKey     String                   @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint String                   @map("request_fingerprint") @db.Char(64)
+  requestedCount     Int                      @map("requested_count")
+  processedCount     Int                      @default(0) @map("processed_count")
+  succeededCount     Int                      @default(0) @map("succeeded_count")
+  failedCount        Int                      @default(0) @map("failed_count")
+  startedAt          DateTime?                @map("started_at")
+  completedAt        DateTime?                @map("completed_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+  items              BookingBulkOperationItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestedByUserId, actionType, idempotencyKey], map: "BookingBulkOperation_idempotency_key")
+  @@index([tenantId, requestedByUserId, createdAt], map: "BookingBulkOperation_requester_created_idx")
+}
+
+/// One selected booking in a bulk request. `bookingId` is deliberately not a foreign key: an id that does not exist must still be recorded as NOT_FOUND.
+model BookingBulkOperationItem {
+  id          String                @id @default(cuid())
+  tenantId    String                @map("tenant_id")
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operationId String                @map("operation_id")
+  operation   BookingBulkOperation  @relation(fields: [tenantId, operationId], references: [tenantId, id], onDelete: Cascade)
+  bookingId   String                @map("booking_id") @db.VarChar(80)
+  position    Int
+  status      BookingBulkItemStatus @default(PENDING)
+  errorCode   String?               @map("error_code") @db.VarChar(40)
+  processedAt DateTime?             @map("processed_at")
+
+  @@unique([operationId, bookingId])
+  @@index([tenantId, operationId])
+}
+
+/// A person's saved view of the booking list (ADR 0039, Phase 6B): a preference, never a security policy. Re-validated on every open.
+/// `defaultSlot` is 1 on the person's default view and NULL otherwise; the unique key over it allows at most one default per person per tenant.
+model BookingSavedView {
+  id                 String     @id @default(cuid())
+  tenantId           String     @map("tenant_id")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ownerUserId        String     @map("owner_user_id")
+  membership         Membership @relation(fields: [ownerUserId, tenantId], references: [userId, tenantId], onDelete: Cascade)
+  name               String     @db.VarChar(60)
+  nameKey            String     @map("name_key") @db.VarChar(60)
+  description        String?    @db.VarChar(200)
+  filterVersion      Int        @default(1) @map("filter_version")
+  filtersJson        Json       @map("filters_json")
+  sortJson           Json       @map("sort_json")
+  visibleColumnsJson Json?      @map("visible_columns_json")
+  defaultSlot        Int?       @map("default_slot") @db.SmallInt
+  version            Int        @default(1)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  @@unique([tenantId, ownerUserId, nameKey])
+  @@unique([tenantId, ownerUserId, defaultSlot])
+  @@index([tenantId, ownerUserId])
+}
+
+/// Money facts of the Admin booking module (ADR 0039, Phase 5): an append-only outbox the Finance module reads. Nothing here posts to a ledger or touches a balance.
+model BookingFinanceEvent {
+  id            String                   @id @default(cuid())
+  tenantId      String                   @map("tenant_id")
+  tenant        Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId     String                   @map("booking_id")
+  booking       Booking                  @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  type          BookingFinanceEventType
+  seq           Int                      @default(1)
+  currency      String                   @db.Char(3)
+  sellMinor     BigInt                   @map("sell_minor")
+  netMinor      BigInt?                  @map("net_minor")
+  penaltyMinor  BigInt?                  @map("penalty_minor")
+  refundMinor   BigInt?                  @map("refund_minor")
+  /// Signed price difference of an AMENDED event (new sell minus old sell, integer minor units). Null for every other type. Recorded only: the module posts nothing to the ledger.
+  adjustmentMinor BigInt?                @map("adjustment_minor")
+  paymentMode   BookingPaymentMode?      @map("payment_mode")
+  actorUserId   String?                  @map("actor_user_id")
+  actor         User?                    @relation("BookingFinanceActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  payload       Json                     @default("{}")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  posting       BookingFinancePosting?
+  payableEntries SupplierPayableEntry[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, bookingId, type, seq])
+  @@index([tenantId, bookingId, createdAt])
+  @@index([tenantId, type, createdAt])
+}
+
+/// What the Finance consumer did with one BookingFinanceEvent (ADR 0076): one row per event, written in the same transaction as the ledger entries and payable entries it
+/// describes. Written only by the narrow `fbeds_finpost_ops` role. POSTED and SKIPPED rows never change; REVIEW_REQUIRED is the only row that is updated (to a final status).
+model BookingFinancePosting {
+  id            String                      @id @default(cuid())
+  tenantId      String                      @map("tenant_id")
+  tenant        Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId     String                      @map("booking_id")
+  booking       Booking                     @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  eventId       String                      @map("event_id")
+  event         BookingFinanceEvent         @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict)
+  status        BookingFinancePostingStatus
+  /// Stable machine code for SKIPPED and REVIEW_REQUIRED (never a free-text or provider message). Null when POSTED.
+  reason        String?
+  attempts      Int                         @default(1)
+  walletId      String?                     @map("wallet_id")
+  currency      String                      @db.Char(3)
+  /// Net effect on the agency account of the ledger entries this event produced (signed, integer minor units). Zero when none.
+  /// What this event charged the agency (positive: the DEBIT legs) and refunded it (positive: the REFUND legs). Zero unless POSTED. The revenue report adds these up.
+  salesMinor    BigInt                      @default(0) @map("sales_minor")
+  refundsMinor  BigInt                      @default(0) @map("refunds_minor")
+  agencyEffectMinor BigInt                  @default(0) @map("agency_effect_minor")
+  /// Net effect on what is owed to the supplier (signed). Zero when none.
+  payableEffectMinor BigInt                 @default(0) @map("payable_effect_minor")
+  createdAt     DateTime                    @default(now()) @map("created_at")
+  updatedAt     DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([tenantId, eventId])
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, bookingId])
+}
+
+/// Append-only movements of what the operator owes a supplier for a booking (ADR 0076). Signed integer minor units in the booking currency; the balance of a booking is the sum.
+/// There is no payment or settlement record here: paying a supplier is a separate, undecided workflow (ADR 0054).
+model SupplierPayableEntry {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId   String              @map("booking_id")
+  booking     Booking             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  supplierId  String              @map("supplier_id")
+  supplier    Supplier            @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  eventId     String              @map("event_id")
+  event       BookingFinanceEvent @relation(fields: [tenantId, eventId], references: [tenantId, id], onDelete: Restrict)
+  kind        SupplierPayableKind
+  currency    String              @db.Char(3)
+  amountMinor BigInt              @map("amount_minor")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId, kind])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, supplierId, currency])
+}
+
+/// A structured amendment of a Confirmed booking (ADR 0072): the requested change to stay dates and/or room occupancy, the booking as it was, and, once approved, the
+/// supplier-confirmed price and the signed difference. Dates and head counts only: no guest personal data. One open (REQUESTED) amendment per booking.
+model BookingAmendment {
+  id                     String                 @id @default(cuid())
+  tenantId               String                 @map("tenant_id")
+  tenant                 Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId              String                 @map("booking_id")
+  booking                Booking                @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  status                 BookingAmendmentStatus @default(REQUESTED)
+  /// The booking's version when the request was made.
+  fromVersion            Int                    @map("from_version")
+  proposal               Json
+  beforeState            Json                   @map("before_state")
+  approvedSellMinor      BigInt?                @map("approved_sell_minor")
+  approvedNetMinor       BigInt?                @map("approved_net_minor")
+  /// New sell minus old sell. Signed.
+  differenceMinor        BigInt?                @map("difference_minor")
+  approvedCancelDeadline DateTime?              @map("approved_cancel_deadline")
+  /// Document types already issued when this was approved; they are not reissued.
+  documentsNotReissued   String[]               @default([]) @map("documents_not_reissued")
+  requestedByUserId      String?                @map("requested_by_user_id")
+  requestedBy            User?                  @relation("BookingAmendmentRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  decidedByUserId        String?                @map("decided_by_user_id")
+  decidedBy              User?                  @relation("BookingAmendmentDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  requestedAt            DateTime               @default(now()) @map("requested_at")
+  decidedAt              DateTime?              @map("decided_at")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, bookingId, createdAt])
+}
+
+/// Durable operational state of the booking operations queue (ADR 0039, Phase 4): owner, acknowledgement, a manual priority floor, a manual follow-up flag.
+/// The queue itself, SLA state, reason and priority are derived and never stored here.
+model BookingOpsState {
+  id                   String              @id @default(cuid())
+  tenantId             String              @map("tenant_id")
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId            String              @map("booking_id")
+  booking              Booking             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  assigneeUserId       String?             @map("assignee_user_id")
+  assignee             User?               @relation("BookingOpsAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assignedAt           DateTime?           @map("assigned_at")
+  assignedByUserId     String?             @map("assigned_by_user_id")
+  assignedBy           User?               @relation("BookingOpsAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  acknowledgedAt       DateTime?           @map("acknowledged_at")
+  acknowledgedByUserId String?             @map("acknowledged_by_user_id")
+  acknowledgedBy       User?               @relation("BookingOpsAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  manualPriority       BookingOpsPriority? @map("manual_priority")
+  escalatedAt          DateTime?           @map("escalated_at")
+  escalatedByUserId    String?             @map("escalated_by_user_id")
+  escalatedBy          User?               @relation("BookingOpsEscalatedBy", fields: [escalatedByUserId], references: [id], onDelete: SetNull)
+  escalationReason     String?             @map("escalation_reason")
+  followUp             Boolean             @default(false) @map("follow_up")
+  followUpAt           DateTime?           @map("follow_up_at")
+  resolvedAt           DateTime?           @map("resolved_at")
+  resolvedByUserId     String?             @map("resolved_by_user_id")
+  resolvedBy           User?               @relation("BookingOpsResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  version              Int                 @default(1)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, bookingId])
+  @@index([tenantId, assigneeUserId])
+  @@index([tenantId, updatedAt])
+}
+
+/// Supplier work queue for the Admin booking module (ADR 0039, Phase 3): book, cancel, status check. One first try plus three retries (30 s / 2 min / 5 min).
+model BookingSupplierJob {
+  id                String                   @id @default(cuid())
+  tenantId          String                   @map("tenant_id")
+  tenant            Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String                   @map("booking_id")
+  booking           Booking                  @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  kind              BookingSupplierJobKind
+  status            BookingSupplierJobStatus @default(QUEUED)
+  attempt           Int                      @default(0)
+  maxAttempts       Int                      @default(4) @map("max_attempts")
+  runAfter          DateTime                 @map("run_after")
+  lockedUntil       DateTime?                @map("locked_until")
+  requestedByUserId String?                  @map("requested_by_user_id")
+  requestedBy       User?                    @relation("BookingSupplierJobRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  idempotencyKey    String                   @map("idempotency_key")
+  requestFingerprint String                  @map("request_fingerprint")
+  lastErrorCode     String?                  @map("last_error_code")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  completedAt       DateTime?                @map("completed_at")
+  calls             BookingSupplierCall[]
+
+  @@unique([tenantId, bookingId, idempotencyKey])
+  @@index([tenantId, status, runAfter])
+  @@index([tenantId, bookingId, createdAt])
+}
+
+enum BookingEmailKind {
+  BOOKING_CONFIRMATION
+}
+
+enum BookingEmailStatus {
+  QUEUED
+  SENDING
+  RETRY_WAIT
+  SENT
+  FAILED
+}
+
+/// Transactional email outbox (ADR 0066). Queued in the same transaction that confirms the booking, sent by the booking module's dispatcher.
+/// Holds the recipient addresses (the booking agent's own email and optional CC addresses), never guest contact data and never the message body:
+/// the dispatcher renders it from the issued, immutable voucher and invoice.
+model BookingEmail {
+  id                String             @id @default(cuid())
+  tenantId          String             @map("tenant_id")
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String             @map("booking_id")
+  booking           Booking            @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  kind              BookingEmailKind
+  toAddress         String             @map("to_address")
+  ccAddresses       String[]           @default([]) @map("cc_addresses")
+  status            BookingEmailStatus @default(QUEUED)
+  attempt           Int                @default(0)
+  maxAttempts       Int                @default(5) @map("max_attempts")
+  runAfter          DateTime           @map("run_after")
+  lockedUntil       DateTime?          @map("locked_until")
+  lastErrorCode     String?            @map("last_error_code")
+  providerMessageId String?            @map("provider_message_id")
+  requestedByUserId String?            @map("requested_by_user_id")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  sentAt            DateTime?          @map("sent_at")
+
+  @@unique([tenantId, bookingId, kind])
+  @@index([tenantId, status, runAfter])
+}
+
+/// Append-only log of supplier calls: a summary, never a raw request or response (CLAUDE.md invariant 7).
+model BookingSupplierCall {
+  id                String                 @id @default(cuid())
+  tenantId          String                 @map("tenant_id")
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId         String                 @map("booking_id")
+  booking           Booking                @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  jobId             String?                @map("job_id")
+  job               BookingSupplierJob?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  action            BookingSupplierJobKind
+  attempt           Int
+  supplierKey       String                 @map("supplier_key")
+  outcome           String
+  errorCode         String?                @map("error_code")
+  httpStatus        Int?                   @map("http_status")
+  durationMs        Int?                   @map("duration_ms")
+  supplierReference String?                @map("supplier_reference")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  @@index([tenantId, bookingId, createdAt])
+}
+
+model BookingEvent {
+  id         String           @id @default(cuid())
+  tenantId   String           @map("tenant_id")
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId  String           @map("booking_id")
+  booking    Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Cascade)
+  fromStatus BookingStatus?   @map("from_status")
+  toStatus   BookingStatus    @map("to_status")
+  actorType  BookingActorType @map("actor_type")
+  actorId    String?          @map("actor_id")
+  reason     String?
+  payload    Json             @default("{}")
+  /// The named lifecycle action that made the change (Phase 2). Null on rows written earlier.
+  action             String?  @map("action")
+  idempotencyKey     String?  @map("idempotency_key")
+  requestFingerprint String?  @map("request_fingerprint")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, bookingId, idempotencyKey])
+  @@index([tenantId, bookingId, createdAt])
+}
+
+
+/// Durable record of one logical supplier mutation. Written before the adapter is called
+/// and updated with the supplier reference before ordinary booking or audit persistence.
+model SupplierMutation {
+  id                 String                     @id @default(cuid())
+  tenantId           String                     @map("tenant_id")
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId          String                     @map("booking_id")
+  booking            Booking                    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  holdId             String                     @map("hold_id")
+  hold               InventoryHold              @relation(fields: [tenantId, holdId], references: [tenantId, id], onDelete: Restrict)
+  supplierKey        String                     @map("supplier_key")
+  operation          SupplierMutationOperation
+  idempotencyKey     String                     @map("idempotency_key")
+  requestId          String                     @map("request_id")
+  status             SupplierMutationStatus
+  attemptedAt        DateTime?                  @map("attempted_at")
+  acknowledgedAt     DateTime?                  @map("acknowledged_at")
+  resolvedAt         DateTime?                  @map("resolved_at")
+  supplierReference  String?                    @map("supplier_reference")
+  supplierStatus     String?                    @map("supplier_status")
+  requestFingerprint String                     @map("request_fingerprint")
+  failureCategory    String?                    @map("failure_category")
+  failureCode        String?                    @map("failure_code")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  @@unique([tenantId, bookingId, operation, idempotencyKey])
+  @@index([tenantId, status])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, holdId])
+}
+
+model BookingDocument {
+  id        String              @id @default(cuid())
+  tenantId  String              @map("tenant_id")
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId String              @map("booking_id")
+  booking   Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  type      BookingDocumentType
+  number    String
+  payload   Json
+  issuedAt  DateTime            @default(now()) @map("issued_at")
+
+  @@unique([bookingId, type])
+  @@unique([tenantId, number])
+  @@index([tenantId, bookingId])
 }
 
 model Cancellation {
@@ -350,20 +1707,103 @@ model Cancellation {
   reason      String?
   refundMinor BigInt?  @map("refund_minor")
   createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([bookingId])
+}
+
+/// An account (ADR 0028). `agencyId` null is the tenant HOUSE account (one per tenant and currency, enforced by the partial unique index
+/// "Wallet_house_tenant_id_currency_key" in migration 202610210001, which Prisma cannot declare). A set `agencyId` is that agency's account.
+/// Slice 1 is read-only: no code path creates agency accounts or posts to them yet; holds and bookings use the house account.
+/// Funding receipts (ADR 0028 slice 2): DECLARED -> VERIFIED -> POSTED, or REJECTED. Only POSTED moves money.
+enum FundingReceiptStatus {
+  DECLARED
+  VERIFIED
+  POSTED
+  REJECTED
+}
+
+enum FundingMethod {
+  BANK_TRANSFER
+  CASH_DEPOSIT
+}
+
+enum FundingPayerType {
+  AGENCY
+  THIRD_PARTY
+}
+
+enum FundingChannel {
+  ADMIN
+  AGENT
+}
+
+/// A declared incoming payment for one agency. A declared or verified receipt adds nothing to any balance; posting credits the agency's
+/// account (opening it if needed) with one append-only CREDIT. Separation of duties is enforced by the service AND by CHECK constraints in
+/// migration 202610220001: the verifier, the compliance reviewer and the poster each differ from the declarer, and above the second-approval
+/// threshold the poster also differs from the verifier. One live receipt per (tenant, bank reference, amount, currency) is a partial unique
+/// index there (REJECTED receipts do not block a corrected declaration). User ids are plain text so history survives user removal.
+model FundingReceipt {
+  id                       String               @id @default(cuid())
+  tenantId                 String               @map("tenant_id")
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId                 String               @map("agency_id")
+  agency                   Agency               @relation(fields: [agencyId], references: [id], onDelete: Restrict)
+  currency                 String               @db.Char(3)
+  amountMinor              BigInt               @map("amount_minor")
+  method                   FundingMethod
+  bankReference            String               @map("bank_reference")
+  valueDate                DateTime             @map("value_date") @db.Date
+  payerName                String               @map("payer_name")
+  payerType                FundingPayerType     @map("payer_type")
+  notes                    String?
+  complianceReviewRequired Boolean              @map("compliance_review_required")
+  secondApprovalRequired   Boolean              @map("second_approval_required")
+  status                   FundingReceiptStatus @default(DECLARED)
+  channel                  FundingChannel
+  requestId                String               @map("request_id")
+  declaredById             String               @map("declared_by_id")
+  verifiedById             String?              @map("verified_by_id")
+  verifiedAt               DateTime?            @map("verified_at")
+  verificationNote         String?              @map("verification_note")
+  complianceClearedById    String?              @map("compliance_cleared_by_id")
+  complianceClearedAt      DateTime?            @map("compliance_cleared_at")
+  complianceNote           String?              @map("compliance_note")
+  postedById               String?              @map("posted_by_id")
+  postedAt                 DateTime?            @map("posted_at")
+  rejectedById             String?              @map("rejected_by_id")
+  rejectedAt               DateTime?            @map("rejected_at")
+  rejectionReason          String?              @map("rejection_reason")
+  walletId                 String?              @map("wallet_id")
+  wallet                   Wallet?              @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  ledgerEntryId            String?              @unique @map("ledger_entry_id")
+  ledgerEntry              LedgerEntry?         @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  reversals                LedgerAdjustment[]
+  createdAt                DateTime             @default(now()) @map("created_at")
+  updatedAt                DateTime             @updatedAt @map("updated_at")
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId, createdAt])
+  @@index([tenantId, bankReference])
 }
 
 model Wallet {
   id          String        @id @default(cuid())
   tenantId    String        @map("tenant_id")
   tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agencyId    String?       @map("agency_id")
+  agency      Agency?       @relation(fields: [agencyId], references: [id], onDelete: Restrict)
   currency    String        @default("USD") @db.Char(3)
   creditLimit BigInt        @default(0) @map("credit_limit")
   cachedBalance BigInt      @default(0) @map("cached_balance")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   entries     LedgerEntry[]
+  fundingReceipts FundingReceipt[]
+  chainLinks LedgerChainLink[]
+  ledgerAdjustments LedgerAdjustment[]
 
-  @@unique([tenantId, currency])
+  @@unique([tenantId, agencyId, currency])
   @@index([tenantId])
 }
 
@@ -379,9 +1819,246 @@ model LedgerEntry {
   reference   String?
   idempotencyKey String       @map("idempotency_key")
   immutableAt DateTime        @default(now()) @map("immutable_at")
+  fundingReceipt FundingReceipt?
+  chainLink LedgerChainLink?
+  creditNote BookingCreditNote?
+  commissionPayout AgencyCommissionPayout?
+  adjustment LedgerAdjustment?
 
   @@index([tenantId, immutableAt])
   @@unique([walletId, idempotencyKey])
+}
+
+enum CreditNoteReason {
+  SUPPLIER_SERVICE_FAILURE
+  PRICE_CORRECTION
+  GOODWILL
+}
+
+enum CreditNoteStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A partial credit to an agency for a charged, not cancelled booking (ADR 0095 part B). PROPOSED by one person, APPROVED or REJECTED by another. Approval posts exactly one REFUND to the agency
+/// account, in the same transaction, and links it here. Integer minor units in the booking currency; never more than the charge still unrefunded. Once decided a row never changes.
+model BookingCreditNote {
+  id             String           @id @default(cuid())
+  tenantId       String           @map("tenant_id")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  bookingId      String           @map("booking_id")
+  booking        Booking          @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  /// Per booking, from 1. The document number is `CN-<booking reference>-P<seq>`.
+  seq            Int
+  number         String
+  currency       String           @db.Char(3)
+  amountMinor    BigInt           @map("amount_minor")
+  reason         CreditNoteReason
+  note           String
+  status         CreditNoteStatus @default(PROPOSED)
+  requestId      String           @map("request_id")
+  proposedById   String           @map("proposed_by_id")
+  decidedById    String?          @map("decided_by_id")
+  decidedAt      DateTime?        @map("decided_at")
+  decisionReason String?          @map("decision_reason")
+  ledgerEntryId  String?          @unique @map("ledger_entry_id")
+  ledgerEntry    LedgerEntry?     @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, number])
+  @@unique([bookingId, seq])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, bookingId])
+}
+
+enum AgencyCommissionTier {
+  BRONZE
+  SILVER
+  GOLD
+  ENTERPRISE
+}
+
+enum CommissionPayoutStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A dynamic, tier-based commission payout to an agency for one closed period (ADR 0098). The tier and basis points are resolved from gross booked volume in the period by
+/// `resolveCommissionTier` (pure, no floats); the amount is `floor(grossBookedMinor * commissionBp / 10000)`. PROPOSED by one person, APPROVED or REJECTED by another. Approval
+/// posts exactly one CREDIT to the agency account, in the same transaction, and links it here. Once decided a row never changes.
+model AgencyCommissionPayout {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId         String                 @map("agency_id")
+  agency           Agency                 @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  /// Per agency, from 1. The document number is `COM-<agency code>-P<seq>`.
+  seq              Int
+  number           String
+  periodStart      DateTime               @map("period_start") @db.Date
+  periodEnd        DateTime               @map("period_end") @db.Date
+  currency         String                 @db.Char(3)
+  grossBookedMinor BigInt                 @map("gross_booked_minor")
+  tier             AgencyCommissionTier
+  commissionBp     Int                    @map("commission_bp")
+  amountMinor      BigInt                 @map("amount_minor")
+  status           CommissionPayoutStatus @default(PROPOSED)
+  requestId        String                 @map("request_id")
+  proposedById     String                 @map("proposed_by_id")
+  decidedById      String?                @map("decided_by_id")
+  decidedAt        DateTime?              @map("decided_at")
+  decisionReason   String?                @map("decision_reason")
+  ledgerEntryId    String?                @unique @map("ledger_entry_id")
+  ledgerEntry      LedgerEntry?           @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, number])
+  @@unique([agencyId, periodStart, periodEnd])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId])
+}
+
+enum LedgerAdjustmentKind {
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum LedgerAdjustmentReason {
+  BANK_FEE
+  UNIDENTIFIED_CREDIT_ALLOCATED
+  CORRECTION
+  GOODWILL
+  PAYMENT_RECALL
+  CHARGEBACK
+  DUPLICATE_PAYMENT
+}
+
+enum LedgerAdjustmentStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+}
+
+/// A reasoned correction (ADJUSTMENT) or a received payment taken back (REVERSAL) on an agency account (ADR 0100). PROPOSED by one person, APPROVED or REJECTED by another. Approval posts
+/// exactly one ledger entry of the same kind and amount, in the same transaction, and links it here. `amountMinor` is the signed stored amount: an ADJUSTMENT either way, a REVERSAL always
+/// negative and linked to the POSTED funding receipt it takes back. Once decided a row never changes and no row is ever deleted.
+model LedgerAdjustment {
+  id               String                 @id @default(cuid())
+  tenantId         String                 @map("tenant_id")
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId         String                 @map("agency_id")
+  agency           Agency                 @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  walletId         String                 @map("wallet_id")
+  wallet           Wallet                 @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  kind             LedgerAdjustmentKind
+  currency         String                 @db.Char(3)
+  amountMinor      BigInt                 @map("amount_minor")
+  reason           LedgerAdjustmentReason
+  note             String
+  fundingReceiptId String?                @map("funding_receipt_id")
+  fundingReceipt   FundingReceipt?        @relation(fields: [fundingReceiptId], references: [id], onDelete: Restrict)
+  status           LedgerAdjustmentStatus @default(PROPOSED)
+  requestId        String                 @map("request_id")
+  proposedById     String                 @map("proposed_by_id")
+  decidedById      String?                @map("decided_by_id")
+  decidedAt        DateTime?              @map("decided_at")
+  decisionReason   String?                @map("decision_reason")
+  ledgerEntryId    String?                @unique @map("ledger_entry_id")
+  ledgerEntry      LedgerEntry?           @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, agencyId])
+  @@index([walletId])
+  @@index([fundingReceiptId])
+}
+
+/// One closed calendar month of the ledger (ADR 0101): the per-currency control totals (opening + movement = closing), the integrity verdict and the hash chain heads at close. The database
+/// refuses a ledger entry dated inside a closed period. A row never changes, is never deleted and is never reopened.
+model FinancePeriodClose {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  /// First day of the month (UTC) and the first day of the next month; entries dated in [start, end) are locked.
+  periodStart      DateTime @map("period_start") @db.Date
+  periodEnd        DateTime @map("period_end") @db.Date
+  integrityVerdict String   @map("integrity_verdict")
+  warningCount     Int      @map("warning_count")
+  totals           Json
+  chainHeads       Json     @map("chain_heads")
+  note             String?
+  closedById       String   @map("closed_by_id")
+  closedAt         DateTime @default(now()) @map("closed_at")
+
+  @@unique([tenantId, periodStart])
+  @@index([tenantId, periodEnd])
+}
+
+/// A general-ledger account in a tenant's chart (ADR 0102). Code, name and type never change; an account is only ever deactivated, and not while a current mapping uses it.
+model GlAccount {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  code        String
+  name        String
+  type        String
+  active      Boolean  @default(true)
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  debitMappings  GlCategoryMapping[] @relation("GlMappingDebit")
+  creditMappings GlCategoryMapping[] @relation("GlMappingCredit")
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+}
+
+/// Which pair of accounts a ledger movement category posts to, for a positive stored amount (a negative one posts the other way round). Append-only: a change is a new version and the highest
+/// version of a category is current, so an earlier journal can always be explained by the version it used (ADR 0102).
+model GlCategoryMapping {
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  category        String
+  version         Int
+  debitAccountId  String    @map("debit_account_id")
+  debitAccount    GlAccount @relation("GlMappingDebit", fields: [tenantId, debitAccountId], references: [tenantId, id], onDelete: Restrict)
+  creditAccountId String    @map("credit_account_id")
+  creditAccount   GlAccount @relation("GlMappingCredit", fields: [tenantId, creditAccountId], references: [tenantId, id], onDelete: Restrict)
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, category, version])
+  @@index([tenantId, debitAccountId])
+  @@index([tenantId, creditAccountId])
+}
+
+/// One link of the per-wallet SHA-256 hash chain over "LedgerEntry" (ADR 0094). Written only by the database trigger "fbeds_ledger_chain_append"; no role may write it.
+model LedgerChainLink {
+  id            String      @id @default(cuid())
+  tenantId      String      @map("tenant_id")
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  walletId      String      @map("wallet_id")
+  wallet        Wallet      @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  ledgerEntryId String      @unique @map("ledger_entry_id")
+  ledgerEntry   LedgerEntry @relation(fields: [ledgerEntryId], references: [id], onDelete: Restrict)
+  seq           Int
+  prevHash      String      @map("prev_hash") @db.Char(64)
+  entryHash     String      @map("entry_hash") @db.Char(64)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@unique([walletId, seq])
+  @@index([tenantId, walletId])
 }
 
 model AuditEvent {
@@ -403,6 +2080,12 @@ model AuditEvent {
 
 /// Tenant-owned commercial source. Credential material is never persisted here.
 model Supplier {
+  sandboxRuns SandboxContentRun[]
+  sandboxLeases SandboxContentLease[]
+  inventoryPools InventoryPool[]
+  serviceCases ServiceCase[]
+  distributionRestrictions DistributionRestriction[]
+  markupRules CommercialMarkupRule[]
   id              String         @id @default(cuid())
   tenantId        String         @map("tenant_id")
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -420,6 +2103,20 @@ model Supplier {
   contracts      Contract[]
   connectors     ConnectorDefinition[]
   inventoryEvents InventoryUpdateEvent[]
+  memberships    SupplierMembership[]
+  roomDrafts     SupplierRoomDraft[]
+  changeSets     SupplierChangeSet[]
+  bookingsOwned  Booking[] @relation("BookingSupplierOrganization")
+  payableEntries SupplierPayableEntry[]
+  settlements    SupplierSettlement[]
+  paymentTerms   SupplierPaymentTerms[]
+  supplierStatements SupplierStatement[]
+  reconciliationFindings ReconciliationFinding[]
+  ingestRuns SupplierIngestRun[]
+  promotionRuns SupplierPromotionRun[]
+  rateObservations SupplierRateObservation[]
+  allotmentObservations SupplierAllotmentObservation[]
+  cancellationObservations SupplierCancellationObservation[]
 
   @@unique([tenantId, legalName])
   @@unique([tenantId, id])
@@ -429,6 +2126,14 @@ model Supplier {
 
 /// Canonical fBeds property identity, deliberately separate from supplier IDs.
 model Hotel {
+  inventoryPools InventoryPool[]
+  serviceCases ServiceCase[]
+  distributionRestrictions DistributionRestriction[]
+  markupRules CommercialMarkupRule[]
+  profile HotelProfile?
+  externalIdentifiers HotelExternalIdentifier[]
+  amenities HotelAmenity[]
+  images HotelImage[]
   id            String        @id @default(cuid())
   tenantId      String        @map("tenant_id")
   tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -448,11 +2153,144 @@ model Hotel {
 
   roomTypes RoomType[]
   mappings  SupplierHotelMapping[]
+  searchIndex HotelSearchIndex?
+  supplierRoomDrafts SupplierRoomDraft[]
+  supplierChangeSets SupplierChangeSet[]
+  deals HotelDeal[]
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
   @@index([tenantId, countryCode, city])
   @@index([tenantId, contentStatus])
+  @@index([tenantId, name, id])
+}
+
+/// Operational and descriptive hotel content (ADR 0021). One row per canonical hotel, created lazily by the first save.
+/// Optimistic concurrency: `version` starts at 1 and increases by one on every save. Contacts are private: no Agent,
+/// Website or supplier API reads this table. Actor ids are plain identifiers (no foreign key) so history survives user removal.
+model HotelProfile {
+  id        String @id @default(cuid())
+  tenantId  String @map("tenant_id")
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String @unique @map("hotel_id")
+  hotel     Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  legalName        String?  @map("legal_name")
+  chainName        String?  @map("chain_name")
+  brandName        String?  @map("brand_name")
+  area             String?
+  postalCode       String?  @map("postal_code")
+  shortDescription String?  @map("short_description")
+  fullDescription  String?  @map("full_description")
+  languages        String[] @default([])
+  checkInTime      String?  @map("check_in_time") @db.Char(5)
+  checkOutTime     String?  @map("check_out_time") @db.Char(5)
+  operationalNotes String?  @map("operational_notes")
+  /// Private reservations, commercial, finance and emergency contacts. Never returned by Agent or public APIs.
+  contacts         Json     @default("{}")
+  /// Hotel-level information only (children, extra beds, pets, accessibility, local charges). Never rate cancellation terms.
+  policies         Json     @default("{}")
+  /// Structured charges paid at the hotel (ADR 0067, F-04): Tourism Dirham, city tax, resort fees. Disclosed to Agents and on documents, never priced in.
+  localCharges     Json     @default("[]") @map("local_charges")
+  sourceSystem     String?  @map("source_system")
+  ownerUserId      String?  @map("owner_user_id")
+  starSource       String?  @map("star_source")
+  starVerifiedAt   DateTime? @map("star_verified_at")
+  starVerifiedById String?  @map("star_verified_by_id")
+  approvedById     String?  @map("approved_by_id")
+  approvedAt       DateTime? @map("approved_at")
+  version          Int      @default(1)
+  updatedById      String   @map("updated_by_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId, hotelId])
+}
+
+/// External hotel identifiers (for example GIATA), stored apart from the canonical id. One value per scheme per hotel,
+/// and a value identifies at most one hotel per tenant and scheme.
+model HotelExternalIdentifier {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String   @map("hotel_id")
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  scheme      String
+  value       String
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, scheme, value])
+  @@unique([hotelId, scheme])
+  @@index([tenantId, hotelId])
+}
+
+enum AmenityFeeType {
+  FREE
+  PAID
+  UNKNOWN
+}
+
+/// A hotel-level amenity selected from the controlled catalogue (`@bedbanks/contracts` HOTEL_AMENITY_CATALOGUE). A row means the
+/// amenity was recorded for the hotel; no row means nothing is recorded, never "absent". `feeType` UNKNOWN is an explicit answer.
+model HotelAmenity {
+  id          String         @id @default(cuid())
+  tenantId    String         @map("tenant_id")
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String         @map("hotel_id")
+  hotel       Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  code        String
+  feeType     AmenityFeeType @default(UNKNOWN) @map("fee_type")
+  updatedById String         @map("updated_by_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([hotelId, code])
+  @@index([tenantId, hotelId])
+}
+
+/// A room-level amenity. The composite foreign key keeps the room inside the hotel the row names.
+model RoomAmenity {
+  id          String         @id @default(cuid())
+  tenantId    String         @map("tenant_id")
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String         @map("hotel_id")
+  roomTypeId  String         @map("room_type_id")
+  roomType    RoomType       @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Cascade)
+  code        String
+  feeType     AmenityFeeType @default(UNKNOWN) @map("fee_type")
+  updatedById String         @map("updated_by_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([roomTypeId, code])
+  @@index([tenantId, hotelId])
+}
+
+/// Normalized identity used only to propose canonical hotel candidates.
+/// Embeddings are a retrieval signal. They never approve a mapping by themselves.
+model HotelSearchIndex {
+  id                     String   @id @default(cuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId                String   @map("hotel_id")
+  hotel                  Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
+  normalizedName         String   @map("normalized_name")
+  normalizedAddress      String   @map("normalized_address")
+  normalizedCity         String   @map("normalized_city")
+  normalizedCountryCode  String   @db.Char(2) @map("normalized_country_code")
+  latitude               Decimal? @db.Decimal(9, 6)
+  longitude              Decimal? @db.Decimal(9, 6)
+  embedding              Unsupported("vector(64)")
+  embeddingModel         String   @map("embedding_model")
+  /// Generated column (see migration 202611250001); never written by the application.
+  searchTsv              Unsupported("tsvector")? @map("search_tsv")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, hotelId])
+  @@index([tenantId, normalizedCountryCode, normalizedCity])
+  @@index([normalizedName(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_name_trgm")
+  @@index([normalizedAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "HotelSearchIndex_address_trgm")
+  @@index([searchTsv], type: Gin, map: "HotelSearchIndex_search_tsv_idx")
 }
 
 model RoomType {
@@ -471,6 +2309,8 @@ model RoomType {
 
   ratePlans RatePlan[]
   supplierRoomMappings SupplierRoomMapping[]
+  supplierRoomDrafts SupplierRoomDraft[]
+  amenities RoomAmenity[]
 
   @@unique([hotelId, code])
   @@unique([hotelId, id])
@@ -488,6 +2328,7 @@ model BoardBasis {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  supplements ContractSupplement[]
   ratePlans RatePlan[]
 
   @@unique([tenantId, code])
@@ -535,10 +2376,160 @@ model SupplierRoomMapping {
 
   supplierHotelMapping SupplierHotelMapping @relation(fields: [tenantId, supplierHotelMappingId, hotelId], references: [tenantId, id, hotelId], onDelete: Cascade)
   roomType RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  ratePlanMappings SupplierRatePlanMapping[]
 
   @@unique([supplierHotelMappingId, supplierRoomId])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
   @@index([hotelId, roomTypeId])
+}
+
+/// Authenticated user membership in one tenant-owned supplier organization.
+/// Admin supply permissions do not create this row.
+model SupplierMembership {
+  id         String                   @id @default(cuid())
+  tenantId   String                   @map("tenant_id")
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId     String                   @map("user_id")
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supplierId String                   @map("supplier_id")
+  supplier   Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
+  status     SupplierMembershipStatus @default(ACTIVE)
+  createdAt  DateTime                 @default(now()) @map("created_at")
+  updatedAt  DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([userId, tenantId, supplierId])
+  @@index([tenantId, userId, status])
+  @@index([tenantId, supplierId])
+  @@map("supplier_memberships")
+}
+
+/// Private supplier note for a mapped room. It is not room content, a rate, or availability,
+/// and it cannot be published or activated.
+model SupplierRoomDraft {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId    String   @map("supplier_id")
+  supplier      Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
+  hotelId       String   @map("hotel_id")
+  hotel         Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Cascade)
+  roomTypeId    String   @map("room_type_id")
+  roomType      RoomType @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  supplierNotes String   @map("supplier_notes") @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, supplierId, roomTypeId])
+  @@index([tenantId, supplierId, hotelId])
+  @@map("supplier_room_drafts")
+}
+
+/// ADR 0061 Amendment 3 (slice 4a). A supplier's reviewed submission of availability and stop-sale changes. The supplier never writes
+/// DailyAvailability: staff review a submitted set and apply it through the existing calendar edit. Cells freeze when the set leaves DRAFT.
+enum SupplierChangeSetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  APPLIED
+  FAILED
+  WITHDRAWN
+}
+
+model SupplierChangeSet {
+  id               String                  @id @default(cuid())
+  tenantId         String                  @map("tenant_id")
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplierId       String                  @map("supplier_id")
+  supplier         Supplier                @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  hotelId          String                  @map("hotel_id")
+  hotel            Hotel                   @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  status           SupplierChangeSetStatus @default(DRAFT)
+  /// Incremented each time the draft's cells are replaced. Submit names the version the supplier reviewed.
+  version          Int                     @default(1)
+  cellCount        Int                     @map("cell_count")
+  /// SHA-256 over the canonical cells, so a reviewer can tell the set is what was submitted.
+  contentSha256    String                  @map("content_sha256") @db.Char(64)
+  createdByUserId  String                  @map("created_by_user_id")
+  submittedAt      DateTime?               @map("submitted_at")
+  submittedByUserId String?                @map("submitted_by_user_id")
+  decidedAt        DateTime?               @map("decided_at")
+  decidedByUserId  String?                 @map("decided_by_user_id")
+  decisionReason   String?                 @map("decision_reason") @db.VarChar(500)
+  appliedAt        DateTime?               @map("applied_at")
+  failureCode      String?                 @map("failure_code") @db.VarChar(64)
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  cells  SupplierChangeSetCell[]
+  events SupplierChangeSetEvent[]
+
+  @@unique([tenantId, supplierId, id])
+  @@index([tenantId, supplierId, status, createdAt])
+  @@index([tenantId, status, submittedAt])
+  @@map("supplier_change_sets")
+}
+
+model SupplierChangeSetCell {
+  id               String            @id @default(cuid())
+  tenantId         String            @map("tenant_id")
+  supplierId       String            @map("supplier_id")
+  changeSetId      String            @map("change_set_id")
+  changeSet        SupplierChangeSet @relation(fields: [tenantId, supplierId, changeSetId], references: [tenantId, supplierId, id], onDelete: Cascade)
+  ratePlanId       String            @map("rate_plan_id")
+  ratePlan         RatePlan          @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  stayDate         DateTime          @map("stay_date") @db.Date
+  allotment        Int
+  stopSell         Boolean           @map("stop_sell")
+  minStay          Int               @map("min_stay")
+  releaseDays      Int?              @map("release_days")
+  /// The cell's version when the supplier prepared it (null: a new cell). Apply fails the whole set if the cell changed since.
+  expectedUpdatedAt DateTime?        @map("expected_updated_at")
+
+  @@unique([changeSetId, ratePlanId, stayDate])
+  @@index([tenantId, supplierId, changeSetId])
+  @@map("supplier_change_set_cells")
+}
+
+/// Append-only history of a change set (database trigger rejects UPDATE and DELETE).
+model SupplierChangeSetEvent {
+  id                 String            @id @default(cuid())
+  tenantId           String            @map("tenant_id")
+  supplierId         String            @map("supplier_id")
+  changeSetId        String            @map("change_set_id")
+  changeSet          SupplierChangeSet @relation(fields: [tenantId, supplierId, changeSetId], references: [tenantId, supplierId, id], onDelete: Cascade)
+  action             String            @db.VarChar(40)
+  fromStatus         SupplierChangeSetStatus? @map("from_status")
+  toStatus           SupplierChangeSetStatus  @map("to_status")
+  actorUserId        String            @map("actor_user_id")
+  requestId          String?           @map("request_id") @db.VarChar(128)
+  idempotencyKey     String?           @map("idempotency_key") @db.VarChar(128)
+  requestFingerprint String?           @map("request_fingerprint") @db.Char(64)
+  /// Facts only: counts, version, hash. Never free text or guest data.
+  payload            Json              @default("{}")
+  createdAt          DateTime          @default(now()) @map("created_at")
+
+  /// One Idempotency-Key names one logical request per supplier organization.
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, supplierId, changeSetId, createdAt])
+  @@map("supplier_change_set_events")
+}
+
+enum ContractRateType {
+  NET
+  COMMISSIONABLE
+}
+
+enum ContractAllotmentType {
+  GUARANTEED
+  NON_GUARANTEED
+  FREE_SALE
+}
+
+enum MinStayMode {
+  STAY_THROUGH
+  ARRIVAL
 }
 
 model Contract {
@@ -557,6 +2548,22 @@ model Contract {
   salesMarkets        Json           @default("[]") @map("sales_markets")
   nationalities       Json           @default("[]")
   paymentPolicyRef    String?        @map("payment_policy_ref")
+  /// Commercial header (ADR 0067, F-20). Null means not recorded; never defaulted.
+  rateType            ContractRateType?      @map("rate_type")
+  /// Basis points of the sell price paid as commission; only for COMMISSIONABLE (database check).
+  commissionBp        Int?                   @map("commission_bp")
+  paymentTermsDays    Int?                   @map("payment_terms_days")
+  signedAt            DateTime?              @map("signed_at") @db.Date
+  /// Reference to the signed contract in the document store; never the document itself.
+  signedDocumentRef   String?                @map("signed_document_ref") @db.VarChar(200)
+  allotmentType       ContractAllotmentType? @map("allotment_type")
+  /// How a night's minimum stay applies (ADR 0067, F-15): to every stay through that night, or only to stays arriving on it.
+  minStayMode         MinStayMode            @default(STAY_THROUGH) @map("min_stay_mode")
+  /// Governance, not commercial terms: editable while ACTIVE. The owner is a tenant member id (no foreign key, like other actor ids).
+  ownerUserId         String?                @map("owner_user_id")
+  renewalReminderDays Int                    @default(60) @map("renewal_reminder_days")
+  /// Days the buyer's cancellation tiers start before the hotel's (ADR 0067, F-10), 0-30. A reviewed term.
+  clientBufferDays    Int                    @default(0) @map("client_buffer_days")
   sourceMetadata      Json           @default("{}") @map("source_metadata")
   version             Int            @default(1)
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -566,10 +2573,41 @@ model Contract {
   cancellationPolicies  CancellationPolicy[]
   childPolicies         ChildPolicy[]
   leadTimeRules         BookingLeadTimeRule[]
+  versions              ContractVersion[]
+  supplements           ContractSupplement[]
+  eventSupplements      EventSupplement[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
   @@index([supplierId, status])
+  @@index([supplierHotelMappingId])
+}
+
+enum ContractVersionKind {
+  ACTIVATION
+  AMENDMENT
+}
+
+/// Immutable snapshot of a contract's reviewed terms (ADR 0067, F-01). One row per approved activation or amendment; never updated or deleted
+/// (database trigger). `version` is the contract version the terms became; `fingerprint` is the SHA-256 the approval was bound to.
+model ContractVersion {
+  id            String              @id @default(cuid())
+  tenantId      String              @map("tenant_id")
+  contractId    String              @map("contract_id")
+  contract      Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  version       Int
+  kind          ContractVersionKind
+  terms         Json
+  fingerprint   String              @db.Char(64)
+  approvalId    String              @map("approval_id")
+  requestedById String              @map("requested_by_id")
+  approvedById  String              @map("approved_by_id")
+  appliedById   String              @map("applied_by_id")
+  reason        String
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  @@unique([contractId, version])
+  @@index([tenantId, contractId])
 }
 
 model RatePlan {
@@ -591,28 +2629,261 @@ model RatePlan {
   minStay           Int            @default(1) @map("min_stay")
   maxStay           Int?           @map("max_stay")
   releaseDays       Int            @default(0) @map("release_days")
+  /// Hotel-local time of day (HH:MM) at which the release deadline falls, `releaseDays` before the check-in date (ADR 0030).
+  releaseTimeLocal  String         @default("18:00") @map("release_time_local") @db.Char(5)
+  /// Optional sale window of this plan (ADR 0057). Null inherits the contract term on that side. A stay must fit inside both; the window never extends the contract.
+  validFrom         DateTime?      @map("valid_from") @db.Date
+  validTo           DateTime?      @map("valid_to") @db.Date
+  /// How the buyer pays. Null means not recorded; it is never defaulted.
+  paymentType       RatePaymentType? @map("payment_type")
+  /// Buyer markets (agency country) and guest nationalities this plan is sold to (ADR 0057, slice S3). ISO-3166 alpha-2 allow-lists. Empty means no extra restriction beyond the contract; a non-empty list can only narrow the contract's own list.
+  salesMarkets      Json           @default("[]") @map("sales_markets")
+  nationalities     Json           @default("[]")
+  /// Name of a cancellation rule set on this plan's contract (ADR 0057). Null uses the contract default rules.
+  cancellationPolicySet String?    @map("cancellation_policy_set") @db.VarChar(80)
+  /// The shared physical stock this plan draws from, if any. Pools never mix tenants, hotels or suppliers (database trigger).
+  /// Derived rate (ADR 0058, S10b): this plan sells at its parent's nightly rate for the same date, adjusted. A derived plan has no DailyRate rows of its own.
+  derivedFromId     String?        @map("derived_from_id")
+  derivedFrom       RatePlan?      @relation("DerivedRates", fields: [derivedFromId], references: [id], onDelete: Restrict)
+  derivedPlans      RatePlan[]     @relation("DerivedRates")
+  derivedMode       DerivedRateMode? @map("derived_mode")
+  /// Signed. PERCENT_BP: basis points of the parent rate (-9000..100000). FIXED_MINOR: minor units (at most 2,000,000,000) added to the parent rate.
+  derivedAdjustment Int?           @map("derived_adjustment")
+  inventoryPoolId   String?        @map("inventory_pool_id")
+  inventoryPool     InventoryPool? @relation(fields: [tenantId, inventoryPoolId], references: [tenantId, id], onDelete: Restrict)
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
   availability DailyAvailability[]
+  supplierChangeSetCells SupplierChangeSetCell[]
   dailyRates   DailyRate[]
+  guestPrices  RatePlanGuestPrice[]
+  supplements  ContractSupplement[]
+  eventSupplements EventSupplement[]
+  promotions   RatePlanPromotion[]
+  deals        HotelDealRatePlan[]
+  supplierMappings SupplierRatePlanMapping[]
 
   @@unique([contractId, code])
+  @@unique([tenantId, id])
   @@index([tenantId, status])
+  @@index([tenantId, derivedFromId])
   @@index([roomTypeId])
+  @@index([tenantId, inventoryPoolId])
+}
+
+enum CancellationRuleKind {
+  CANCELLATION
+  NO_SHOW
 }
 
 model CancellationPolicy {
   id              String   @id @default(cuid())
   contractId      String   @map("contract_id")
   contract        Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// Named set within the contract (ADR 0057). Null is the contract default, which a plan with no `cancellationPolicySet` uses.
+  policySet       String?  @map("policy_set") @db.VarChar(80)
+  /// CANCELLATION applies from `daysBeforeCheckin`; NO_SHOW (days 0) applies when the guest does not arrive (ADR 0067, F-10).
+  kind            CancellationRuleKind @default(CANCELLATION)
   daysBeforeCheckin Int    @map("days_before_checkin")
   penaltyPercent  Int?     @map("penalty_percent")
   penaltyMinor    BigInt?  @map("penalty_minor")
+  /// Penalty as a number of the stay's nights (1-30), charged pro rata of the booking total. Exclusive with percent and amount.
+  penaltyNights   Int?     @map("penalty_nights")
   currency        String?  @db.Char(3)
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@index([contractId])
+  @@index([contractId, policySet])
+}
+
+enum SupplementKind {
+  BOARD
+  COMPULSORY
+}
+
+enum SupplementBasis {
+  PER_ADULT
+  PER_CHILD
+  PER_PERSON
+  PER_ROOM
+}
+
+enum SupplementFrequency {
+  PER_NIGHT
+  PER_STAY
+}
+
+/// A charge the contract adds to the room rate (ADR 0067): a BOARD supplement for plans sold on that board (e.g. half board on a BB rate),
+/// or a COMPULSORY one such as a gala dinner. Added after the promotion and before the markup, in the plan's basis. A reviewed contract term.
+model ContractSupplement {
+  id           String              @id @default(cuid())
+  contractId   String              @map("contract_id")
+  contract     Contract            @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  kind         SupplementKind
+  name         String              @db.VarChar(80)
+  /// BOARD: the board the supplement prices. Required for BOARD, absent for COMPULSORY.
+  boardBasisId String?             @map("board_basis_id")
+  boardBasis   BoardBasis?         @relation(fields: [boardBasisId], references: [id], onDelete: Restrict)
+  /// Optional: only this plan of the contract. Null applies to every plan (of the board, for BOARD).
+  ratePlanId   String?             @map("rate_plan_id")
+  ratePlan     RatePlan?           @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  basis        SupplementBasis
+  frequency    SupplementFrequency
+  amountMinor  BigInt              @map("amount_minor")
+  currency     String              @db.Char(3)
+  /// Stay nights it applies to (inclusive). Null on both sides: every night.
+  stayFrom     DateTime?           @map("stay_from") @db.Date
+  stayTo       DateTime?           @map("stay_to") @db.Date
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([contractId])
+}
+
+enum RoomEventType {
+  EXHIBITION
+  TRADE_FAIR
+  CONFERENCE
+  FESTIVAL
+  PEAK_SEASON
+  OTHER
+}
+
+enum RoomEventStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  CANCELLED
+  ARCHIVED
+}
+
+/// Event catalogue (ADR 0089, Phase 2): the event itself, independent of any hotel's commercial terms. An `EventSupplement` links an
+/// APPROVED event to a hotel's contract. Event dates (the exhibition itself) are deliberately separate from an EventSupplement's own
+/// valid-from/to window: a hotel may charge on nights before or after the event, and not every hotel need charge the full event period.
+model RoomEvent {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  name            String           @db.VarChar(160)
+  eventType       RoomEventType    @map("event_type")
+  destinationCity String           @map("destination_city") @db.VarChar(120)
+  destinationCountry String        @map("destination_country") @db.Char(2)
+  eventStartDate  DateTime         @map("event_start_date") @db.Date
+  eventEndDate    DateTime         @map("event_end_date") @db.Date
+  status          RoomEventStatus  @default(DRAFT)
+  /// Supplier notice, contract amendment or official event reference. Never the document itself.
+  referenceRef    String?          @map("reference_ref") @db.VarChar(200)
+  internalNotes   String?          @map("internal_notes")
+  /// Plain actor ids (no foreign key), like `Contract.ownerUserId`.
+  createdById     String           @map("created_by_id")
+  approvedById    String?          @map("approved_by_id")
+  approvedAt      DateTime?        @map("approved_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  supplements EventSupplement[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, destinationCity, eventStartDate, eventEndDate])
+}
+
+enum EventSupplementStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+/// How the amount is expressed: FIXED uses `basis`/`frequency`/`amountMinor` (ContractSupplement's shape); PERCENTAGE uses `percentBp` of
+/// the eligible contracted base (never of another supplement — invariant from the spec).
+enum EventSupplementAmountKind {
+  FIXED
+  PERCENTAGE
+}
+
+enum EventSupplementTaxTreatment {
+  INCLUSIVE
+  EXCLUSIVE
+}
+
+/// A hotel/contract-specific commercial rule applying an approved RoomEvent to contracted inventory (ADR 0089, Phase 2). Added to the
+/// DailyRate at calculation time in the plan's basis, after the promotion and before markup — never written back to DailyRate. Mirrors
+/// ContractSupplement's shape (basis/frequency/amount) plus an EVENT-specific percentage mode, approval lifecycle, stacking and priority.
+model EventSupplement {
+  id             String                     @id @default(cuid())
+  tenantId       String                     @map("tenant_id")
+  tenant         Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roomEventId    String                     @map("room_event_id")
+  roomEvent      RoomEvent                  @relation(fields: [roomEventId], references: [id], onDelete: Restrict)
+  contractId     String                     @map("contract_id")
+  contract       Contract                   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  /// Null applies to every rate plan of the contract (hotel-wide); the contract must explicitly permit this (service-layer check, not yet
+  /// a contract column — see ADR 0089 Phase 1 gap 6).
+  ratePlanId     String?                    @map("rate_plan_id")
+  ratePlan       RatePlan?                  @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  amountKind     EventSupplementAmountKind  @map("amount_kind")
+  basis          SupplementBasis?
+  frequency      SupplementFrequency?
+  amountMinor    BigInt?                    @map("amount_minor")
+  /// Basis points of the eligible contracted base tariff. Required (and only meaningful) for PERCENTAGE.
+  percentBp      Int?                       @map("percent_bp")
+  currency       String                     @db.Char(3)
+  taxTreatment   EventSupplementTaxTreatment @default(EXCLUSIVE) @map("tax_treatment")
+  /// The supplement's own application window (may differ from the event's own dates; may cover pre/post-event nights).
+  validFrom      DateTime                   @map("valid_from") @db.Date
+  validTo        DateTime                   @map("valid_to") @db.Date
+  /// Whether this rule may combine with another approved, active, eligible supplement on the same night.
+  stackable      Boolean                    @default(false)
+  /// Deterministic precedence among non-stackable, overlapping eligible rules: higher wins. Equal priority on an eligible overlap is an
+  /// ambiguous configuration and must fail closed (ADR 0089 gap 3), never pick arbitrarily.
+  priority       Int                        @default(0)
+  /// Supplier confirmation or authorized contract amendment reference. Never the document itself.
+  evidenceRef    String                     @map("evidence_ref") @db.VarChar(200)
+  status         EventSupplementStatus      @default(DRAFT)
+  version        Int                        @default(1)
+  createdById    String                     @map("created_by_id")
+  approvedById   String?                    @map("approved_by_id")
+  activatedAt    DateTime?                  @map("activated_at")
+  suspendedAt    DateTime?                  @map("suspended_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+
+  versions EventSupplementVersion[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, roomEventId])
+  @@index([contractId])
+  @@index([ratePlanId])
+  @@index([tenantId, validFrom, validTo])
+}
+
+enum EventSupplementVersionKind {
+  ACTIVATION
+  AMENDMENT
+}
+
+/// Immutable snapshot of an EventSupplement's reviewed terms, directly modeled on ContractVersion (ADR 0067, F-01). One row per approved
+/// activation or amendment; never updated or deleted (database trigger).
+model EventSupplementVersion {
+  id                 String                      @id @default(cuid())
+  tenantId           String                      @map("tenant_id")
+  eventSupplementId  String                      @map("event_supplement_id")
+  eventSupplement    EventSupplement             @relation(fields: [eventSupplementId], references: [id], onDelete: Restrict)
+  version            Int
+  kind               EventSupplementVersionKind
+  terms              Json
+  fingerprint        String                      @db.Char(64)
+  approvalId         String                      @map("approval_id")
+  requestedById      String                      @map("requested_by_id")
+  approvedById       String                      @map("approved_by_id")
+  appliedById        String                      @map("applied_by_id")
+  reason             String
+  createdAt          DateTime                    @default(now()) @map("created_at")
+
+  @@unique([eventSupplementId, version])
+  @@index([tenantId, eventSupplementId])
 }
 
 model ChildPolicy {
@@ -640,6 +2911,55 @@ model BookingLeadTimeRule {
   @@unique([contractId])
 }
 
+/// A shared physical stock of rooms for one hotel and one supplier (ADR 0030). Rate plans that belong to the pool draw from the same
+/// daily counters, so three plans over five rooms are five rooms, not fifteen.
+model InventoryPool {
+  id          String              @id @default(cuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String              @map("hotel_id")
+  hotel       Hotel               @relation(fields: [hotelId], references: [id], onDelete: Restrict)
+  supplierId  String              @map("supplier_id")
+  supplier    Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  name        String
+  status      InventoryPoolStatus @default(ACTIVE)
+  createdById String              @map("created_by_id")
+  archivedAt  DateTime?           @map("archived_at")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  days  InventoryPoolDay[]
+  plans RatePlan[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, hotelId, supplierId, name])
+  @@index([tenantId, hotelId])
+}
+
+/// One night of a pool's physical stock. `sold + held <= capacity` is a database constraint.
+model InventoryPoolDay {
+  id              String          @id @default(cuid())
+  tenantId        String          @map("tenant_id")
+  poolId          String          @map("pool_id")
+  pool            InventoryPool   @relation(fields: [tenantId, poolId], references: [tenantId, id], onDelete: Restrict)
+  stayDate        DateTime        @map("stay_date") @db.Date
+  capacity        Int
+  sold            Int             @default(0)
+  held            Int             @default(0)
+  source          InventorySource @default(ADMIN)
+  sourceUpdatedAt DateTime?       @map("source_updated_at")
+  receivedAt      DateTime        @default(now()) @map("received_at")
+  freshUntil      DateTime?       @map("fresh_until")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  holdNights InventoryHoldNight[]
+
+  @@unique([poolId, stayDate])
+  @@unique([tenantId, id])
+  @@index([tenantId, stayDate])
+}
+
 model DailyAvailability {
   id                 String   @id @default(cuid())
   tenantId           String   @map("tenant_id")
@@ -653,7 +2973,15 @@ model DailyAvailability {
   minStay            Int      @default(1) @map("min_stay")
   closedToArrival    Boolean  @default(false) @map("closed_to_arrival")
   closedToDeparture  Boolean  @default(false) @map("closed_to_departure")
+  /// Release for a check-in on this night, in days (ADR 0067, F-08). Null uses the plan's release. The plan's release time applies.
+  releaseDays        Int?     @map("release_days")
+  /// ALLOTMENT uses the plan row's counters, or the pool day when the plan belongs to a pool. FREE_SALE needs no stock. ON_REQUEST is never instant. CLOSED is never sold.
+  inventoryMode      InventoryMode @default(ALLOTMENT) @map("inventory_mode")
+  source             InventorySource @default(ADMIN)
   sourceUpdatedAt    DateTime? @map("source_updated_at")
+  receivedAt         DateTime  @default(now()) @map("received_at")
+  /// After this instant the row is stale and fails closed. Null means it does not expire, except for supplier sources, which then count as stale.
+  freshUntil         DateTime? @map("fresh_until")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   holdNights         InventoryHoldNight[]
@@ -688,10 +3016,12 @@ model InventoryHold {
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   nights             InventoryHoldNight[]
+  supplierMutations  SupplierMutation[]
 
   @@unique([tenantId, idempotencyKey])
   @@unique([tenantId, id])
   @@index([tenantId, status, expiresAt])
+  @@index([tenantId, createdByUserId, status])
   @@index([tenantId, ratePlanId, checkIn, checkOut])
 }
 
@@ -704,6 +3034,9 @@ model InventoryHoldNight {
   availability   DailyAvailability @relation(fields: [tenantId, availabilityId], references: [tenantId, id], onDelete: Restrict)
   stayDate       DateTime          @map("stay_date") @db.Date
   quantity       Int
+  counterKind    InventoryCounterKind @default(PLAN_ROW) @map("counter_kind")
+  poolDayId      String?           @map("pool_day_id")
+  poolDay        InventoryPoolDay? @relation(fields: [tenantId, poolDayId], references: [tenantId, id], onDelete: Restrict)
   createdAt      DateTime          @default(now()) @map("created_at")
 
   @@unique([holdId, availabilityId])
@@ -733,6 +3066,9 @@ model DailyRate {
 }
 
 model ConnectorDefinition {
+  sandboxRuns SandboxContentRun[]
+  sandboxLeases SandboxContentLease[]
+  ingestRuns SupplierIngestRun[]
   id                  String          @id @default(cuid())
   tenantId            String          @map("tenant_id")
   tenant              Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -753,6 +3089,7 @@ model ConnectorDefinition {
   inventoryEvents      InventoryUpdateEvent[]
 
   @@unique([supplierId, name])
+  @@unique([tenantId, id, supplierId])
   @@index([tenantId, status])
 }
 
@@ -803,4 +3140,767 @@ model InventoryUpdateEvent {
 
   @@unique([supplierId, idempotencyKey])
   @@index([tenantId, receivedAt])
+}
+
+/// Quarantined supplier SANDBOX content only; never canonical mapping or inventory.
+model SandboxContentRun {
+  id String @id
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  parameterHash String @map("parameter_hash") @db.Char(64)
+  lastUpdateTime String? @map("last_update_time") @db.Char(10)
+  nextFrom Int @default(1) @map("next_from")
+  status String @default("PENDING")
+  attemptCount Int @default(0) @map("attempt_count")
+  pageCount Int @default(0) @map("page_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  errorClassification String? @map("error_classification")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  pages SandboxContentPage[]
+  @@unique([tenantId, id])
+  @@index([tenantId, connectorId, createdAt])
+}
+
+model SandboxContentPage {
+  id String @id
+  tenantId String @map("tenant_id")
+  runId String @map("run_id")
+  from Int
+  nextFrom Int @map("next_from")
+  payloadHash String @map("payload_hash") @db.Char(64)
+  hotels Json
+  receivedAt DateTime @map("received_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  run SandboxContentRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+  @@unique([runId, from])
+  @@index([tenantId, runId])
+}
+
+model SandboxContentLease {
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  token String?
+  expiresAt DateTime? @map("expires_at")
+  generation Int @default(0)
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  @@id([tenantId, connectorId])
+}
+
+/// Compliance category of a captured audit event (ADR 0067). The classifier lives in apps/api/src/compliance/compliance-classification.ts.
+enum ComplianceCategory {
+  RBAC_CHANGE
+  PRIVILEGED_ACCESS
+  ACCESS_DENIAL
+  TENANT_GOVERNANCE
+  DATA_EXPORT
+  FINANCIAL_CONTROL
+  BOOKING_JURISDICTION
+}
+
+enum ComplianceStorageStatus {
+  SEALED
+  STORED
+}
+
+/// Immutable copy of a compliance-relevant audit event, appended by the "AuditEvent_compliance_capture" trigger in the audit event's own transaction (ADR 0067).
+/// id is the audit event id. No foreign key to tenants: evidence outlives a tenant. Never written by application code.
+model ComplianceRecord {
+  id                 String                       @id
+  tenantId           String?                      @map("tenant_id")
+  category           ComplianceCategory
+  action             String
+  entityType         String                       @map("entity_type")
+  entityId           String                       @map("entity_id")
+  actorType          AuditActorType               @map("actor_type")
+  userId             String?                      @map("user_id")
+  occurredAt         DateTime                     @map("occurred_at")
+  payload            Json
+  payloadSha256      String                       @map("payload_sha256") @db.Char(64)
+  originCountry      String?                      @map("origin_country") @db.Char(2)
+  destinationCountry String?                      @map("destination_country") @db.Char(2)
+  crossBorder        Boolean?                     @map("cross_border")
+  exports            ComplianceExportBatchRecord?
+
+  @@index([tenantId, occurredAt, id])
+  @@index([tenantId, category, occurredAt])
+}
+
+/// A sealed, hash-chained batch of compliance records for one scope (a tenant id, or 'platform'), stored in WORM object storage (ADR 0067).
+/// Written only by the compliance export role; only storage_status SEALED -> STORED (with stored_at, object_version_id) may change, once.
+model ComplianceExportBatch {
+  id              String                        @id
+  tenantId        String?                       @map("tenant_id")
+  scopeKey        String                        @map("scope_key")
+  sequence        Int
+  formatVersion   Int                           @default(1) @map("format_version")
+  recordCount     Int                           @map("record_count")
+  firstOccurredAt DateTime                      @map("first_occurred_at")
+  lastOccurredAt  DateTime                      @map("last_occurred_at")
+  bodySha256      String                        @map("body_sha256") @db.Char(64)
+  previousSha256  String                        @map("previous_sha256") @db.Char(64)
+  batchSha256     String                        @map("batch_sha256") @db.Char(64)
+  objectKey       String                        @unique @map("object_key")
+  retainUntil     DateTime                      @map("retain_until")
+  storageStatus   ComplianceStorageStatus       @default(SEALED) @map("storage_status")
+  objectVersionId String?                       @map("object_version_id")
+  sealedAt        DateTime                      @default(now()) @map("sealed_at")
+  storedAt        DateTime?                     @map("stored_at")
+  records         ComplianceExportBatchRecord[]
+
+  @@unique([scopeKey, sequence])
+  @@index([tenantId, storageStatus])
+}
+
+/// Membership of a record in an export batch. record_id is unique: each record is exported exactly once. Append-only.
+model ComplianceExportBatchRecord {
+  batchId  String                @map("batch_id")
+  batch    ComplianceExportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  position Int
+  tenantId String?               @map("tenant_id")
+  recordId String                @unique @map("record_id")
+  record   ComplianceRecord      @relation(fields: [recordId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([batchId, position])
+  @@index([tenantId, batchId])
+}
+
+// ---- Supplier statement reconciliation and the dispute queue (ADR 0070) ---------------------------------------------------------------------------
+// Finance-gated privileged path (ADR 0032): the runtime role gets no grant. Nothing here posts to LedgerEntry or Wallet. Statements and their lines are
+// immutable (database trigger); findings change only through the reconciliation service; decisions are append-only.
+
+enum StatementLineKind {
+  CHARGE
+  CREDIT
+  SURCHARGE
+}
+
+enum ReconRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ReconExceptionStatus {
+  OPEN
+  DISPUTED
+  PENDING_APPROVAL
+  RESOLVED
+}
+
+enum ReconFindingType {
+  MATCHED
+  ROUNDING_VARIANCE
+  AMOUNT_OVERCHARGE
+  AMOUNT_UNDERCHARGE
+  CURRENCY_MISMATCH
+  UNINVOICED_SURCHARGE
+  UNMATCHED_LINE
+  AMBIGUOUS_REFERENCE
+  DUPLICATE_LINE
+  NET_UNKNOWN
+  CHARGE_ON_CANCELLED
+  CREDIT_MATCHED
+  CREDIT_VARIANCE
+  CREDIT_WITHOUT_CANCELLATION
+  CREDIT_AMOUNT_UNKNOWN
+  MISSING_FROM_STATEMENT
+  CREDIT_NOT_RECEIVED
+}
+
+/// A supplier settlement statement, imported once and never edited. `contentSha256` covers the canonical lines, so the same statement cannot be imported twice under another number.
+model SupplierStatement {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId    String   @map("supplier_id")
+  supplier      Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  statementRef  String   @map("statement_ref")
+  periodStart   DateTime @map("period_start") @db.Date
+  periodEnd     DateTime @map("period_end") @db.Date
+  lineCount     Int      @map("line_count")
+  contentSha256 String   @map("content_sha256") @db.Char(64)
+  requestId     String   @map("request_id")
+  importedById  String   @map("imported_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  lines         SupplierStatementLine[]
+  runs          ReconciliationRun[]
+  findings      ReconciliationFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, supplierId, statementRef])
+  @@unique([tenantId, supplierId, contentSha256])
+  @@index([tenantId, supplierId, periodEnd])
+  @@index([tenantId, createdAt])
+}
+
+model SupplierStatementLine {
+  id          String            @id @default(cuid())
+  tenantId    String            @map("tenant_id")
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId String            @map("statement_id")
+  statement   SupplierStatement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  lineNo      Int               @map("line_no")
+  reference   String
+  kind        StatementLineKind
+  currency    String            @db.Char(3)
+  /// Positive magnitude in integer minor units; `kind` gives the direction.
+  amountMinor BigInt            @map("amount_minor")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([statementId, lineNo])
+  @@index([tenantId, statementId])
+  @@index([tenantId, reference])
+}
+
+/// The job queue: a run is QUEUED by the API and claimed by the worker with a conditional update. A stale RUNNING claim is re-driven up to three attempts.
+model ReconciliationRun {
+  id                    String            @id @default(cuid())
+  tenantId              String            @map("tenant_id")
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId           String            @map("statement_id")
+  statement             SupplierStatement @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  status                ReconRunStatus    @default(QUEUED)
+  requestId             String            @map("request_id")
+  requestedById         String            @map("requested_by_id")
+  roundingToleranceMinor BigInt           @default(0) @map("rounding_tolerance_minor")
+  attempts              Int               @default(0)
+  claimedAt             DateTime?         @map("claimed_at")
+  startedAt             DateTime?         @map("started_at")
+  finishedAt            DateTime?         @map("finished_at")
+  /// A stable code only, never a raw message.
+  errorCode             String?           @map("error_code")
+  matchedCount          Int?              @map("matched_count")
+  exceptionCount        Int?              @map("exception_count")
+  createdAt             DateTime          @default(now()) @map("created_at")
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, statementId, createdAt])
+}
+
+/// One row per statement line (and per ledger-side gap): the result of matching plus the exception workflow. `isException` false rows are clean matches.
+model ReconciliationFinding {
+  id                 String               @id @default(cuid())
+  tenantId           String               @map("tenant_id")
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId        String               @map("statement_id")
+  statement          SupplierStatement    @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  supplierId         String               @map("supplier_id")
+  supplier           Supplier             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  /// The statement line id, or `ledger:<bookingId>:<type>` for a ledger-side gap. Unique per statement, so a re-run updates rather than duplicates.
+  findingKey         String               @map("finding_key")
+  lineId             String?              @map("line_id")
+  bookingId          String?              @map("booking_id")
+  booking            Booking?             @relation(fields: [tenantId, bookingId], references: [tenantId, id], onDelete: Restrict)
+  type               ReconFindingType
+  rule               String
+  isException        Boolean              @map("is_exception")
+  currency           String               @db.Char(3)
+  statementMinor     BigInt?              @map("statement_minor")
+  ledgerMinor        BigInt?              @map("ledger_minor")
+  /// statement - ledger, same currency only. Null: cannot be computed.
+  varianceMinor      BigInt?              @map("variance_minor")
+  status             ReconExceptionStatus @default(OPEN)
+  proposedAction     String?              @map("proposed_action")
+  proposedById       String?              @map("proposed_by_id")
+  proposedReason     String?              @map("proposed_reason")
+  secondApprovalRequired Boolean          @default(false) @map("second_approval_required")
+  resolution         String?
+  resolvedById       String?              @map("resolved_by_id")
+  resolvedAt         DateTime?            @map("resolved_at")
+  lastRunId          String               @map("last_run_id")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  decisions          ReconciliationDecision[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, statementId, findingKey])
+  @@index([tenantId, isException, status, createdAt])
+  @@index([tenantId, statementId, status])
+  @@index([tenantId, bookingId])
+  @@index([tenantId, supplierId, status])
+}
+
+/// Append-only history of every state change of a finding.
+model ReconciliationDecision {
+  id         String                @id @default(cuid())
+  tenantId   String                @map("tenant_id")
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  findingId  String                @map("finding_id")
+  finding    ReconciliationFinding @relation(fields: [tenantId, findingId], references: [tenantId, id], onDelete: Restrict)
+  action     String
+  fromStatus ReconExceptionStatus  @map("from_status")
+  toStatus   ReconExceptionStatus  @map("to_status")
+  resolution String?
+  reason     String?
+  /// Null: the reconciliation worker (a SYSTEM actor).
+  actorId    String?               @map("actor_id")
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  @@index([tenantId, findingId, createdAt])
+}
+
+enum BankStatementFormat {
+  MT940
+  CAMT053
+  CSV
+}
+
+enum BankDirection {
+  CREDIT
+  DEBIT
+}
+
+enum BankMatchType {
+  MATCHED
+  AMOUNT_MISMATCH
+  CURRENCY_MISMATCH
+  DIRECTION_MISMATCH
+  AMBIGUOUS_REFERENCE
+  DUPLICATE_ENTRY
+  DUPLICATE_PAYMENT
+  UNMATCHED_ENTRY
+  EXPECTED_NOT_ON_STATEMENT
+}
+
+enum BankExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
+/// A bank statement (MT940, camt.053 or CSV), imported once and never edited (ADR 0093). The account number is kept only as a hash and its last four characters, and no remittance text is stored.
+model BankStatement {
+  id            String               @id @default(cuid())
+  tenantId      String               @map("tenant_id")
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  format        BankStatementFormat
+  statementRef  String               @map("statement_ref")
+  accountSha256 String               @map("account_sha256") @db.Char(64)
+  accountLast4  String               @map("account_last4")
+  currency      String               @db.Char(3)
+  periodStart   DateTime             @map("period_start") @db.Date
+  periodEnd     DateTime             @map("period_end") @db.Date
+  openingMinor  BigInt?              @map("opening_minor")
+  closingMinor  BigInt?              @map("closing_minor")
+  entryCount    Int                  @map("entry_count")
+  contentSha256 String               @map("content_sha256") @db.Char(64)
+  requestId     String               @map("request_id")
+  importedById  String               @map("imported_by_id")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  entries       BankStatementEntry[]
+  findings      BankMatchFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, contentSha256])
+  @@unique([tenantId, accountSha256, statementRef])
+  @@index([tenantId, createdAt])
+}
+
+model BankStatementEntry {
+  id          String             @id @default(cuid())
+  tenantId    String             @map("tenant_id")
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId String             @map("statement_id")
+  statement   BankStatement      @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  entryNo     Int                @map("entry_no")
+  entryRef    String             @map("entry_ref")
+  direction   BankDirection
+  currency    String             @db.Char(3)
+  /// Positive magnitude in integer minor units; `direction` gives the sign.
+  amountMinor BigInt             @map("amount_minor")
+  bookingDate DateTime           @map("booking_date") @db.Date
+  valueDate   DateTime           @map("value_date") @db.Date
+  createdAt   DateTime           @default(now()) @map("created_at")
+  findings    BankMatchFinding[]
+
+  @@unique([tenantId, id])
+  @@unique([statementId, entryNo])
+  @@index([tenantId, statementId])
+}
+
+/// One row per bank movement and per expected payment missing from the statement. `isException` false rows are clean matches. An exception is closed by a person other than whoever imported the statement; closing it posts nothing.
+model BankMatchFinding {
+  id               String              @id @default(cuid())
+  tenantId         String              @map("tenant_id")
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  statementId      String              @map("statement_id")
+  statement        BankStatement       @relation(fields: [tenantId, statementId], references: [tenantId, id], onDelete: Restrict)
+  /// `entry:<n>` or `expected:<id>`; unique per statement.
+  findingKey       String              @map("finding_key")
+  entryId          String?             @map("entry_id")
+  entry            BankStatementEntry? @relation(fields: [tenantId, entryId], references: [tenantId, id], onDelete: Restrict)
+  type             BankMatchType
+  isException      Boolean             @map("is_exception")
+  currency         String              @db.Char(3)
+  bankMinor        BigInt?             @map("bank_minor")
+  expectedMinor    BigInt?             @map("expected_minor")
+  /// bank - expected, same currency only.
+  varianceMinor    BigInt?             @map("variance_minor")
+  /// SUPPLIER_SETTLEMENT or FUNDING_RECEIPT, with the id of that record.
+  expectedKind     String?             @map("expected_kind")
+  expectedId       String?             @map("expected_id")
+  status           BankExceptionStatus @default(OPEN)
+  resolution       String?
+  resolutionReason String?             @map("resolution_reason")
+  raisedById       String              @map("raised_by_id")
+  resolvedById     String?             @map("resolved_by_id")
+  resolvedAt       DateTime?           @map("resolved_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, statementId, findingKey])
+  @@index([tenantId, isException, status, createdAt])
+  @@index([tenantId, statementId, status])
+  @@index([tenantId, type, expectedId])
+}
+
+/// B2B distribution API (ADR 0075, amendment 3). A partner system acting for exactly one agency; tenant and agency are fixed at creation.
+/// Forced tenant RLS. No role reads these tables to authenticate: `fbeds_distribution_authenticate_key` / `_token` (SECURITY DEFINER)
+/// compare hashes inside the database and return identity only.
+enum DistributionClientStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum DistributionApiScope {
+  SEARCH
+  CHECKRATE
+  BOOK
+  CANCEL
+  BOOKINGS_READ
+}
+
+enum DistributionCredentialKind {
+  API_KEY
+  OAUTH_CLIENT
+}
+
+model DistributionClient {
+  id                 String                   @id @default(cuid())
+  tenantId           String                   @map("tenant_id")
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  agencyId           String                   @map("agency_id")
+  agency             Agency                   @relation(fields: [tenantId, agencyId], references: [tenantId, id], onDelete: Restrict)
+  name               String                   @db.VarChar(100)
+  status             DistributionClientStatus @default(ACTIVE)
+  /// At least one. A token's scopes are cut to these at every lookup, so removing a scope takes effect immediately.
+  scopes             DistributionApiScope[]
+  /// Requests per minute per scope class, enforced in Redis (1 to 10,000).
+  searchPerMinute    Int                      @default(120) @map("search_per_minute")
+  checkRatePerMinute Int                      @default(30) @map("check_rate_per_minute")
+  bookPerMinute      Int                      @default(10) @map("book_per_minute")
+  /// CIDR blocks; empty means any address. Each entry must parse as `cidr` (database check).
+  ipAllowlist        String[]                 @default([]) @map("ip_allowlist")
+  createdByUserId    String                   @map("created_by_user_id")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  credentials  DistributionCredential[]
+  accessTokens DistributionAccessToken[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, agencyId, name])
+  @@index([tenantId, agencyId, status])
+  @@map("distribution_clients")
+}
+
+/// An API key or an OAuth client secret. Only the SHA-256 of the secret is stored; the secret is shown once at creation.
+/// Immutable except `last_used_at` and a one-way `revoked_at` (database trigger).
+model DistributionCredential {
+  id              String                     @id @default(cuid())
+  tenantId        String                     @map("tenant_id")
+  tenant          Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId        String                     @map("client_id")
+  client          DistributionClient         @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict)
+  kind            DistributionCredentialKind
+  /// Public lookup id embedded in the key: 20 characters [a-z0-9], unique across all tenants (the lookup runs before a tenant is known).
+  keyId           String                     @unique @map("key_id") @db.VarChar(20)
+  secretHash      String                     @map("secret_hash") @db.Char(64)
+  lastUsedAt      DateTime?                  @map("last_used_at")
+  expiresAt       DateTime?                  @map("expires_at")
+  revokedAt       DateTime?                  @map("revoked_at")
+  createdByUserId String                     @map("created_by_user_id")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+
+  accessTokens DistributionAccessToken[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId, id])
+  @@index([tenantId, clientId])
+  @@map("distribution_credentials")
+}
+
+/// Opaque OAuth2 access token (client_credentials), at most one hour. Only its SHA-256 is stored. Immutable except a one-way `revoked_at`.
+model DistributionAccessToken {
+  id           String                 @id @default(cuid())
+  tenantId     String                 @map("tenant_id")
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  clientId     String                 @map("client_id")
+  client       DistributionClient     @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: Restrict)
+  /// The OAuth client credential that minted it. Revoking that credential also stops its tokens.
+  credentialId String                 @map("credential_id")
+  /// Composite with the client, so a token can only be minted by a credential of the same client.
+  credential   DistributionCredential @relation(fields: [tenantId, clientId, credentialId], references: [tenantId, clientId, id], onDelete: Restrict)
+  tokenHash    String                 @unique @map("token_hash") @db.Char(64)
+  scopes       DistributionApiScope[]
+  expiresAt    DateTime               @map("expires_at")
+  revokedAt    DateTime?              @map("revoked_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  @@index([tenantId, clientId, expiresAt])
+  @@index([tenantId, credentialId])
+  @@map("distribution_access_tokens")
+}
+
+/// A payment to a supplier, recorded against its posted payables (ADR 0077). The system records that a payment was made outside it (bank transfer, card, netting); it moves no money.
+/// Maker-checker: the proposer can never approve (database CHECK). Once APPROVED or REJECTED a row never changes. Integer minor units in the payable's currency; never converted.
+model SupplierSettlement {
+  id               String                   @id @default(cuid())
+  tenantId         String                   @map("tenant_id")
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId       String                   @map("supplier_id")
+  supplier         Supplier                 @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  currency         String                   @db.Char(3)
+  amountMinor      BigInt                   @map("amount_minor")
+  /// The day the payment was made (UTC date). Never in the future.
+  paidOn           DateTime                 @db.Date @map("paid_on")
+  /// The bank or transfer reference. Unique per supplier, so the same payment cannot be recorded twice.
+  paymentReference String                   @map("payment_reference")
+  note             String?
+  status           SupplierSettlementStatus @default(PROPOSED)
+  /// Idempotency key of the proposal.
+  requestId        String                   @map("request_id")
+  proposedById     String                   @map("proposed_by_id")
+  decidedById      String?                  @map("decided_by_id")
+  decidedAt        DateTime?                @map("decided_at")
+  decisionReason   String?                  @map("decision_reason")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, requestId])
+  @@unique([tenantId, supplierId, paymentReference])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, supplierId, currency, status])
+}
+
+/// A supplier's contracted payment terms (ADR 0078): pay `days` after the check-out, the check-in or the confirmation. Append-only: the latest row for a supplier is current, and every
+/// earlier row stays as history. Terms drive the due date of each payable; a supplier with no row has no due dates (shown as "no terms", never as overdue).
+model SupplierPaymentTerms {
+  id        String             @id @default(cuid())
+  tenantId  String             @map("tenant_id")
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  supplierId String            @map("supplier_id")
+  supplier  Supplier           @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  basis     SupplierTermsBasis
+  /// Whole days after the basis date, 0 to 365.
+  days      Int
+  note      String?
+  setById   String             @map("set_by_id")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId, createdAt])
+}
+
+enum SupplierIngestKind {
+  RATES
+  ALLOTMENTS
+  CANCELLATION_POLICIES
+}
+
+/// Outcome of one normalized feed (ADR 0078). Only a COMPLETE run applies observations; PARTIAL and FAILED runs are kept as evidence and change nothing.
+enum SupplierIngestStatus {
+  COMPLETE
+  PARTIAL
+  FAILED
+}
+
+/// Append-only record of one ingestion attempt. Holds counts and reject codes, never payload content, guest data or credentials.
+model SupplierIngestRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  connectorId String @map("connector_id")
+  kind SupplierIngestKind
+  /// Caller-owned key, stable across retries of the same delivery. Same key and same request hash replays the stored outcome.
+  idempotencyKey String @map("idempotency_key")
+  /// SHA-256 hex of the normalized result. The same key with a different hash is refused.
+  requestHash String @map("request_hash") @db.Char(64)
+  status SupplierIngestStatus
+  extractedCount Int @map("extracted_count")
+  acceptedCount Int @map("accepted_count")
+  rejectedCount Int @map("rejected_count")
+  /// Counts keyed by `<code>:<field>`, capped. No row content.
+  rejectSummary Json @default("{}") @map("reject_summary")
+  /// True only when observations were written from this run.
+  applied Boolean
+  /// Supplier-stated feed time, or null. Never fabricated.
+  sourceUpdatedAt DateTime? @map("source_updated_at")
+  receivedAt DateTime @map("received_at")
+  /// Observations written by this run expire here (ADR 0030 #7). Required when applied.
+  freshUntil DateTime? @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  connector ConnectorDefinition @relation(fields: [tenantId, connectorId, supplierId], references: [tenantId, id, supplierId], onDelete: Restrict)
+  rateObservations SupplierRateObservation[]
+  allotmentObservations SupplierAllotmentObservation[]
+  cancellationObservations SupplierCancellationObservation[]
+
+  @@unique([tenantId, connectorId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId, createdAt])
+}
+
+/// Latest supplier net for one supplier night. Supplier codes are NOT canonical ids; mapping governance (ADR 0004) resolves them. Never sellable by itself.
+model SupplierRateObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  supplierRoomCode String @map("supplier_room_code")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  stayDate DateTime @map("stay_date") @db.Date
+  boardCode String? @map("board_code")
+  currency String @db.Char(3)
+  netMinor BigInt @map("net_minor")
+  /// null = the supplier did not say.
+  taxesIncluded Boolean? @map("taxes_included")
+  minStay Int? @map("min_stay")
+  maxStay Int? @map("max_stay")
+  closedToArrival Boolean @map("closed_to_arrival")
+  closedToDeparture Boolean @map("closed_to_departure")
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode, stayDate], map: "SupplierRateObservation_natural_key")
+  @@index([tenantId, supplierId, stayDate])
+  @@index([tenantId, runId])
+}
+
+/// Latest supplier stock statement for one night. A missing row is unknown, never zero (ADR 0030 #4). Never sellable by itself.
+model SupplierAllotmentObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  supplierRoomCode String @map("supplier_room_code")
+  /// Empty string means the statement covers every plan of the room.
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  stayDate DateTime @map("stay_date") @db.Date
+  mode InventoryMode
+  available Int?
+  stopSell Boolean @map("stop_sell")
+  releaseDays Int? @map("release_days")
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode, stayDate], map: "SupplierAllotmentObservation_natural_key")
+  @@index([tenantId, supplierId, stayDate])
+  @@index([tenantId, runId])
+}
+
+/// Latest cancellation policy for one supplier rate plan. `windows` is the canonical ordered list produced by the connector ingest core. Never sellable by itself.
+model SupplierCancellationObservation {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  runId String @map("run_id")
+  supplierHotelCode String @map("supplier_hotel_code")
+  /// Empty string means the policy covers every room of the plan.
+  supplierRoomCode String @map("supplier_room_code")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  nonRefundable Boolean @map("non_refundable")
+  windows Json
+  receivedAt DateTime @map("received_at")
+  freshUntil DateTime @map("fresh_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+  run SupplierIngestRun @relation(fields: [tenantId, runId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, supplierHotelCode, supplierRoomCode, supplierRatePlanCode], map: "SupplierCancellationObservation_natural_key")
+  @@index([tenantId, supplierId])
+  @@index([tenantId, runId])
+}
+
+/// Governed link from one supplier rate plan code (under an approved supplier room mapping) to one canonical contracted RatePlan (ADR 0081).
+/// Same lifecycle as hotel and room mappings (ADR 0004): PENDING, then approved, rejected or reopened by a person. Only MAPPED rows resolve ingested observations.
+/// A database trigger requires the plan to be of the mapped room type, of a contract with the mapped supplier, and the parent room mapping to be MAPPED before this one is.
+model SupplierRatePlanMapping {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierRoomMappingId String @map("supplier_room_mapping_id")
+  supplierRatePlanCode String @map("supplier_rate_plan_code")
+  ratePlanId String @map("rate_plan_id")
+  status MappingStatus @default(PENDING)
+  confidence Int?
+  sourceMetadata Json @default("{}") @map("source_metadata")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  roomMapping SupplierRoomMapping @relation(fields: [tenantId, supplierRoomMappingId], references: [tenantId, id], onDelete: Restrict)
+  ratePlan RatePlan @relation(fields: [tenantId, ratePlanId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierRoomMappingId, supplierRatePlanCode])
+  @@unique([tenantId, ratePlanId])
+  @@index([tenantId, status])
+}
+
+enum SupplierPromotionStatus {
+  APPLIED
+  HELD
+  NOTHING_TO_PROMOTE
+}
+
+/// Append-only record of one promotion of ingested observations into contracted rates, availability and pool capacity (ADR 0084). Counts and reason codes only: no payload, guest data or credentials.
+/// HELD means the batch guard stopped it and nothing was written; it waits for a person.
+model SupplierPromotionRun {
+  id String @id @default(cuid())
+  tenantId String @map("tenant_id")
+  supplierId String @map("supplier_id")
+  /// Caller-owned key, stable across retries of the same promotion. Same key replays the stored outcome and writes nothing.
+  idempotencyKey String @map("idempotency_key")
+  profileKey String @map("profile_key")
+  status SupplierPromotionStatus
+  ratesConsidered Int @map("rates_considered")
+  ratesPromoted Int @map("rates_promoted")
+  stockConsidered Int @map("stock_considered")
+  nightsPromoted Int @map("nights_promoted")
+  poolNightsPromoted Int @map("pool_nights_promoted")
+  nightsClosed Int @map("nights_closed")
+  /// Counts keyed by stable code (blocks, sticky skips, hold reasons). Capped; no row content.
+  summary Json @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Restrict)
+
+  @@unique([tenantId, supplierId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
 }

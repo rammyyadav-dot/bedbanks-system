@@ -1,0 +1,103 @@
+> @bedbanks/api@0.1.0 type-check /workspace/bedbanks-system/apps/api
+> tsc --noEmit -p tsconfig.json
+> @bedbanks/api@0.1.0 lint /workspace/bedbanks-system/apps/api
+> eslint "src/**/*.ts" "test/**/*.ts"
+  59:5  warning  Unused eslint-disable directive (no problems were reported from 'no-control-regex')
+✖ 1 problem (0 errors, 1 warning)
+> @bedbanks/api@0.1.0 test:unit /workspace/bedbanks-system/apps/api
+> jest --runInBand
+PASS src/agent/agent-search.service.spec.ts (14.071 s)
+PASS src/agent/agent-search.contract.spec.ts (6.48 s)
+PASS src/auth/auth.service.spec.ts
+PASS src/supply/contract-market-validation.spec.ts
+PASS src/departments/departments.controllers.spec.ts
+PASS src/admin-operations/operations.controller.spec.ts
+PASS src/agent/booking-reconciliation.service.spec.ts
+PASS src/booking-ops/booking-bulk.spec.ts
+PASS src/health/health.controller.spec.ts
+PASS src/admin-operations/agency-account.spec.ts
+PASS src/agent/offer-hold.service.spec.ts
+PASS src/booking-ops/booking-actions.controller.spec.ts
+PASS src/booking-ops/booking-ops.controller.spec.ts
+PASS src/booking-ops/booking-ops-database.spec.ts
+PASS src/commercial/commercial.controller.spec.ts
+PASS src/booking-ops/booking-finance.spec.ts
+PASS src/agent/agency-suspension.guard.spec.ts
+PASS src/booking-ops/booking-list-query.spec.ts
+PASS src/agent/supplier-prebook-orchestration.service.spec.ts
+PASS src/database/prisma.service.spec.ts
+PASS src/config/env.validation.spec.ts
+PASS src/agent/rbac.guard.spec.ts
+PASS src/admin-operations/permission-catalogue.spec.ts
+PASS src/agent/inventory-hold.service.spec.ts
+PASS src/booking-ops/booking-query.spec.ts
+PASS src/rate-certification/rate-plan-audit.spec.ts
+PASS src/supply/commercial-assessment.spec.ts
+PASS src/funding/funding-policy.spec.ts
+PASS src/agent/hold-expiry-sweeper.service.spec.ts
+PASS src/common/guards/cross-site-request.guard.spec.ts
+PASS src/agent/booking-document.render.spec.ts
+PASS src/supply/daily-rate-validation.spec.ts
+PASS src/booking-ops/booking-supplier-jobs.spec.ts
+PASS src/agent/prebook-compensation-recovery.service.spec.ts
+PASS src/agent/ledger.service.spec.ts
+PASS src/agent/contracted-inventory.adapter.prebook.spec.ts
+PASS src/agent/booking-financial-authorization.service.spec.ts
+PASS src/agent/booking-persistence.service.spec.ts
+PASS src/admin-settings/admin-settings.service.spec.ts
+PASS src/agent/cancellation-policy.service.spec.ts
+PASS src/common/filters/http-exception.filter.spec.ts
+PASS src/auth/guards/origin.guard.spec.ts
+PASS src/agent/agency-credit.spec.ts
+PASS src/admin-operations/query-params.spec.ts
+PASS src/agent/booking-transaction-state.spec.ts
+PASS src/agent/finance.service.spec.ts
+PASS src/agent/tenant-context.guard.spec.ts
+PASS src/agent/currency-policy.spec.ts
+PASS src/database/runtime-role-contract.spec.ts
+PASS src/booking-ops/manual-booking.spec.ts
+PASS src/agent/supplier-mutation-journal.service.spec.ts
+PASS src/agent/currency.spec.ts
+PASS src/admin-dashboard/admin-dashboard.service.spec.ts
+PASS src/supply/distribution-restrictions.spec.ts
+PASS src/hotel-setup/quick-update-rules.spec.ts
+PASS src/hotel-setup/hotel-setup-rules.spec.ts
+PASS src/supply/inventory-semantics.spec.ts
+PASS src/supply/hotel-readiness.spec.ts
+PASS src/sandbox/sandbox-content-store.spec.ts
+PASS src/database/booking-ops-role.spec.ts
+PASS src/database/api-runtime-role.spec.ts
+PASS src/inventory/pool-capacity-rules.spec.ts
+PASS src/database/preview-fixture-target.spec.ts
+PASS src/booking-ops/booking-ops-queue.spec.ts
+PASS src/mapping/hybrid-match.spec.ts
+PASS src/database/runtime-db-identity.spec.ts
+PASS src/booking-ops/booking-lifecycle.spec.ts
+PASS src/supply/contracted-sellability.spec.ts
+PASS src/database/strict-role-rollout.spec.ts
+PASS src/supply/market-rules.spec.ts
+PASS src/hotel-setup/hotel-room-rules.spec.ts
+PASS src/supply/zoned-time.spec.ts
+PASS src/hotel-setup/hotel-image-probe.spec.ts
+PASS src/inventory/pool-night-authoring.spec.ts
+PASS src/booking-ops/booking-status-writers.spec.ts
+PASS src/booking-ops/booking-saved-views.spec.ts
+PASS src/agent/agent-booking-status.spec.ts
+PASS src/admin-operations/hotel-stay-readiness.spec.ts
+PASS src/agent/credit-aging.spec.ts
+PASS src/common/cache/cache.port.spec.ts
+PASS src/database/ownership-audit.spec.ts
+PASS src/database/ops-database-url.spec.ts
+PASS src/admin-operations/booking-attention.spec.ts
+PASS src/supply/markup-rules.spec.ts
+PASS src/database/hold-expiry-migrations.spec.ts
+PASS src/database/hold-expiry-role.spec.ts
+PASS src/agent/supplier.port.spec.ts
+PASS src/database/db-errors.spec.ts
+PASS src/agent/audit-payload.spec.ts
+PASS src/agent/agent-permissions.spec.ts
+Test Suites: 1 skipped, 90 passed, 90 of 91 total
+Tests:       3 skipped, 963 passed, 966 total
+Time:        33.479 s
+> @bedbanks/api@0.1.0 build /workspace/bedbanks-system/apps/api
+> nest build

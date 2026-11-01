@@ -48,7 +48,7 @@ The old scope description above predates the existing Agent tenant/RBAC guards a
 
 - Tokens: 32 random bytes encoded as hex, only SHA-256 stored in PostgreSQL. Malformed tokens are rejected before querying. Expired, revoked and suspended-user sessions fail validation.
 - Cookies: HttpOnly, Secure, host-only, Path=/, SameSite=Lax by default. AUTH_COOKIE_SECURE must be true even in development; use HTTPS for browser testing. No JWT or JavaScript-readable token storage.
-- POST /auth/login and /auth/logout require Origin exactly equal to ADMIN_ORIGIN, including trusted server callers. GET /auth/me uses the session cookie. Successful auth responses use Cache-Control: no-store.
+- POST /auth/login and /auth/logout require Origin exactly equal to ADMIN_ORIGIN or an entry of TRUSTED_ORIGINS (ADR 0010), including trusted server callers. GET /auth/me uses the session cookie. Successful auth responses use Cache-Control: no-store.
 - Admin uses Server Actions. Its server explicitly consumes the API Set-Cookie header and sets the Admin host cookie. Server-side fetch alone does not copy cookies to the browser. API_INTERNAL_URL is server-only; AUTH_API_ORIGIN must match ADMIN_ORIGIN. No raw token appears in action results or client props.
 - Logout revokes in the API before deleting the Admin cookie. A failed revocation reports failure and retains the cookie so the user can retry. Sessions have an absolute TTL; activity tracking does not extend it.
 - API default port is 3002; Admin is 3001. Update existing environment overrides as well as templates. Agent or other server-side auth callers must also forward the trusted Origin for login/logout; they are outside the Admin integration scope.

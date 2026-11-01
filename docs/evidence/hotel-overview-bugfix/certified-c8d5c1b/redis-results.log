@@ -1,0 +1,4 @@
+PASS src/common/cache/redis-cache.adapter.spec.ts (5.803 s)
+Test Suites: 1 passed, 1 total
+Tests:       3 passed, 3 total
+Time:        6.127 s

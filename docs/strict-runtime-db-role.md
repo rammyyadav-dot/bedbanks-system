@@ -1,0 +1,262 @@
+# Strict Runtime DB Role
+
+Decision record: [ADR 0032](adr/0032-explicit-runtime-write-set.md) (builds on [ADR 0008](adr/0008-api-runtime-role.md), [ADR 0013](adr/0013-admin-operations-api.md) and [ADR 0031](adr/0031-strict-runtime-role-and-commercial-control-failure.md)). Everything here was run on disposable local PostgreSQL 16 clusters with generated credentials. No persistent database, role, deployment, DNS or alias was touched.
+
+## 1. The role
+
+| | |
+| --- | --- |
+| Group role | `fbeds_api` (NOLOGIN) |
+| Login role | `fbeds_api_login` (member of the group; password only in the deployment's secret store, 32 to 128 URL-safe characters) |
+| Attributes | NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION; owns nothing; member of no other role |
+| Config source | `DATABASE_URL` of the API process. Migrations and provisioning use a separate owner connection that the API process never receives |
+| Used by | Every HTTP request of the API process (Agent, Admin, Supplier): `PrismaService`, one principal. The hold-expiry sweeper uses the separate `fbeds_hold_expiry_login` (ADR 0005) |
+| Provisioned by | `pnpm --filter @bedbanks/api ops:provision-api-runtime-role` (owner only; `REVOKE ALL` then exactly the contract) |
+| Verified by | `verifyApiRuntimeRole` while connected as the login role: attributes, ownership, forbidden tables, and a catalog comparison of every read and every write (table and column level) with the contract |
+
+## 2. Three enforcement layers
+
+> Application RBAC, PostgreSQL privileges, and row-level security are three separate enforcement layers. Passing one does not imply passing the others.
+
+1. **Application RBAC.** Guards and per-service permission checks decide whether this user may ask for the operation at all (401, 403 `FORBIDDEN`, 404 for another tenant's resource). They run before any statement reaches the database. They know nothing about grants.
+2. **PostgreSQL privileges.** `fbeds_api` may run only the statements in the matrix below. A privilege is a ceiling for the whole API process, not a permission for a user: holding `INSERT` on `Agency` does not let an unauthorized user create an agency, and an authorized user still cannot make the role do what it was never granted.
+3. **Row-level security.** Every table in the matrix except `users` and `sessions` (authentication) has forced RLS on `tenant_id` through `fbeds_current_tenant_id()`, read from the transaction-local `app.current_tenant_id` set by `withTenant`. A SQL grant never widens it: a runtime-role write for another tenant fails the RLS check, an update of another tenant's row matches zero rows, and with no tenant context nothing is readable or writable. Tested on the real role (W-10, SC-11).
+
+## 3. Privilege matrix (generated)
+
+Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place a grant is defined. Regenerate with `pnpm --filter @bedbanks/api ops:render-runtime-role-doc`; a spec fails if this block drifts.
+
+<!-- BEGIN GENERATED: runtime-role-matrix -->
+| Table | SELECT | INSERT | UPDATE | DELETE | RLS | Writer (service, endpoints) and reason |
+| --- | :-: | :-: | :-: | :-: | --- | --- |
+| `Agency` | yes | yes | yes | - | forced tenant | INSERT: ClientsService.create; POST /admin/clients/agencies; create an agency / UPDATE: ClientsService.update; AgencySuspensionService.execute; PATCH /admin/clients/agencies/:agencyId, POST /admin/clients/agencies/suspension-approvals/:approvalId/execute; edit an agency; apply an approved suspension change |
+| `AgencyCreditLimit` | yes | yes | yes | yes | forced tenant | INSERT: AgencyCreditService.execute; POST /admin/clients/agencies/credit-approvals/:approvalId/execute; set the first credit limit after approval / UPDATE: AgencyCreditService.execute; POST /admin/clients/agencies/credit-approvals/:approvalId/execute; change the limit after approval / DELETE: AgencyCreditService.execute; POST /admin/clients/agencies/credit-approvals/:approvalId/execute; remove the limit after approval |
+| `AgencyMember` | yes | yes | - | yes | forced tenant | INSERT: ClientsService.addMember; POST /admin/clients/agencies/:agencyId/members; attach a user to an agency / DELETE: ClientsService.removeMember; DELETE /admin/clients/agencies/:agencyId/members/:userId; detach a user from an agency |
+| `ApprovalRequest` | yes | yes | yes | - | forced tenant | INSERT: ApprovalService.request; POST /admin/commercial/markups/:ruleId/request-activation, POST /admin/commercial/fx-rates/:rateId/request-activation, POST /admin/clients/agencies/:agencyId/request-suspension-change, POST /admin/clients/agencies/:agencyId/request-credit-limit, POST /admin/hotels/:hotelId/setup/publication/request, POST /admin/hotels/:hotelId/inventory/pools/:poolId/night-requests; maker-checker request (ADR 0016); a pool night request is applied by the owner tool, never by the API (ADR 0036 Amendment 4) / UPDATE: ApprovalService.decide/cancel/execute; POST .../approvals/:approvalId/{approve,reject,cancel,execute}, POST /admin/hotels/:hotelId/inventory/pools/:poolId/night-requests/:approvalId/{approve,reject,cancel}; record the decision and the execution |
+| `AuditEvent` | yes | yes | - | - | forced tenant | INSERT: AuditService and the RBAC guards; every mutation and every denial; immutable audit trail (INSERT only: no UPDATE or DELETE) |
+| `BoardBasis` | yes | - | - | - | forced tenant | read only |
+| `Booking` | cols (15) | - | - | - | forced tenant | SELECT (id, tenant_id, reference, supplier_id, hotel_id, status, currency, net_minor, check_in, check_out, nights, supplier_ref, hotel_confirmation_no, created_at, updated_at): supplier extranet bookings only (ADR 0061 Amendment 1): no sell price, markup, FX, agency, channel, payment or snapshot column; never written by this role |
+| `BookingGuest` | cols (6) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, first_name, last_name, is_lead): supplier extranet bookings only: lead guest name; no contact detail, age or room link |
+| `BookingLeadTimeRule` | yes | - | - | - | forced tenant | search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02) |
+| `BookingRoom` | cols (10) | - | - | - | forced tenant | SELECT (id, tenant_id, booking_id, position, quantity, room_name, board_code, adults, children, net_minor): supplier extranet bookings only: room line and supplier net; no sell amount or rate key |
+| `CancellationPolicy` | yes | - | - | - | forced tenant | search and recheck include each contract's cancellation terms |
+| `ChildPolicy` | yes | - | - | - | forced tenant | search, recheck and hold price children from the contract child policy (ADR 0067, F-03) |
+| `CommercialMarkupRule` | yes | yes | yes | - | forced tenant | INSERT: CommercialMarkupService.create; POST /admin/commercial/markups; draft a markup rule / UPDATE: CommercialMarkupService.retire/execute; POST /admin/commercial/markups/:ruleId/retire, POST /admin/commercial/markups/approvals/:approvalId/execute; activate or retire a rule (rules are otherwise immutable) |
+| `ComplianceExportBatch` | yes | - | - | - | forced tenant | Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067) |
+| `ComplianceExportBatchRecord` | yes | - | - | - | forced tenant | Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067) |
+| `ComplianceRecord` | cols (13) | - | - | - | forced tenant | SELECT (id, tenant_id, category, action, entity_type, entity_id, actor_type, user_id, occurred_at, payload_sha256, origin_country, destination_country, cross_border): Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS |
+| `Contract` | yes | - | - | - | forced tenant | read only |
+| `ContractSupplement` | yes | - | - | - | forced tenant | search, recheck and hold add board and compulsory supplements to the price (ADR 0067) |
+| `ContractVersion` | yes | - | - | - | forced tenant | immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger) |
+| `DailyAvailability` | yes | - | - | - | forced tenant | read only |
+| `DailyRate` | yes | - | - | - | forced tenant | read only |
+| `DistributionRestriction` | yes | yes | yes | - | forced tenant | INSERT: DistributionService.create; POST /admin/distribution/restrictions; restrict a hotel or supplier for an agency / UPDATE: DistributionService.retire; POST /admin/distribution/restrictions/:restrictionId/retire; retire a restriction |
+| `EventSupplement` | yes | yes | yes | - | forced tenant | INSERT: EventSupplementsService.create; POST /admin/event-supplements; draft an event supplement / UPDATE: EventSupplementsService.submit/decide/cancelApproval/activate/suspend; POST /admin/event-supplements/:eventSupplementId/submit, POST /admin/event-supplements/:eventSupplementId/{activate,suspend}, POST /admin/event-supplement-approvals/:approvalId/{approve,reject,cancel}; move it through the maker-checker lifecycle, activate an approved rule, or suspend an active one |
+| `EventSupplementVersion` | yes | yes | - | - | forced tenant | INSERT: EventSupplementsService.activate; POST /admin/event-supplements/:eventSupplementId/activate; append the reviewed terms snapshot the moment the rule goes live |
+| `FxRate` | yes | yes | yes | - | forced tenant | INSERT: CommercialFxService.create; POST /admin/commercial/fx-rates; draft a controlled FX rate / UPDATE: CommercialFxService.retire/execute; POST /admin/commercial/fx-rates/:rateId/retire, POST /admin/commercial/fx-rates/approvals/:approvalId/execute; activate or retire a rate (rates are otherwise immutable) |
+| `Hotel` | yes | yes | cols (11) | - | forced tenant | INSERT: SupplyService.createHotel; POST /supply/hotels (Admin "Add hotel"); create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step) / UPDATE (name, property_type, country_code, city, address, latitude, longitude, time_zone, star_rating, content_status, updated_at): HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token) |
+| `HotelAmenity` | yes | yes | cols (3) | yes | forced tenant | INSERT: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; add an amenity / UPDATE (fee_type, updated_by_id, updated_at): HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; change an amenity fee type (upsert); the hotel it belongs to cannot be reassigned / DELETE: HotelAmenitiesService.replace; PUT /admin/hotels/:hotelId/amenities; remove an amenity |
+| `HotelDeal` | yes | yes | cols (44) | - | forced tenant | INSERT: HotelDealService.create; POST /admin/commercial/promotions; draft a deal; the database starts every deal as a DRAFT / UPDATE (code, code_key, name, kind, status, priority, percent_bp, amount_minor, currency, amount_scope, min_nights, free_nights, from_night, min_lead_days, book_from, book_to, stay_from, stay_to, weekdays, stay_window_mode, discount_base, combinable, stacking_group, incompatible_deal_ids, channels, source_markets, agency_ids, max_discount_bp, min_sell_floor_minor, min_margin_bp, funding_source, active_from, active_to, public_description, internal_notes, version, terms_fingerprint, approval_id, status_reason, status_changed_at, status_changed_by_id, activated_at, activated_by_id, updated_at): HotelDealService.update/transition/execute; PATCH /admin/commercial/promotions/:dealId, POST /admin/commercial/promotions/:dealId/{submit,withdraw,pause,resume,suspend,return-to-draft,archive,reconcile}, POST /admin/commercial/promotions/approvals/:approvalId/execute; edit a draft, move a deal along the lifecycle, activate it once after approval; a trigger refuses any change to the terms of a deal that is not a DRAFT, and any transition the state machine does not allow |
+| `HotelDealRatePlan` | yes | yes | - | yes | forced tenant | INSERT: HotelDealService.create/update; POST /admin/commercial/promotions, PATCH /admin/commercial/promotions/:dealId; set the rate plans a draft deal applies to; a trigger refuses a plan of another hotel / DELETE: HotelDealService.update; PATCH /admin/commercial/promotions/:dealId; replace the scope of a draft deal; a trigger refuses it once the deal has left DRAFT |
+| `HotelExternalIdentifier` | yes | yes | - | yes | forced tenant | INSERT: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; add an external identifier / DELETE: HotelSetupService.save; PATCH /admin/hotels/:hotelId/setup; remove or replace an identifier (a changed value is delete plus insert, so no UPDATE) |
+| `HotelImage` | yes | yes | yes | yes | forced tenant | INSERT: HotelImagesService.upload; POST /admin/hotels/:hotelId/images; upload an image / UPDATE: HotelImagesService.update/reorder; PATCH /admin/hotels/:hotelId/images/:imageId, PUT /admin/hotels/:hotelId/images/order; edit, reorder, choose the primary image / DELETE: HotelImagesService.remove; DELETE /admin/hotels/:hotelId/images/:imageId; delete an image |
+| `HotelProfile` | yes | yes | yes | - | forced tenant | INSERT: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities; first save of a hotel profile / UPDATE: HotelSetupService; touchSetup; HotelPublicationService; PATCH /admin/hotels/:hotelId/setup, POST /admin/hotels/:hotelId/setup/status, PUT /admin/hotels/:hotelId/amenities, POST /admin/hotels/:hotelId/setup/publication/:approvalId/execute; save the profile, bump its version, stamp the approver |
+| `HotelSearchIndex` | yes | - | - | - | forced tenant | read only |
+| `InventoryHold` | cols (4) | - | - | - | forced tenant | SELECT (id, tenant_id, rate_plan_id, status): per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column |
+| `InventoryHoldNight` | cols (5) | - | - | - | forced tenant | SELECT (tenant_id, hold_id, pool_day_id, counter_kind, quantity): per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference |
+| `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
+| `InventoryPoolDay` | yes | - | cols (2) | - | forced tenant | UPDATE (capacity, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged |
+| `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
+| `password_reset_tokens` | yes | yes | cols (1) | - | none (auth) | INSERT: AuthService.requestPasswordReset; POST /auth/password-reset/request; issue a single-use reset token (hash only) / UPDATE (used_at): AuthService.requestPasswordReset, AuthService.confirmPasswordReset; POST /auth/password-reset/request, POST /auth/password-reset/confirm; consume a token, or supersede earlier unused tokens, by stamping used_at |
+| `Permission` | yes | - | - | - | none (auth) | read only |
+| `RatePlan` | yes | - | - | - | forced tenant | read only |
+| `RatePlanGuestPrice` | yes | - | - | - | forced tenant | per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path |
+| `RatePlanPromotion` | yes | - | - | - | forced tenant | plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path |
+| `Role` | yes | - | - | - | forced tenant | read only |
+| `RolePermission` | yes | - | - | - | forced tenant | read only |
+| `RoomAmenity` | yes | yes | cols (3) | yes | forced tenant | INSERT: HotelRoomsService.replaceAmenities; POST /admin/hotels/:hotelId/rooms, PATCH /admin/hotels/:hotelId/rooms/:roomId; record a room amenity / UPDATE (fee_type, updated_by_id, updated_at): HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; change an amenity fee type (upsert); the room it belongs to cannot be reassigned / DELETE: HotelRoomsService.replaceAmenities; PATCH /admin/hotels/:hotelId/rooms/:roomId; remove an amenity from a room |
+| `RoomEvent` | yes | yes | yes | - | forced tenant | INSERT: RoomEventsService.create; POST /admin/room-events; draft an event master record / UPDATE: RoomEventsService.update/submit/decide/cancelApproval/cancel/archive; PATCH /admin/room-events/:roomEventId, POST /admin/room-events/:roomEventId/submit, POST /admin/room-events/:roomEventId/{cancel,archive}, POST /admin/room-event-approvals/:approvalId/{approve,reject,cancel}; edit a draft, move it through the maker-checker lifecycle, or cancel/archive it |
+| `RoomType` | yes | yes | cols (8) | - | forced tenant | INSERT: HotelRoomsService.create; POST /admin/hotels/:hotelId/rooms; add a canonical room to a hotel (publication needs one active room) / UPDATE (name, code, max_adults, max_children, max_occupancy, bedding_metadata, is_active, updated_at): HotelRoomsService.update/archive/restore; PATCH /admin/hotels/:hotelId/rooms/:roomId, POST /admin/hotels/:hotelId/rooms/:roomId/archive, POST /admin/hotels/:hotelId/rooms/:roomId/restore; edit, archive or restore a room (rooms are never deleted) |
+| `ServiceCase` | yes | yes | yes | - | forced tenant | INSERT: ServiceCasesService.create; POST /admin/service/cases; open a case / UPDATE: ServiceCasesService.transition/assign; POST /admin/service/cases/:caseId/transition, POST /admin/service/cases/:caseId/assign; move or assign a case |
+| `ServiceCaseNote` | yes | yes | - | - | forced tenant | INSERT: ServiceCasesService.addNote/transition/assign; POST /admin/service/cases/:caseId/notes; append a note (notes are immutable) |
+| `sessions` | yes | yes | cols (2) | - | none (auth) | INSERT: AuthService.login; POST /auth/login; create the opaque session (ADR 0001) / UPDATE (last_seen_at, revoked_at): AuthService (session guard, logout); every authenticated route, POST /auth/logout; slide and revoke the session |
+| `Supplier` | yes | - | - | - | forced tenant | read only |
+| `supplier_change_set_cells` | yes | yes | - | yes | forced tenant | INSERT: SupplierChangeSetsService.create, replace; POST /supplier/extranet/change-sets, PUT /supplier/extranet/change-sets/:changeSetId; store the validated cells of a draft / DELETE: SupplierChangeSetsService.replace; PUT /supplier/extranet/change-sets/:changeSetId; replace the cells of a draft |
+| `supplier_change_set_events` | yes | yes | - | - | forced tenant | INSERT: SupplierChangeSetsService; POST /supplier/extranet/change-sets, PUT /supplier/extranet/change-sets/:changeSetId, POST /supplier/extranet/change-sets/:changeSetId/submit, POST /supplier/extranet/change-sets/:changeSetId/withdraw; record every change-set transition |
+| `supplier_change_sets` | yes | yes | cols (7) | - | forced tenant | INSERT: SupplierChangeSetsService.create; POST /supplier/extranet/change-sets; create a draft availability change set / UPDATE (status, version, cell_count, content_sha256, submitted_at, submitted_by_user_id, updated_at): SupplierChangeSetsService.replace, submit, withdraw; PUT /supplier/extranet/change-sets/:changeSetId, POST /supplier/extranet/change-sets/:changeSetId/submit, POST /supplier/extranet/change-sets/:changeSetId/withdraw; replace a draft, submit it, or withdraw it (status edges are enforced by a database trigger) |
+| `supplier_memberships` | yes | - | - | - | forced tenant | read only |
+| `supplier_room_drafts` | yes | yes | yes | - | forced tenant | INSERT: SupplierExtranetService.upsertRoomDraft; PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft; supplier room-note drafts (ADR 0011) / UPDATE: SupplierExtranetService.upsertRoomDraft; PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft; edit an own draft |
+| `SupplierHotelMapping` | yes | - | - | - | forced tenant | read only |
+| `SupplierRatePlanMapping` | yes | - | - | - | forced tenant | governed supplier rate plan to canonical RatePlan links (ADR 0081); writes are the privileged mapping-governance path |
+| `SupplierRoomMapping` | yes | - | - | - | forced tenant | read only |
+| `tenants` | yes | - | - | - | none (auth) | read only |
+| `UserRole` | yes | - | - | - | forced tenant | read only |
+| `users` | yes | - | cols (3) | - | none (auth) | UPDATE (last_login_at, password_hash, updated_at): AuthService.login, AuthService.confirmPasswordReset; POST /auth/login, POST /auth/password-reset/confirm; record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091) |
+
+Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):
+
+- `fbeds_distribution_authenticate_key`: DistributionAuthGuard; GET /distribution/v1/me; authenticate a partner API key; returns identity, scopes, allowlist and limits, never a hash
+- `fbeds_distribution_authenticate_token`: DistributionAuthGuard; GET /distribution/v1/me; authenticate a partner OAuth access token; scopes cut to the client's current scopes
+- `fbeds_distribution_issue_token`: DistributionTokenService.issue; POST /distribution/v1/oauth/token; re-verify the OAuth client secret, then write the token hash and its audit event atomically
+
+Privileged paths (written by the API process somewhere, never by the runtime role):
+
+- `AgencyCommissionPayout`: finance-gated: proposed and approved tier-based commission payouts to agencies; approval posts a CREDIT to LedgerEntry on the API connection, which the runtime role never writes (ADR 0098)
+- `BankMatchFinding`: finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)
+- `BankStatement`: finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)
+- `BankStatementEntry`: finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)
+- `BoardBasis`: supply authoring
+- `Booking`: booking is disabled; finance-gated
+- `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)
+- `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
+- `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
+- `BookingCreditNote`: finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)
+- `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
+- `BookingEmail`: booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it
+- `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
+- `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
+- `BookingFinancePosting`: finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)
+- `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
+- `BookingLeadTimeRule`: supply authoring
+- `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
+- `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
+- `BookingSavedView`: booking module only: a person's own saved booking views, written (and deleted) by the booking role; preferences, never policy (ADR 0039, Phase 6B)
+- `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
+- `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)
+- `Cancellation`: booking is disabled
+- `CancellationPolicy`: supply authoring
+- `ChildPolicy`: supply authoring
+- `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
+- `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
+- `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
+- `Contract`: supply authoring
+- `ContractSupplement`: supply authoring
+- `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
+- `DailyAvailability`: supply authoring and Quick Update
+- `DailyRate`: supply authoring and Quick Update
+- `FinancePeriodClose`: finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)
+- `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
+- `GlAccount`: finance-gated: the general-ledger chart of accounts of a tenant; code, name and type never change, only active; written on the API connection (ADR 0102)
+- `GlCategoryMapping`: finance-gated: append-only versions of which GL account pair each ledger movement category posts to; written on the API connection (ADR 0102)
+- `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
+- `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
+- `InventoryHold`: holds are gated; written by the booking path
+- `InventoryHoldNight`: holds are gated
+- `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
+- `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
+- `LedgerAdjustment`: finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)
+- `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
+- `LedgerEntry`: finance-gated
+- `Membership`: dedicated tenant membership authoring role only
+- `PlatformRole`: platform administration
+- `PlatformRoleAssignment`: platform administration
+- `PlatformRolePermission`: platform administration
+- `RatePlan`: supply authoring and pool membership/release
+- `RatePlanGuestPrice`: supply authoring (guest price lines)
+- `RatePlanPromotion`: supply authoring (promotions)
+- `ReconciliationDecision`: finance-gated: append-only history of dispute queue decisions (ADR 0070)
+- `ReconciliationFinding`: finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)
+- `ReconciliationRun`: finance-gated: the reconciliation job queue; the API inserts QUEUED runs and the worker claims them (ADR 0070)
+- `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
+- `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
+- `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
+- `Supplier`: supply authoring
+- `SupplierAllotmentObservation`: ingestion-gated: latest supplier stock statement per night, an observation that is never sellable by itself (ADR 0078)
+- `SupplierCancellationObservation`: ingestion-gated: latest supplier cancellation policy per rate plan, an observation that is never sellable by itself (ADR 0078)
+- `SupplierHotelMapping`: mapping governance
+- `SupplierIngestRun`: ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)
+- `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
+- `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
+- `SupplierPaymentTerms`: finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)
+- `SupplierPromotionRun`: promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)
+- `SupplierRateObservation`: ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)
+- `SupplierRatePlanMapping`: mapping governance (ADR 0081)
+- `SupplierRoomMapping`: mapping governance
+- `SupplierSettlement`: finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)
+- `SupplierStatement`: finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)
+- `SupplierStatementLine`: finance-gated: immutable statement lines (ADR 0070)
+- `Tenant`: tenant settings authoring
+- `TenantControlProfile`: dedicated tenant control authoring role only
+- `TenantSettings`: tenant settings authoring
+- `User`: identity provisioning (create user) is an operator action; the runtime only records the last sign-in
+- `Wallet`: finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)
+<!-- END GENERATED: runtime-role-matrix -->
+
+## 4. Historical grant decisions
+
+Earlier migrations granted `fbeds_api` writes whenever the role already existed. Each disputed resource is now classified, and the classification is enforced by the contract, the verifier, the forward migrations and the specs.
+
+| Resource | Decision | Why |
+| --- | --- | --- |
+| `Agency`, `AgencyMember` | **REQUIRED**: INSERT, UPDATE / INSERT, DELETE (plus SELECT, also read by the suspension guard) | Admin Clients workflows (create, edit, members, approved suspension) are reachable and self-contained |
+| `AgencyCreditLimit` | **REQUIRED**: INSERT, UPDATE, DELETE | The approved credit-limit change is applied by `AgencyCreditService.execute`. The spending position in the view (balance, pending holds, overdue) needs `Wallet`, `LedgerEntry` and the hold amounts, all privileged reads (owner decision: keep them so), so the view reports the position as unavailable on the strict role, never zero. Making it available needs a separate owner decision (an aggregate view or a finance principal) |
+| `ApprovalRequest` | **REQUIRED**: INSERT, UPDATE | Every maker-checker flow (markup activation, suspension, credit limit, hotel publication) |
+| `CommercialMarkupRule`, `DistributionRestriction` | **REQUIRED**: INSERT, UPDATE (plus SELECT, mandatory commercial reads) | Admin authoring of the controls that Agent search and recheck read |
+| `ServiceCase`, `ServiceCaseNote` | **REQUIRED**: INSERT, UPDATE / INSERT | Admin Service department |
+| `HotelProfile`, `HotelExternalIdentifier`, `HotelAmenity` | **REQUIRED** (exact operations in the matrix) | Hotel Setup and amenities. External identifiers need no UPDATE: a changed value is delete plus insert |
+| `Hotel` | **REQUIRED**: INSERT, and UPDATE on 11 columns only | Add hotel creates the draft; the profile, status, amenities and publication workflows also write the hotel row (details, `content_status`, the `updated_at` stale-token). DELETE and every other column (including `external_ref` updates) stay privileged |
+| `RoomType` | **REQUIRED**: INSERT, UPDATE on 8 columns | The Rooms workflow (create, edit, archive, restore). Rooms are never deleted; publication needs one active room |
+| `RoomAmenity` | **REQUIRED**: INSERT, UPDATE, DELETE | Room amenities are replaced together with the room edit |
+| `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
+| `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
+| `InventoryPool` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes |
+| `InventoryPoolDay` | **REQUIRED**: column-level UPDATE of capacity and provenance only (plus SELECT) | Pool capacity editor and Quick Update on pooled plans (ADR 0036, Amendment 1). INSERT, DELETE, `sold`, `held` and identity columns stay with the hold path and the hold-expiry role |
+| `InventoryHold`, `InventoryHoldNight` | **REQUIRED**: column-level SELECT only (5 and 4 columns) | Per-plan consumption report. No guest, money, offer, idempotency, request or user column; no write |
+| Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
+
+Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
+
+## 5. Prohibited operations
+
+Anything not in the matrix, in particular: any write by the runtime role to a privileged-path table; `DELETE` or `UPDATE` on `AuditEvent`; any `TRUNCATE`; any DDL; any read of wallets, ledger, bookings, holds or connector credentials; creating, altering or granting roles; bypassing RLS. The verifier fails on any of them.
+
+## 6. What a caller sees
+
+| Situation | Response |
+| --- | --- |
+| No session | 401 |
+| Authenticated, permission missing | 403 `FORBIDDEN`, `permission.denied` audit event |
+| Another tenant's resource | 404 (existing non-disclosure) |
+| Authorized, but the operation is a privileged path (the live grants equal the contract and still do not allow it) | 403 `RUNTIME_ROLE_OPERATION_PROHIBITED`, audit event `runtime_role.operation_prohibited`, nothing written (the transaction rolled back), no SQL, table or column in the body |
+| Authorized, but the live grants differ from the contract (drift) | 503 `DATABASE_ROLE_NOT_PERMITTED`, sanitized, structured diagnostic naming the table and the difference (log only) |
+| A mandatory commercial control cannot be read | Search `provider_unavailable`, recheck 503, suspension guard 503 `COMMERCIAL_CONTROL_UNAVAILABLE` (ADR 0031) |
+| Any other database error | 500 `INTERNAL_SERVER_ERROR`, unchanged |
+
+The classification is made by `DatabaseDenialInterceptor` comparing the live catalog for the denied table with the contract, never by guessing from the error text.
+
+## 7. How to reproduce the certification
+
+On a disposable local PostgreSQL 16 (owner connection in `DATABASE_URL`, never a persistent or production database; Redis for the API):
+
+```bash
+cd apps/api
+pnpm exec prisma migrate deploy                       # disposable database only
+pnpm exec jest --runInBand src/database               # contract, drift guards, generated-doc check (no database)
+pnpm exec jest --config ./test/jest-e2e.json --runInBand \
+  strict-runtime-role-replay strict-runtime-role-commercial strict-runtime-role-workflows
+OWNER_DATABASE_URL=postgresql://...@localhost:PORT/p05_main REDIS_URL=redis://127.0.0.1:6379 \
+  pnpm run ops:strict-role-boot-smoke                 # boots the real API on the strict role and drives it over HTTP
+```
+
+- `strict-runtime-role-replay`: migration replay, upgrade from the preceding schema and provisioning converge on the same grants; re-running provisioning changes nothing; the verifier names an over-grant and a missing read.
+- `strict-runtime-role-commercial`: failure injection per mandatory control, empty-configuration defaults, the 401/403/404/403-prohibited/503-drift matrix, grant-layer refusal, tenant isolation.
+- `strict-runtime-role-workflows`: every granted Admin write through the real endpoints, and coverage proven from the database statistics.
+- `pool-capacity-editor` (PCE-22 to PCE-27): the real API on the provisioned login: Apply and attribution work and reconcile; application permissions decide 403; protected columns, INSERT/DELETE and every ungranted hold column are refused by the database (including `SELECT *`); cross-tenant and missing tenant context fail closed; no tenant leak on a reused connection; the verifier names a broad SELECT, an extra or missing column read, a broad UPDATE, INSERT, BYPASSRLS and an extra membership; a missing privilege is a sanitized 503 with nothing written; concurrent holds and edits never breach `sold + held <= capacity`.
+- `strict-role-boot-smoke`: normal boot path, tenant context, agency state, restrictions, markup, a permitted and a prohibited Admin mutation, isolation.
+
+## 8. Not covered here
+
+Production-clone compatibility, persistent role provisioning, hosted backups and monitoring remain owner-controlled release gates. The Pool Capacity Editor is covered by ADR 0036, Amendment 1 (`pool-capacity-editor` PCE-22 to PCE-27 run the real API on the strict login). Applying migration `202610260001_strict_runtime_role_pool_capacity` to a persistent database (follow [runbooks/strict-role-rollout.md](runbooks/strict-role-rollout.md)) and re-provisioning the persistent role remain owner-controlled steps.
+
+
+## 9. Column-level reads
+
+A contract row may declare `readColumns` instead of `read: true`. Provisioning emits `GRANT SELECT (cols) ON table`; the verifier compares the actual column privileges and flags an extra readable column, a missing one, and a table-level SELECT that overrides the restriction. Code must name its columns (no `SELECT *`, no ORM default column list) on such a table: PostgreSQL refuses the statement otherwise. A policy expression is evaluated with the caller's privileges, so `tenant_id` must be one of the readable columns. The matrix above shows `cols (n)` for these tables.
+
+
+## Freshness-preserving capacity grant (ADR 0037)
+
+The newer contract and migration 202610270001_strict_runtime_role_pool_freshness supersede the six-column capacity/provenance grant from PR #262. Only capacity and updated_at are writable. Quick Update statements that stamp provenance remain privileged; missing nights remain invalid. Column ACLs are explicitly revoked during convergence because table-level REVOKE does not remove them. The earlier migration is preserved unchanged.
+
+## Booking module principal (ADR 0039)
+The Admin booking list/detail does not use the API runtime role (which has no booking grants). It uses `fbeds_booking_ops` (SELECT-only, provisioned by `ops:provision-booking-ops-role`, URL in `BOOKING_OPS_DATABASE_URL`). Since Phase 2 it also writes bookings, through `transitionBooking` only: INSERT on the booking tables and `AuditEvent`, UPDATE on named `Booking` columns, never DELETE. Phase 3 adds the supplier job and call tables (job rows updatable only in their own queue columns, calls append-only) and EXECUTE on one tenant-listing function; the job runner uses this same role and nothing broader. Phase 4 adds the operational-state table (owner, acknowledgement, manual priority; UPDATE on those columns only). A missing role yields a 503 "not readable", never a fallback. See `docs/booking-module-README.md`.

@@ -1,14 +1,20 @@
 import { Analytics } from '@vercel/analytics/next'
-import { Barlow_Semi_Condensed, Montserrat } from 'next/font/google'
 import type { Metadata, Viewport } from 'next'
+import '@fontsource/poppins/400.css'
+import '@fontsource/poppins/500.css'
+import '@fontsource/poppins/600.css'
+import '@fontsource/poppins/700.css'
+import '@fontsource/poppins/800.css'
+import '@fontsource/poppins/900.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/ibm-plex-mono/600.css'
+import '@bedbanks/ui/src/brand-tokens.css'
 import './globals.css'
 
-const montserrat = Montserrat({ subsets: ['latin'], variable: '--font-montserrat', weight: ['400', '500', '600', '700', '800'] })
-const barlow = Barlow_Semi_Condensed({ subsets: ['latin'], variable: '--font-barlow', weight: ['400', '500', '600', '700'] })
 
 export const metadata: Metadata = {
-  title: 'fBeds Agent Portal | Wholesale Hotel Booking',
-  description: 'B2B wholesale hotel search, rates and booking operations for verified fBeds travel partners.',
+  title: 'fabBeds Agent Portal | Wholesale hotels. Trade-ready.',
+  description: 'The fabBeds trade workspace: search contracted hotel inventory, compare rooms and boards, recheck price and availability, and book against your agency credit.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -33,7 +39,7 @@ export const viewport: Viewport = {
   colorScheme: 'light dark',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
+    { media: '(prefers-color-scheme: dark)', color: '#111111' },
   ],
 }
 
@@ -43,7 +49,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${montserrat.variable} ${barlow.variable} bg-background`}>
+    <html lang="en" className="bg-background">
       <body className="antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

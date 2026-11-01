@@ -6,6 +6,8 @@ import { AgentAuditService } from './audit.service'
 import { InventoryHoldService } from './inventory-hold.service'
 import { SUPPLIER_ADAPTER, SupplierAdapter, SupplierProviderError, type RecheckedOfferAuthority, type SupplierRecheckResult } from './supplier.port'
 import { assertSupportedSettlementCurrency } from './currency'
+import { stayNightCount } from '../supply/contracted-sellability'
+import { releaseAllows } from '../supply/zoned-time'
 
 const RECHECK_TIMEOUT_MS = 5_000
 const safeInteger = (value: number) => Number.isSafeInteger(value) && value >= 0
@@ -97,21 +99,24 @@ export class OfferHoldService {
   }
 
   private verifyMapping(tenantId: string, offer: RecheckedOfferAuthority): Promise<boolean> {
-    const today = new Date(); const checkIn = new Date(`${offer.checkIn}T00:00:00.000Z`); const checkOut = new Date(`${offer.checkOut}T00:00:00.000Z`)
+    const today = new Date(); const checkIn = new Date(`${offer.checkIn}T00:00:00.000Z`); const checkOut = new Date(`${offer.checkOut}T00:00:00.000Z`); const lastNight = new Date(checkOut.getTime() - 86_400_000)
     return this.prisma.withTenant(tenantId, async tx => {
       const plan = await tx.ratePlan.findFirst({ where: {
         id: offer.ratePlanId, tenantId, status: 'ACTIVE', boardBasisId: offer.boardBasisId,
-        roomTypeId: offer.canonicalRoomTypeId, currency: offer.currency,
-        occupancy: { gte: offer.adults + offer.children }, boardBasis: { isActive: true },
+        roomTypeId: offer.canonicalRoomTypeId, currency: offer.contractCurrency ?? offer.currency,
+        // The base occupancy may be below the party: guest lines and the contract child policy price the rest (ADR 0057 S6, ADR 0067 F-03); the evaluator decides.
+        occupancy: { lte: offer.adults + offer.children }, boardBasis: { tenantId, isActive: true },
         roomType: { isActive: true, hotelId: offer.canonicalHotelId, maxAdults: { gte: offer.adults }, maxChildren: { gte: offer.children }, maxOccupancy: { gte: offer.adults + offer.children }, hotel: { tenantId, contentStatus: 'COMPLETE' } },
-        contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: checkOut }, settlementCurrency: offer.currency,
+        contract: { tenantId, supplierId: offer.supplierId, status: 'ACTIVE', validFrom: { lte: checkIn }, validTo: { gte: lastNight }, settlementCurrency: offer.contractCurrency ?? offer.currency,
           supplier: { tenantId, status: 'ACTIVE' }, supplierHotelMapping: { tenantId, hotelId: offer.canonicalHotelId, supplierHotelId: offer.supplierHotelId, status: 'MAPPED',
             roomMappings: { some: { tenantId, supplierRoomId: offer.supplierRoomId, roomTypeId: offer.canonicalRoomTypeId, status: 'MAPPED' } } } },
-      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true } })
+      }, select: { id: true, minStay: true, maxStay: true, releaseDays: true, releaseTimeLocal: true, validFrom: true, validTo: true, availability: { where: { tenantId, stayDate: checkIn }, select: { releaseDays: true } }, roomType: { select: { hotel: { select: { timeZone: true } } } } } })
       if (!plan) return false
-      const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
-      const leadDays = Math.floor((checkIn.getTime() - today.getTime()) / 86_400_000)
-      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && leadDays >= plan.releaseDays
+      const nights = stayNightCount(offer.checkIn, offer.checkOut)
+      // Hotel-local release deadline, the same rule the canonical evaluator applies: the check-in night's override, else the plan's (ADR 0067, F-08).
+      // ADR 0057: the plan's own sale window, the same rule the canonical evaluator applies. A null side inherits the contract term checked above.
+      if ((plan.validFrom && checkIn < plan.validFrom) || (plan.validTo && lastNight > plan.validTo)) return false
+      return nights >= plan.minStay && (plan.maxStay === null || nights <= plan.maxStay) && releaseAllows(today, offer.checkIn, plan.availability[0]?.releaseDays ?? plan.releaseDays, plan.releaseTimeLocal, plan.roomType.hotel.timeZone)
     })
   }
 

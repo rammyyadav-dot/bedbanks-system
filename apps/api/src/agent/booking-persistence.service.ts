@@ -3,6 +3,30 @@ import { Prisma } from '@prisma/client'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { createHash } from 'crypto'
 import { PrismaService } from '../database/prisma.service'
+import { freezeCancellationTerms } from './booking-cancellation-terms'
+import { rulesForPlan } from '../supply/cancellation-rules'
+import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
+import { effectiveRateDecimal } from '../supply/fx'
+
+const COMMERCIAL_SNAPSHOT_KEYS = [
+  'version', 'requestId', 'offerId', 'searchId', 'inventoryHoldId', 'canonicalHotelId', 'canonicalRoomTypeId',
+  'ratePlanId', 'boardBasisId', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges',
+  'currency', 'totalMinor', 'leadGuest',
+] as const
+
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as object).sort().map((key) => `${key}:${stable((value as Record<string, unknown>)[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function sameCommercialSnapshot(stored: Prisma.JsonValue, expected: Prisma.InputJsonObject): boolean {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false
+  const left = stored as Record<string, unknown>
+  return COMMERCIAL_SNAPSHOT_KEYS.every((key) => stable(left[key]) === stable(expected[key]))
+}
 
 type BookingRecord = {
   id: string
@@ -65,19 +89,78 @@ export class BookingPersistenceService {
         if (!hold) throw new ForbiddenException('Inventory hold is unavailable')
         this.assertAuthoritativeHold(hold, command)
 
-        return tx.booking.create({
+        // Supplier ownership (ADR 0061 Amendment 1): frozen here, once, from the hold's rate plan -> contract -> supplier, all inside this tenant.
+        // Never from `Booking.supplier`, a name, the snapshot or any request field. A hold whose plan or contract cannot be resolved fails closed.
+        const ownershipPlan = await tx.ratePlan.findFirst({ where: { id: hold.ratePlanId, tenantId: command.tenantId }, select: { contract: { select: { tenantId: true, supplierId: true } } } })
+        if (!ownershipPlan || ownershipPlan.contract.tenantId !== command.tenantId || !ownershipPlan.contract.supplierId) throw new ForbiddenException('Inventory hold is unavailable')
+        const supplierId = ownershipPlan.contract.supplierId
+
+        // The Admin booking module's promoted columns and child rows (ADR 0039): written in this same transaction from the same command,
+        // so the list never has to guess from the JSON snapshot. The agency is the booking user's agency membership, or null (Unassigned).
+        const member = await tx.agencyMember.findUnique({ where: { tenantId_userId: { tenantId: command.tenantId, userId: command.userId } }, select: { agencyId: true } })
+        const checkIn = new Date(`${command.checkIn}T00:00:00.000Z`)
+        const checkOut = new Date(`${command.checkOut}T00:00:00.000Z`)
+        // Finding F13: the terms the buyer was shown are frozen onto the booking, so a later contract edit cannot change a cancellation or a voucher.
+        const plan = await tx.ratePlan.findFirst({ where: { id: command.ratePlanId, tenantId: command.tenantId }, include: { contract: { include: { cancellationPolicies: true } }, roomType: { include: { hotel: true } } } })
+        if (!plan) throw new ConflictException('Rate plan is unavailable')
+        const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
+        if (resolved.missing) throw new ConflictException('The rate plan names a cancellation rule set that has no rules')
+        // ADR 0067 F-10: the buyer's tiers (after the contract's client buffer) and the stay length a nights penalty counts against.
+        const stayNights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
+        const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights, timeZone: plan.roomType.hotel.timeZone, contractId: plan.contract.id, contractVersion: plan.contract.version, ratePlanId: plan.id })
+        if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
+        // ADR 0067 F-12: a contract in another currency was priced at the ACTIVE controlled rate; that rate (with its buffer) is frozen on the
+        // booking for reports. No rate, or a rate activated after the hold was priced, refuses the booking so the agent re-checks at today's rate.
+        let fxRate: string | null = null
+        if (plan.contract.settlementCurrency !== command.currency) {
+          const rate = await tx.fxRate.findFirst({ where: { tenantId: command.tenantId, status: 'ACTIVE', baseCurrency: plan.contract.settlementCurrency, quoteCurrency: command.currency }, select: { rateScaled: true, bufferBp: true, activatedAt: true } })
+          if (!rate || !rate.activatedAt || rate.activatedAt > hold.createdAt) throw new ConflictException({ message: 'The exchange rate this offer was priced at is no longer in force; check the offer again', code: 'FX_RATE_CHANGED' })
+          fxRate = effectiveRateDecimal(rate)
+        }
+        const created = await tx.booking.create({
           data: {
+            cancellationPolicy: frozenTerms as Prisma.InputJsonObject,
+            isRefundable: plan.refundable,
             tenantId: command.tenantId,
             reference: bookingReference(command),
             supplier: 'PENDING_SUPPLIER',
+            supplierId,
             hotelId: command.canonicalHotelId,
-            status: 'PENDING',
+            status: 'PENDING_SUPPLIER',
             currency: command.currency,
             totalMinor: BigInt(command.totalMinor),
+            ...(fxRate ? { fxRate } : {}),
             idempotencyKey: command.idempotencyKey,
             searchSnapshot: snapshot,
+            channel: 'PORTAL',
+            agencyId: member?.agencyId ?? null,
+            agentUserId: command.userId,
+            agentRef: command.agencyReference?.trim().slice(0, 120) || null,
+            ...(command.specialRequests ? { specialRequests: command.specialRequests as Prisma.InputJsonObject } : {}),
+            checkIn, checkOut, nights: Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000),
           },
         })
+        const [room, board] = await Promise.all([
+          tx.roomType.findFirst({ where: { id: command.canonicalRoomTypeId, hotelId: command.canonicalHotelId, hotel: { tenantId: command.tenantId } }, select: { name: true } }),
+          tx.boardBasis.findFirst({ where: { id: command.boardBasisId, tenantId: command.tenantId }, select: { code: true } }),
+        ])
+        const bookingRoom = await tx.bookingRoom.create({
+          data: {
+            tenantId: command.tenantId, bookingId: created.id, position: 1, quantity: command.rooms, roomTypeId: command.canonicalRoomTypeId, roomName: room?.name ?? null, boardCode: board?.code?.trim() ?? null,
+            adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor),
+          },
+        })
+        // ADR 0066: every guest by room when the checkout sent them (validated against the held occupancy), otherwise the lead guest only.
+        if (command.guests?.length) {
+          await tx.bookingGuest.createMany({ data: command.guests.map((guest) => ({
+            tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, roomNumber: guest.roomNumber, title: guest.title, firstName: guest.firstName, lastName: guest.lastName,
+            isLead: guest.isLead, type: guest.type, age: guest.age,
+          })) })
+        } else {
+          await tx.bookingGuest.create({ data: { tenantId: command.tenantId, bookingId: created.id, roomId: bookingRoom.id, roomNumber: 1, firstName: command.leadGuest.firstName, lastName: command.leadGuest.lastName, isLead: true, type: 'ADULT' } })
+        }
+        await tx.bookingEvent.create({ data: { tenantId: command.tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: command.userId, reason: 'Booking created', payload: { requestId: command.requestId } } })
+        return created
       })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
@@ -88,6 +171,35 @@ export class BookingPersistenceService {
         return this.existing(raced, command, snapshot)
       })
     }
+  }
+
+  /**
+   * Records the supplier prebook result on the pending booking without changing the commercial snapshot
+   * used for idempotency. Unknown is retained; a later prebooked proof may upgrade it. A recorded
+   * prebook is never downgraded to unknown.
+   */
+  async recordSupplierPrebook(tenantId: string, bookingId: string, record: RecordedSupplierPrebook): Promise<void> {
+    await this.prisma.withTenant(tenantId, async tx => {
+      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
+      if (!booking || booking.status !== 'PENDING_SUPPLIER') throw new ConflictException('Booking is not pending')
+      const snapshot = booking.searchSnapshot
+      if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw new ConflictException('Booking snapshot is invalid')
+      const prior = readSupplierPrebook(snapshot)
+      if (prior?.outcome === 'prebooked' && record.outcome === 'unknown') throw new ConflictException('Supplier prebook is already recorded')
+      if (prior?.supplierReference && record.supplierReference && prior.supplierReference !== record.supplierReference) {
+        throw new ConflictException('Supplier reference does not match')
+      }
+      if (prior && prior.outcome === record.outcome && prior.supplierReference === record.supplierReference && prior.code === record.code) return
+      const supplierPrebook = {
+        outcome: record.outcome,
+        ...(record.supplierReference ? { supplierReference: record.supplierReference } : {}),
+        ...(record.code ? { code: record.code } : {}),
+      }
+      await tx.booking.update({
+        where: { id: bookingId, tenantId },
+        data: { searchSnapshot: { ...(snapshot as Prisma.JsonObject), supplierPrebook } },
+      })
+    })
   }
 
   private assertAuthoritativeHold(hold: {
@@ -131,8 +243,8 @@ export class BookingPersistenceService {
       existing.hotelId !== command.canonicalHotelId ||
       existing.currency !== command.currency ||
       existing.totalMinor !== BigInt(command.totalMinor) ||
-      existing.status !== 'PENDING' ||
-      JSON.stringify(existing.searchSnapshot) !== JSON.stringify(snapshot)
+      existing.status !== 'PENDING_SUPPLIER' ||
+      !sameCommercialSnapshot(existing.searchSnapshot, snapshot)
     ) {
       throw new ConflictException('Booking idempotency key was reused with different booking intent')
     }

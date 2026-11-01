@@ -1,0 +1,8 @@
+# Accepted container vulnerabilities (Trivy). One CVE per line, each with a reason and an expiry, e.g.:
+#   CVE-2026-12345 exp:2026-12-31   # base-image package not reachable at runtime; fix not yet in node:24-alpine; owner: @rammyyadav-dot
+# Trivy ignores an entry after its exp: date, so an acceptance cannot go stale silently. Prefer bumping the base image (Dependabot) over adding entries here.
+
+# api-migrator only: deepmerge-ts 7.1.5 is a transitive of prisma 6.19.3 (@prisma/config via c12). The fix is in 8.0.0, a major version Prisma 6 does not accept.
+# Impact: stack exhaustion when merging a recursive object graph; the migrator merges only Prisma's own local config at start-up and handles no untrusted input.
+# Remove when Prisma is upgraded past the affected range. Owner: @rammyyadav-dot (accepted 2026-10-22).
+CVE-2026-40345 exp:2027-01-20

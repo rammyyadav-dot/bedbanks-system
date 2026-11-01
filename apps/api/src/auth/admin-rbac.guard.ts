@@ -33,7 +33,8 @@ export class AdminRbacGuard implements CanActivate {
     const required = this.reflector.getAllAndOverride<AdminPermission>(REQUIRED_ADMIN_PERMISSION, [context.getHandler(), context.getClass()])
     if (!identity || !required) throw new ForbiddenException('Access denied')
 
-    const membership = identity.memberships.find((entry) => entry.role === 'owner') ?? identity.memberships[0]
+    const selected = (request as unknown as { activeTenantId?: string }).activeTenantId
+    const membership = selected ? identity.memberships.find(entry => entry.tenantId === selected) : identity.memberships.find((entry) => entry.role === 'owner') ?? identity.memberships[0]
     if (!membership) throw new ForbiddenException('No active tenant membership')
 
     const roles = await this.prisma.withTenant(membership.tenantId, (tx) => tx.userRole.findMany({
@@ -44,7 +45,7 @@ export class AdminRbacGuard implements CanActivate {
     const allowed = membership.role === 'owner' || permissions.has(required)
     if (!allowed) {
       await this.prisma.withTenant(membership.tenantId, (tx) => tx.auditEvent.create({
-        data: { tenantId: membership.tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'admin_permission', entityId: required, payload: { permission: required }, userId: identity.user.id },
+        data: { tenantId: membership.tenantId, actorType: 'USER', action: 'permission.denied', entityType: 'admin_permission', entityId: required, payload: { permission: required, requestId: request.requestId ?? null }, userId: identity.user.id },
       })).catch(() => undefined)
       throw new ForbiddenException('Insufficient permission')
     }

@@ -5,16 +5,30 @@ import { AgentAuditService } from './audit.service'
 import { LedgerService } from './ledger.service'
 import { AgentFinanceService } from './finance.service'
 import { AgentRbacGuard } from './rbac.guard'
+import { AgencySuspensionGuard } from './agency-suspension.guard'
 import { TenantContextGuard } from './tenant-context.guard'
-import { SUPPLIER_ADAPTER, UnconfiguredSupplierAdapter } from './supplier.port'
+import { ContractedInventoryAdapter } from './contracted-inventory.adapter'
+import { SUPPLIER_ADAPTER } from './supplier.port'
+import { supplierAdapterFromEnvironment } from './supplier-adapter.factory'
 import { InventoryHoldService } from './inventory-hold.service'
 import { OfferHoldService } from './offer-hold.service'
 import { HoldExpirySweeper } from './hold-expiry-sweeper.service'
+import { CancellationSettlementService } from './cancellation-settlement.service'
 import { AgentSearchService } from './agent-search.service'
+import { DestinationResolverService } from './destination-resolver.service'
+import { AgentHotelImageService } from './agent-hotel-image.service'
 import { BookingPersistenceService } from './booking-persistence.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
 import { PrebookCompensationRecoveryService } from './prebook-compensation-recovery.service'
+import { BookingReconciliationService } from './booking-reconciliation.service'
+import { BookingConfirmationService } from './booking-confirmation.service'
+import { BookingTransactionService } from './booking-transaction.service'
+import { CancellationPolicyService } from './cancellation-policy.service'
+import { BookingCancellationService } from './booking-cancellation.service'
+import { BookingDocumentService } from './booking-document.service'
+import { BookingQueryService } from './booking-query.service'
+import { SupplierMutationJournalService } from './supplier-mutation-journal.service'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -23,6 +37,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
   controllers: [AgentController],
   providers: [
     AgentRbacGuard,
+    AgencySuspensionGuard,
     TenantContextGuard,
     AgentAuditService,
     LedgerService,
@@ -31,10 +46,21 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     { provide: HoldExpirySweeper, useFactory: () => new HoldExpirySweeper() },
     OfferHoldService,
     AgentSearchService,
+    DestinationResolverService,
+    AgentHotelImageService,
     BookingPersistenceService,
     BookingFinancialAuthorizationService,
+    CancellationSettlementService,
     SupplierPrebookOrchestrationService,
     PrebookCompensationRecoveryService,
+    BookingReconciliationService,
+    BookingConfirmationService,
+    BookingTransactionService,
+    CancellationPolicyService,
+    BookingCancellationService,
+    BookingDocumentService,
+    BookingQueryService,
+    SupplierMutationJournalService,
     {
       provide: CACHE_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCache(),
@@ -43,8 +69,9 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
       provide: COORDINATION_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCoordination(),
     },
-    { provide: SUPPLIER_ADAPTER, useClass: UnconfiguredSupplierAdapter },
+    ContractedInventoryAdapter,
+    { provide: SUPPLIER_ADAPTER, useFactory: (contracted: ContractedInventoryAdapter) => supplierAdapterFromEnvironment(contracted), inject: [ContractedInventoryAdapter] },
   ],
-  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER],
+  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService, CancellationSettlementService],
 })
 export class AgentModule {}

@@ -1,0 +1,63 @@
+import { BOOKING_OPS_FORBIDDEN_TABLES, BOOKING_OPS_INSERT_TABLES, BOOKING_OPS_GROUP_ROLE, BOOKING_OPS_LOGIN_ROLE, BOOKING_OPS_READ_TABLES, assertBookingOpsInput, bookingOpsGrantStatements, provisionBookingOpsRole } from './booking-ops-role'
+import { apiRuntimeGrantStatements } from './api-runtime-role'
+
+const PASSWORD = 'booking-ops-unit-test-password-0123456789'
+
+describe('booking module database role (ADR 0039)', () => {
+  it('BO-01: grants are SELECT on the five booking tables, INSERT on the four booking tables plus AuditEvent, and UPDATE on named Booking columns only', () => {
+    const statements = bookingOpsGrantStatements()
+    expect(statements[0]).toBe(`GRANT USAGE ON SCHEMA public TO "${BOOKING_OPS_GROUP_ROLE}"`)
+    expect(statements.filter((q) => q.startsWith('GRANT SELECT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'SupplierMutation', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingEmail', 'BookingAmendment'].map((t) => `GRANT SELECT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT INSERT'))).toEqual(['Booking', 'BookingRoom', 'BookingGuest', 'BookingEvent', 'AuditEvent', 'BookingSupplierJob', 'BookingSupplierCall', 'BookingOpsState', 'BookingDocument', 'BookingFinanceEvent', 'BookingSavedView', 'BookingBulkOperation', 'BookingBulkOperationItem', 'BookingAmendment'].map((t) => `GRANT INSERT ON "${t}" TO "${BOOKING_OPS_GROUP_ROLE}"`))
+    expect(statements.filter((q) => q.startsWith('GRANT UPDATE'))).toEqual([
+      `GRANT UPDATE ("status", "supplier_status", "supplier_ref", "hotel_confirmation_no", "agent_ref", "version", "closed_at", "updated_at", "check_in", "check_out", "nights", "total_minor", "net_minor", "markup_minor", "cancel_deadline") ON "Booking" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "approved_sell_minor", "approved_net_minor", "difference_minor", "approved_cancel_deadline", "documents_not_reissued", "decided_by_user_id", "decided_at", "updated_at") ON "BookingAmendment" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("adults", "children", "child_ages", "sell_minor", "net_minor") ON "BookingRoom" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "completed_at", "updated_at") ON "BookingSupplierJob" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("name", "name_key", "description", "filter_version", "filters_json", "sort_json", "visible_columns_json", "default_slot", "version", "updated_at") ON "BookingSavedView" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "processed_count", "succeeded_count", "failed_count", "started_at", "completed_at", "updated_at") ON "BookingBulkOperation" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "error_code", "processed_at") ON "BookingBulkOperationItem" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("status", "attempt", "run_after", "locked_until", "last_error_code", "provider_message_id", "sent_at", "updated_at") ON "BookingEmail" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+      `GRANT UPDATE ("assignee_user_id", "assigned_at", "assigned_by_user_id", "acknowledged_at", "acknowledged_by_user_id", "manual_priority", "escalated_at", "escalated_by_user_id", "escalation_reason", "follow_up", "follow_up_at", "resolved_at", "resolved_by_user_id", "version", "updated_at") ON "BookingOpsState" TO "${BOOKING_OPS_GROUP_ROLE}"`,
+    ])
+    expect(statements.filter((q) => q.startsWith('GRANT EXECUTE'))).toEqual([`GRANT EXECUTE ON FUNCTION "fbeds_booking_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_email_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_checkout_due_tenants"(date) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_close_due_tenants"(timestamp) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_has_ledger_entries"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`, `GRANT EXECUTE ON FUNCTION "fbeds_booking_release_cancelled_inventory"(text) TO "${BOOKING_OPS_GROUP_ROLE}"`])
+    expect(statements.filter((q) => /DELETE/i.test(q))).toEqual([`GRANT DELETE ON "BookingSavedView" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the only delete there is
+    expect(statements.join(' ').replace(/GRANT DELETE ON "BookingSavedView"[^\n]*?(?=GRANT|$)/, '')).not.toMatch(/DELETE|TRUNCATE|ALL PRIVILEGES|WITH GRANT OPTION|BYPASSRLS|REFERENCES|TRIGGER/i)
+    expect(statements.length).toBe(1 + 15 + 14 + 9 + 6 + 1)
+  })
+
+  it('BO-02: no grant reaches ledger, wallet, audit, identity or hotel tables, and the two lists never overlap', () => {
+    const text = bookingOpsGrantStatements().join(' ')
+    for (const table of BOOKING_OPS_FORBIDDEN_TABLES) expect(text).not.toContain(`"${table}"`)
+    for (const table of [...BOOKING_OPS_READ_TABLES, ...BOOKING_OPS_INSERT_TABLES]) expect(BOOKING_OPS_FORBIDDEN_TABLES as readonly string[]).not.toContain(table)
+    expect(bookingOpsGrantStatements().filter((q) => q.includes('"AuditEvent"'))).toEqual([`GRANT INSERT ON "AuditEvent" TO "${BOOKING_OPS_GROUP_ROLE}"`]) // the audit log is write-only for this role
+  })
+
+  it('BO-03: the API runtime role gets no booking write and no table-level booking read; only the extranet column reads (ADR 0061 Amendment 1)', () => {
+    const statements = apiRuntimeGrantStatements().filter((q) => /"Booking(Room|Guest|Event)?"/.test(q))
+    expect(statements.every((q) => /^GRANT SELECT \(/.test(q))).toBe(true)
+    expect(statements.map((q) => /ON "(\w+)"/.exec(q)![1]).sort()).toEqual(['Booking', 'BookingGuest', 'BookingRoom'])
+  })
+
+  it('BO-04: provisioning revokes first, never creates an elevated role, and is repeatable', async () => {
+    const executed: string[] = []
+    const db = { $executeRawUnsafe: async (q: string) => { executed.push(q); return 0 }, $queryRawUnsafe: async () => [] as never }
+    await provisionBookingOpsRole(db, { password: PASSWORD })
+    await provisionBookingOpsRole(db, { password: PASSWORD })
+    const first = executed.slice(0, executed.length / 2)
+    expect(first).toEqual(executed.slice(executed.length / 2))
+    const sql = first.join('\n')
+    expect(sql).toContain('NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS')
+    expect(sql).not.toMatch(/\bSUPERUSER\b(?<!NOSUPERUSER)/)
+    expect(first.findIndex((q) => q.startsWith('REVOKE ALL ON ALL TABLES'))).toBeLessThan(first.findIndex((q) => q.startsWith('GRANT SELECT')))
+    expect(sql).toContain(`GRANT "${BOOKING_OPS_GROUP_ROLE}" TO "${BOOKING_OPS_LOGIN_ROLE}"`)
+  })
+
+  it('BO-05: unsafe role names and weak or non-URL-safe passwords are refused without echoing the password', () => {
+    expect(() => assertBookingOpsInput('postgres', PASSWORD)).toThrow(/dedicated/)
+    expect(() => assertBookingOpsInput(BOOKING_OPS_GROUP_ROLE, PASSWORD)).toThrow(/dedicated/)
+    expect(() => assertBookingOpsInput('Bad Name', PASSWORD)).toThrow(/Login role/)
+    expect(() => assertBookingOpsInput(BOOKING_OPS_LOGIN_ROLE, 'short')).toThrow(/32-128/)
+    try { assertBookingOpsInput(BOOKING_OPS_LOGIN_ROLE, 'has space and "quote"') } catch (error) { expect(String(error)).not.toContain('has space') }
+  })
+})

@@ -1,0 +1,148 @@
+'use client'
+
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { PageHeader } from '@/components/common/PageHeader'
+import { useOpsQuery } from '@/components/ops/useOpsQuery'
+import { OpsState } from '@/components/ops/OpsState'
+import { getAgencies } from '@/lib/data/departments'
+import { getHotelsCommercial } from '@/lib/data/hotel-commercial'
+import { createManualBooking, getOpsBookings } from '@/lib/data/operations'
+import { getRatePlans } from '@/lib/data'
+import { emptyRuleForm } from '@/lib/booking-finance-ui'
+import { buildManualRequest, describeActionError, emptyManualForm, newIdempotencyKey, type ManualForm } from '@/lib/booking-actions-ui'
+
+const field: React.CSSProperties = { display: 'grid', gap: 3, fontSize: 12 }
+const input: React.CSSProperties = { border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-chip)', padding: '6px 8px', fontSize: 12, font: 'inherit', minWidth: 0 }
+const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }
+
+/** Manual (offline or phone) booking entry (ADR 0039, Phase 2). Shown only when the API says this caller may use it; the API refuses it otherwise. */
+export default function NewManualBookingPage() {
+  const router = useRouter()
+  const gate = useOpsQuery(() => getOpsBookings({ pageSize: 25, chip: 'latest' }).then((p) => p.access), [])
+  return (
+    <div className="admin-page">
+      <PageHeader eyebrow="BOOKINGS" title="Enter a booking manually" description="For a phone or offline booking. It is recorded as Pending supplier. No supplier is called, no inventory is held and no credit is used; record the supplier’s answer afterwards." />
+      <OpsState state={gate.state} onRetry={gate.reload}>
+        {(access) => access.manualEntry
+          ? <ManualForm canSend={access.supplierDispatch} onCreated={(id) => router.push(`/bookings/${encodeURIComponent(id)}`)} />
+          : <div className="workspace-panel" role="status" data-state="forbidden" data-testid="manual-unavailable" style={{ padding: 18 }}><strong>Manual entry is not available to you here.</strong><p style={{ margin: '6px 0 0' }}>It needs the “manual booking” permission and is switched off in some environments. <Link href="/bookings">Back to bookings</Link></p></div>}
+      </OpsState>
+    </div>
+  )
+}
+
+function ManualForm({ onCreated, canSend }: { onCreated: (bookingId: string) => void; canSend: boolean }) {
+  const [form, setForm] = useState<ManualForm>(emptyManualForm())
+  const [key] = useState(newIdempotencyKey)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [failure, setFailure] = useState<ReturnType<typeof describeActionError> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const agencies = useOpsQuery(() => getAgencies({ pageSize: 100 }).then((p) => p.items.filter((a) => a.status === 'ACTIVE').map((a) => ({ id: a.id, name: a.name }))), [])
+  const plans = useOpsQuery(() => getRatePlans(), [])
+  const hotels = useOpsQuery(() => getHotelsCommercial({ pageSize: 100 }).then((p) => p.items.map((h) => ({ id: h.id, name: `${h.name} — ${h.city}` }))), [])
+  const set = (patch: Partial<ManualForm>) => setForm((f) => ({ ...f, ...patch }))
+  const err = (k: string) => errors[k] ? <span role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 11 }}>{errors[k]}</span> : null
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (busy) return
+    const built = buildManualRequest(form)
+    if ('errors' in built) { setErrors(built.errors); setFailure(null); return }
+    setErrors({}); setFailure(null); setBusy(true)
+    try { const { data } = await createManualBooking(built.request, key); onCreated(data.bookingId) } catch (error) { setFailure(describeActionError(error)); setBusy(false) }
+  }
+  const select = (label: string, k: 'agencyId' | 'hotelId', state: typeof agencies.state) => (
+    <label style={field}><span>{label} (required)</span>
+      <select value={form[k]} onChange={(e) => set({ [k]: e.target.value, ...(k === 'hotelId' ? { ratePlanId: '' } : {}) } as Partial<ManualForm>)} style={input} aria-invalid={Boolean(errors[k])} disabled={state.status !== 'ready'}>
+        <option value="">{state.status === 'loading' ? 'Loading…' : state.status === 'failed' ? 'Could not load' : 'Choose…'}</option>
+        {state.status === 'ready' && state.data.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>{err(k)}</label>
+  )
+
+  return (
+    <form onSubmit={submit} noValidate className="workspace-panel" style={{ padding: 16, display: 'grid', gap: 14 }} data-testid="manual-booking-form" aria-label="Manual booking">
+      <div style={grid}>
+        {select('Agency', 'agencyId', agencies.state)}
+        {select('Hotel', 'hotelId', hotels.state)}
+        <label style={field}><span>Supplier (required)</span><input value={form.supplier} maxLength={80} onChange={(e) => set({ supplier: e.target.value })} style={input} aria-invalid={Boolean(errors.supplier)} />{err('supplier')}</label>
+        <label style={field}><span>Agency’s own reference</span><input value={form.agentRef} maxLength={64} onChange={(e) => set({ agentRef: e.target.value })} style={input} /></label>
+      </div>
+      <label style={field}><span>Hotel contract rate plan</span>
+        <select value={form.ratePlanId ?? ''} onChange={(e) => { const plan = plans.state.status === 'ready' ? plans.state.data.find((p) => p.id === e.target.value) : undefined; set({ ratePlanId: e.target.value, rules: [], refundable: '', cancelDeadline: '', ...(plan ? { supplier: plan.contract.supplier.displayName, currency: plan.currency } : {}) }) }} style={input}>
+          <option value="">Offline booking — enter agreed terms manually</option>
+          {plans.state.status === 'ready' && plans.state.data.filter((p) => p.roomType.hotel.id === form.hotelId && p.status === 'ACTIVE' && p.contract.status === 'ACTIVE').map((p) => <option key={p.id} value={p.id}>{p.contract.code} · {p.code} · {p.roomType.name} · {p.boardBasis.code}</option>)}
+        </select>
+        <span>{form.ratePlanId ? 'Cancellation terms, no-show clause and client buffer will be copied from this contract when saved.' : 'For bookings outside loaded contracts, enter the supplier-agreed cancellation terms below.'}</span>
+        {plans.state.status === 'failed' ? <span role="alert">Contract plans could not be loaded. <button type="button" onClick={plans.reload}>Retry</button></span> : null}
+      </label>
+      <div style={grid}>
+        <label style={field}><span>Check-in (required)</span><input type="date" value={form.checkIn} onChange={(e) => set({ checkIn: e.target.value })} style={input} aria-invalid={Boolean(errors.checkIn)} />{err('checkIn')}</label>
+        <label style={field}><span>Check-out (required)</span><input type="date" value={form.checkOut} onChange={(e) => set({ checkOut: e.target.value })} style={input} aria-invalid={Boolean(errors.checkOut)} />{err('checkOut')}</label>
+        <label style={field}><span>Free cancellation until</span><input type="datetime-local" disabled={Boolean(form.ratePlanId)} value={form.cancelDeadline} onChange={(e) => set({ cancelDeadline: e.target.value })} style={input} /></label>
+        <label style={field}><span>Refundable</span><select disabled={Boolean(form.ratePlanId)} value={form.refundable} onChange={(e) => set({ refundable: e.target.value as ManualForm['refundable'] })} style={input}><option value="">Not known</option><option value="yes">Yes</option><option value="no">No</option></select></label>
+      </div>
+      <div style={grid}>
+        <label style={field}><span>Currency</span><input value={form.currency} readOnly style={{ ...input, background: 'var(--c-f6f6f4)' }} /></label>
+        <label style={field}><span>Sell amount (required)</span><input inputMode="decimal" value={form.sell} onChange={(e) => set({ sell: e.target.value })} style={input} aria-invalid={Boolean(errors.sell)} placeholder="2500.00" />{err('sell')}</label>
+        <label style={field}><span>Net amount</span><input inputMode="decimal" value={form.net} onChange={(e) => set({ net: e.target.value })} style={input} aria-invalid={Boolean(errors.net)} placeholder="optional" />{err('net')}</label>
+        <label style={field}><span>Payment mode</span><select value={form.paymentMode} onChange={(e) => set({ paymentMode: e.target.value as ManualForm['paymentMode'] })} style={input}><option value="">Not recorded</option><option value="CREDIT">Credit</option><option value="PREPAID">Prepaid</option><option value="PAY_AT_HOTEL">Pay at hotel</option></select></label>
+      </div>
+      <fieldset disabled={busy} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 12, display: 'grid', gap: 10 }}>
+        <legend style={{ fontSize: 12 }}>Rooms</legend>
+        {form.rooms.map((r, i) => (
+          <div key={i} style={grid} role="group" aria-label={`Room ${i + 1}`}>
+            <label style={field}><span>Room name (required)</span><input value={r.roomName} onChange={(e) => set({ rooms: form.rooms.map((x, j) => (j === i ? { ...x, roomName: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rooms.${i}.roomName`])} />{err(`rooms.${i}.roomName`)}</label>
+            <label style={field}><span>Board</span><input value={r.boardCode} maxLength={8} onChange={(e) => set({ rooms: form.rooms.map((x, j) => (j === i ? { ...x, boardCode: e.target.value } : x)) })} style={input} placeholder="BB" /></label>
+            <label style={field}><span>Adults</span><input inputMode="numeric" value={r.adults} onChange={(e) => set({ rooms: form.rooms.map((x, j) => (j === i ? { ...x, adults: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rooms.${i}.adults`])} />{err(`rooms.${i}.adults`)}</label>
+            <label style={field}><span>Children</span><input inputMode="numeric" value={r.children} onChange={(e) => set({ rooms: form.rooms.map((x, j) => (j === i ? { ...x, children: e.target.value } : x)) })} style={input} />{err(`rooms.${i}.children`)}</label>
+            <label style={field}><span>Child ages</span><input value={r.childAges} onChange={(e) => set({ rooms: form.rooms.map((x, j) => (j === i ? { ...x, childAges: e.target.value } : x)) })} style={input} placeholder="6, 9" />{err(`rooms.${i}.childAges`)}</label>
+            {form.rooms.length > 1 && <button type="button" className="admin-btn" onClick={() => set({ rooms: form.rooms.filter((_, j) => j !== i) })}>Remove room {i + 1}</button>}
+          </div>
+        ))}
+        {form.rooms.length < 9 && <div><button type="button" className="admin-btn" onClick={() => set({ rooms: [...form.rooms, { roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }] })}>Add a room</button></div>}
+      </fieldset>
+      <fieldset disabled={busy} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 12, display: 'grid', gap: 10 }}>
+        <legend style={{ fontSize: 12 }}>Guests (personal data: masked from users without permission)</legend>
+        {form.guests.map((g, i) => (
+          <div key={i} style={grid} role="group" aria-label={`Guest ${i + 1}`}>
+            <label style={field}><span>Title</span><input value={g.title} maxLength={12} onChange={(e) => set({ guests: form.guests.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)) })} style={input} autoComplete="off" /></label>
+            <label style={field}><span>First name (required)</span><input value={g.firstName} maxLength={80} onChange={(e) => set({ guests: form.guests.map((x, j) => (j === i ? { ...x, firstName: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`guests.${i}.firstName`])} autoComplete="off" />{err(`guests.${i}.firstName`)}</label>
+            <label style={field}><span>Last name (required)</span><input value={g.lastName} maxLength={80} onChange={(e) => set({ guests: form.guests.map((x, j) => (j === i ? { ...x, lastName: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`guests.${i}.lastName`])} autoComplete="off" />{err(`guests.${i}.lastName`)}</label>
+            <label style={{ ...field, gridAutoFlow: 'column', justifyContent: 'start', alignItems: 'center', gap: 6 }}><input type="radio" name="lead" checked={g.isLead} onChange={() => set({ guests: form.guests.map((x, j) => ({ ...x, isLead: j === i })) })} /><span>Lead guest</span></label>
+            {form.guests.length > 1 && <button type="button" className="admin-btn" onClick={() => set({ guests: form.guests.filter((_, j) => j !== i).map((x, j, all) => (all.some((y) => y.isLead) ? x : { ...x, isLead: j === 0 })) })}>Remove guest {i + 1}</button>}
+          </div>
+        ))}
+        {err('guests')}
+        {form.guests.length < 40 && <div><button type="button" className="admin-btn" onClick={() => set({ guests: [...form.guests, { title: '', firstName: '', lastName: '', isLead: false }] })}>Add a guest</button></div>}
+      </fieldset>
+      <fieldset disabled={busy} style={{ border: '1px solid var(--c-e4e4e0)', borderRadius: 'var(--fb-radius-control)', padding: 12, display: 'grid', gap: 10 }} data-testid="cancellation-terms" hidden={Boolean(form.ratePlanId)}>
+        <legend style={{ fontSize: 12 }}>Cancellation terms (frozen with the booking)</legend>
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--c-444444)' }}>Optional. Each rule says what share of the total is charged once the cancellation is within that many days of check-in. Without rules, the penalty of a later cancellation is decided by a person.</p>
+        {form.rules.map((r, i) => (
+          <div key={i} style={grid} role="group" aria-label={`Rule ${i + 1}`}>
+            <label style={field}><span>Within (days before check-in)</span><input inputMode="numeric" value={r.days} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, days: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rules.${i}.days`])} />{err(`rules.${i}.days`)}</label>
+            <label style={field}><span>Penalty is</span><select value={r.kind} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, kind: e.target.value as 'percent' | 'fixed' } : x)) })} style={input}><option value="percent">a percent of the total</option><option value="fixed">a fixed amount</option></select></label>
+            <label style={field}><span>{r.kind === 'percent' ? 'Percent (0 to 100)' : `Amount (${form.currency})`}</span><input inputMode="decimal" value={r.value} onChange={(e) => set({ rules: form.rules.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} style={input} aria-invalid={Boolean(errors[`rules.${i}.value`])} />{err(`rules.${i}.value`)}</label>
+            <button type="button" className="admin-btn" onClick={() => set({ rules: form.rules.filter((_, j) => j !== i) })}>Remove rule {i + 1}</button>
+          </div>
+        ))}
+        {err('rules')}
+        {form.rules.length < 12 && <div><button type="button" className="admin-btn" onClick={() => set({ rules: [...form.rules, emptyRuleForm()] })}>Add a cancellation rule</button></div>}
+      </fieldset>
+      {canSend && (
+        <label style={{ ...field, gridAutoFlow: 'column', justifyContent: 'start', alignItems: 'start', gap: 8 }}>
+          <input type="checkbox" checked={form.sendToSupplier} onChange={(e) => set({ sendToSupplier: e.target.checked })} />
+          <span>Send to the supplier now. It is queued and the result appears on the booking; if no supplier connection exists for this supplier name, nothing is created.</span>
+        </label>
+      )}
+      {Object.keys(errors).length > 0 && <p role="alert" style={{ margin: 0, color: 'var(--c-b3141b)', fontSize: 12 }}>Fix the highlighted fields and try again.</p>}
+      {failure && <div role="alert" data-testid="manual-error" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>{failure.message}{failure.requestId ? <div style={{ fontSize: 11, color: 'var(--c-444444)' }}>Reference: request {failure.requestId}</div> : null}</div>}
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Link href="/bookings" className="admin-btn">Cancel</Link>
+        <button type="submit" className="admin-btn admin-btn-primary" disabled={busy} aria-busy={busy}>{busy ? 'Creating…' : 'Create booking'}</button>
+      </div>
+    </form>
+  )
+}

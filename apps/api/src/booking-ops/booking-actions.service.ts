@@ -1,0 +1,212 @@
+import { CancellationSettlementService } from '../agent/cancellation-settlement.service'
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { randomBytes, createHash } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
+import {
+  BOOKING_ACTION_RULES, BOOKING_ACTIONS, BOOKING_AMENDMENT_FAILURE, BOOKING_REASON_MAX, BOOKING_REF_MAX, BOOKING_STATUSES, MANUAL_BOOKING_FAILURE, permissionFor,
+  type BookingAccessView, type BookingAction, type BookingActionRequest, type BookingReferencesRequest, type BookingStatus, type BookingWriteResult, type ManualBookingRequest,
+} from '@bedbanks/contracts'
+import { PrismaService } from '../database/prisma.service'
+import { BOOKING_SUPPLIER_RESOLVER, type BookingSupplierResolver } from './supplier/booking-supplier.port'
+import { supplierJobsEnabled } from './booking-supplier-jobs.service'
+import { manualBookingEnabled } from './booking-access.guard'
+import { BookingOpsDatabase } from './booking-ops-database'
+import { BookingPenaltyQuoter } from './booking-penalty-quote'
+import { amendmentFingerprint, applyAmendmentDecision, prepareAmendmentDecision, recordAmendmentRequest, type PreparedDecision, type PreparedRequest } from './booking-amendment'
+import { transitionBooking } from './booking-transition'
+import { freezeCancellationTerms, readFrozenTerms } from '../agent/booking-cancellation-terms'
+import { CancellationPolicyService } from '../agent/cancellation-policy.service'
+import { rulesForPlan } from '../supply/cancellation-rules'
+import { validateManualBooking } from './manual-booking'
+
+const KEY = /^[A-Za-z0-9._:-]{8,128}$/
+const clean = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+const bad = (message: string, code: string) => new BadRequestException({ message, code })
+
+/** Everything an Admin user can change on a booking (ADR 0039, Phase 2). Each public method is one transaction on the booking role and one audit event. */
+@Injectable()
+export class BookingActionsService {
+  constructor(private readonly db: BookingOpsDatabase, private readonly prisma: PrismaService, @Inject(BOOKING_SUPPLIER_RESOLVER) private readonly suppliers: BookingSupplierResolver, private readonly quoter: BookingPenaltyQuoter, private readonly settlement: CancellationSettlementService) {}
+
+  static idempotencyKey(raw: unknown): string {
+    if (typeof raw !== 'string' || !KEY.test(raw)) throw bad('An Idempotency-Key header of 8 to 128 letters, digits or . _ : - is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    return raw
+  }
+
+  /** Run one named lifecycle action. */
+  async act(tenantId: string, userId: string, access: BookingAccessView, bookingId: string, body: BookingActionRequest, rawKey: unknown, requestId: string, now = new Date()): Promise<BookingWriteResult> {
+    const key = BookingActionsService.idempotencyKey(rawKey)
+    if (!body || typeof body !== 'object') throw bad('A request body is required', 'INVALID_REQUEST')
+    if (!(BOOKING_ACTIONS as readonly string[]).includes(body.action)) throw bad('Unknown booking action', 'UNKNOWN_ACTION')
+    if (!(BOOKING_STATUSES as readonly string[]).includes(body.expectedStatus)) throw bad('expectedStatus is required', 'INVALID_REQUEST')
+    for (const field of ['reason', 'supplierRef', 'hotelConfirmationNo', 'supplierCancellationRef'] as const) if (body[field] !== undefined && typeof body[field] !== 'string') throw bad(`${field} must be text`, 'INVALID_REQUEST')
+    const action: BookingAction = body.action
+    const rule = BOOKING_ACTION_RULES[action]
+    const level = access.level
+    const held = new Set(access.permissions)
+
+    // The penalty is worked out once, when cancellation is requested, outside the write transaction, and stored on that request (fixed from then on).
+    const penaltyQuote = action === 'requestCancellation' || action === 'markNoShow' ? await this.quoter.quote(tenantId, bookingId, now, action === 'markNoShow' ? 'NO_SHOW' : 'CANCELLATION') : undefined
+    // ADR 0072: the structured parts of an amendment belong to exactly these two actions.
+    if (body.amendment !== undefined && action !== 'requestAmendment') throw bad('An amendment can only be sent with requestAmendment', BOOKING_AMENDMENT_FAILURE.invalid)
+    if (body.approval !== undefined && action !== 'approveAmendment') throw bad('An approval can only be sent with approveAmendment', BOOKING_AMENDMENT_FAILURE.approvalNotExpected)
+    const fingerprintExtra = amendmentFingerprint(action, body)
+    // Whether the agency ledger holds anything for this booking, read on the API connection (the booking role has no ledger access). null = could not be read.
+    const ledgerCharged = action === 'approveAmendment' && body.approval !== undefined ? await this.ledgerCharged(tenantId, bookingId) : null
+    const written = await this.db.withTenantWrite(tenantId, async (tx) => {
+      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, agencyId: true, isRefundable: true } })
+      // An agency-scoped caller never learns another agency's booking exists.
+      if (!booking || (level === 'AGENCY' && booking.agencyId !== access.agencyId)) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
+      const permission = permissionFor(rule, level, held, booking.isRefundable)
+      if (!permission) {
+        await this.prisma.withTenant(tenantId, (t) => t.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'permission.denied', entityType: 'booking', entityId: booking.id, payload: { bookingAction: action, requestId } } })).catch(() => undefined)
+        throw new ForbiddenException({ message: 'You do not have permission for this action on this booking', code: 'PERMISSION_DENIED' })
+      }
+      // A replay of an earlier request must not prepare (or insert) anything a second time: the transition recognises it by the key and answers with the first result.
+      const earlier = await tx.bookingEvent.findUnique({ where: { tenantId_bookingId_idempotencyKey: { tenantId, bookingId: booking.id, idempotencyKey: key } }, select: { id: true } })
+      let request: PreparedRequest | null = null; let decision: PreparedDecision | null = null
+      if (!earlier && action === 'requestAmendment') request = await recordAmendmentRequest(tx, { tenantId, bookingId: booking.id, userId, raw: body.amendment, now })
+      if (!earlier && (action === 'approveAmendment' || action === 'rejectAmendment')) decision = await prepareAmendmentDecision(tx, { tenantId, bookingId: booking.id, kind: action === 'approveAmendment' ? 'APPROVE' : 'REJECT', rawApproval: body.approval, ledgerCharged, now })
+      const outcome = await transitionBooking(tx, {
+        tenantId, bookingId: booking.id, action, expectedStatus: body.expectedStatus as BookingStatus, actor: { type: 'USER', id: userId }, level, now,
+        reason: clean(body.reason), supplierRef: clean(body.supplierRef), hotelConfirmationNo: clean(body.hotelConfirmationNo), supplierCancellationRef: clean(body.supplierCancellationRef),
+        confirmNonRefundable: body.confirmNonRefundable === true, idempotencyKey: key, emitFinance: true, penaltyQuote, fingerprintExtra, eventPayload: request?.eventPayload ?? decision?.eventPayload,
+      })
+      let applied: { documentsNotReissued: string[] } | null = null
+      if (!outcome.replayed && decision) applied = await applyAmendmentDecision(tx, { tenantId, bookingId: booking.id, userId, decision, now })
+      if (!outcome.replayed) {
+        // Same transaction as the status change: either both exist or neither. Free-text (reason) is never copied into the audit payload.
+        await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: `booking.${action}`, entityType: 'booking', entityId: booking.id, payload: { bookingAction: action, from: rule.from, to: rule.to, permission, level, requestId, reasonGiven: Boolean(clean(body.reason)),
+          ...(request || decision ? { amendmentId: (request ?? decision)!.eventPayload.amendmentId, changes: (request ?? decision)!.eventPayload.changes ?? [], ...(decision?.differenceMinor !== undefined ? { differenceMinor: decision.differenceMinor.toString(), documentsNotReissued: applied?.documentsNotReissued ?? [] } : {}) } : {}) } }] })
+      }
+      return outcome
+    })
+    // ADR 0069: a cancelled booking's agency is credited per the effective penalty, on the API connection (this role has no ledger access).
+    if (written.status === 'CANCELLED' || written.status === 'NO_SHOW') await this.settlement.settleQuietly({ tenantId, userId, requestId, bookingId: written.bookingId, source: `booking_action:${action}` })
+    return written
+  }
+
+  /**
+   * Whether the agency ledger holds anything for this booking (a hold or a charge): true, false, or null when that could not be asked. Asked through the one boolean-only
+   * SECURITY DEFINER function the booking role may call (`fbeds_booking_has_ledger_entries`), so the role never reads the ledger itself. A price-changing amendment is only
+   * allowed on `false`; `null` fails closed with its own message.
+   */
+  private async ledgerCharged(tenantId: string, bookingId: string): Promise<boolean | null> {
+    try {
+      const rows = await this.db.withTenant(tenantId, (tx) => tx.$queryRaw<Array<{ touched: boolean }>>`SELECT "fbeds_booking_has_ledger_entries"(${bookingId}) AS touched`)
+      return rows[0]?.touched === true
+    } catch { return null }
+  }
+
+  /** Add or correct the supplier / hotel / agent references. The status is untouched. */
+  async editReferences(tenantId: string, userId: string, access: BookingAccessView, bookingId: string, body: BookingReferencesRequest, rawKey: unknown, requestId: string): Promise<BookingWriteResult> {
+    const key = BookingActionsService.idempotencyKey(rawKey)
+    if (access.level !== 'OPERATOR' || !access.permissions.includes('booking.supplier-ref.edit')) throw new ForbiddenException({ message: 'You do not have permission to edit references', code: 'PERMISSION_DENIED' })
+    if (!body || typeof body !== 'object') throw bad('A request body is required', 'INVALID_REQUEST')
+    const reason = clean(body.reason)
+    if (!reason) throw new BadRequestException({ message: 'Required: reason', code: 'MISSING_FIELDS', fields: ['reason'] })
+    if (reason.length > BOOKING_REASON_MAX) throw bad('reason is too long', 'FIELD_TOO_LONG')
+    const fields = ['supplierRef', 'hotelConfirmationNo', 'agentRef'] as const
+    const next: Partial<Record<(typeof fields)[number], string | null>> = {}
+    for (const f of fields) {
+      const v = body[f]
+      if (v === undefined) continue
+      if (v !== null && typeof v !== 'string') throw bad(`${f} must be text or null`, 'INVALID_REQUEST')
+      const t = v === null ? null : v.trim() || null
+      if (t && t.length > BOOKING_REF_MAX) throw bad(`${f} is too long`, 'FIELD_TOO_LONG')
+      next[f] = t
+    }
+    if (Object.keys(next).length === 0) throw bad('Nothing to change', 'INVALID_REQUEST')
+    const fingerprint = createHash('sha256').update(JSON.stringify([bookingId, 'editReferences', next, reason])).digest('hex')
+
+    return this.db.withTenantWrite(tenantId, async (tx) => {
+      const earlier = await tx.bookingEvent.findUnique({ where: { tenantId_bookingId_idempotencyKey: { tenantId, bookingId, idempotencyKey: key } }, select: { requestFingerprint: true } })
+      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId }, select: { id: true, reference: true, status: true, version: true, closedAt: true, supplierRef: true, hotelConfirmationNo: true, agentRef: true } })
+      if (!booking) throw new NotFoundException({ message: 'Booking not found', code: 'BOOKING_NOT_FOUND' })
+      if (earlier) {
+        if (earlier.requestFingerprint !== fingerprint) throw new ConflictException({ message: 'This idempotency key was already used for a different request', code: 'IDEMPOTENCY_CONFLICT' })
+        return { bookingId: booking.id, reference: booking.reference, status: booking.status as BookingStatus, version: booking.version, closed: booking.closedAt !== null, replayed: true }
+      }
+      if (booking.closedAt) throw new ConflictException({ message: 'This booking is closed and locked for edits', code: 'BOOKING_CLOSED' })
+      const changed = (Object.keys(next) as Array<(typeof fields)[number]>).filter((f) => (next[f] ?? null) !== (booking[f] ?? null))
+      if (changed.length === 0) throw bad('Nothing to change', 'NO_CHANGE')
+      const done = await tx.booking.updateMany({ where: { id: booking.id, tenantId, closedAt: null }, data: Object.fromEntries(changed.map((f) => [f, next[f] ?? null])) })
+      if (done.count !== 1) throw new ConflictException({ message: 'The booking changed while you were working. Reload and try again.', code: 'STALE_STATUS' })
+      const diff = Object.fromEntries(changed.map((f) => [f, { from: booking[f] ?? null, to: next[f] ?? null }]))
+      await tx.bookingEvent.create({ data: { tenantId, bookingId: booking.id, fromStatus: booking.status, toStatus: booking.status, actorType: 'USER', actorId: userId, reason, action: 'editReferences', payload: { changed: diff }, idempotencyKey: key, requestFingerprint: fingerprint } })
+      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'booking.references.edited', entityType: 'booking', entityId: booking.id, payload: { fields: changed, requestId } }] })
+      return { bookingId: booking.id, reference: booking.reference, status: booking.status as BookingStatus, version: booking.version, closed: false, replayed: false }
+    })
+  }
+
+  /** Enter a booking by hand (phone or offline). No supplier is called, no inventory is held, no credit is used. */
+  async createManual(tenantId: string, userId: string, access: BookingAccessView, body: ManualBookingRequest, rawKey: unknown, requestId: string): Promise<BookingWriteResult> {
+    const key = BookingActionsService.idempotencyKey(rawKey)
+    if (!manualBookingEnabled()) throw new ForbiddenException({ message: 'Manual booking entry is switched off in this environment', code: MANUAL_BOOKING_FAILURE.disabled })
+    if (access.level !== 'OPERATOR' || !access.permissions.includes('booking.manual.create')) throw new ForbiddenException({ message: 'You do not have permission to enter a booking manually', code: 'PERMISSION_DENIED' })
+    const valid = validateManualBooking(body ?? {})
+    const send = (body as ManualBookingRequest).sendToSupplier === true
+    if (send) {
+      if (!supplierJobsEnabled()) throw new ForbiddenException({ message: 'Supplier jobs are switched off in this environment', code: 'SUPPLIER_JOBS_DISABLED' })
+      if (!access.permissions.includes('booking.supplier.retry')) throw new ForbiddenException({ message: 'You do not have permission to use the supplier queue', code: 'PERMISSION_DENIED' })
+      if (!this.suppliers.resolve(tenantId, valid.supplier)) throw new ConflictException({ message: 'No supplier adapter is configured for this supplier. Create the booking without sending it, then record the supplier’s answer by hand.', code: 'SUPPLIER_NOT_CONFIGURED' })
+    }
+    const fingerprint = createHash('sha256').update(JSON.stringify([valid, send], (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).digest('hex')
+
+    // A replay uses the originally frozen terms, even when the live contract has since changed.
+    const replay = await this.db.withTenant(tenantId, tx => tx.booking.findUnique({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, select: { id: true, reference: true, status: true, version: true, closedAt: true, searchSnapshot: true } }))
+    if (replay) {
+      if ((replay.searchSnapshot as { manual?: { requestFingerprint?: string } } | null)?.manual?.requestFingerprint !== fingerprint) throw new ConflictException({ message: 'This idempotency key was already used for a different request', code: 'IDEMPOTENCY_CONFLICT' })
+      return { bookingId: replay.id, reference: replay.reference, status: replay.status as BookingStatus, version: replay.version, closed: replay.closedAt !== null, replayed: true }
+    }
+
+    // The API database role (not the booking role) confirms the hotel and the agency belong to this operator and that the agency is active.
+    const [hotel, agency] = await this.prisma.withTenant(tenantId, (t) => Promise.all([t.hotel.findFirst({ where: { id: valid.hotelId, tenantId }, select: { id: true, timeZone: true } }), t.agency.findFirst({ where: { id: valid.agencyId, tenantId }, select: { id: true, status: true } })]))
+    if (!hotel) throw bad('Hotel not found for this operator', 'HOTEL_NOT_FOUND')
+    if (!agency) throw bad('Agency not found for this operator', 'AGENCY_NOT_FOUND')
+    if (agency.status !== 'ACTIVE') throw new ConflictException({ message: 'New bookings are blocked for an agency that is not active', code: 'AGENCY_NOT_ACTIVE' })
+
+    // Read contract terms through the supply principal; never grant the booking role contract access.
+    const linked = valid.ratePlanId ? await this.prisma.withTenant(tenantId, async (tx) => {
+      const plan = await tx.ratePlan.findFirst({ where: { id: valid.ratePlanId!, tenantId }, include: { contract: { include: { cancellationPolicies: true, supplier: true } }, roomType: true } })
+      if (!plan || plan.roomType.hotelId !== valid.hotelId || plan.contract.status !== 'ACTIVE' || plan.status !== 'ACTIVE' || plan.contract.supplier.status !== 'ACTIVE') throw bad('Choose an active rate plan belonging to this hotel', 'CONTRACT_PLAN_INVALID')
+      if (plan.currency !== valid.currency || plan.contract.settlementCurrency !== valid.currency || plan.contract.supplier.displayName !== valid.supplier) throw bad('The plan currency and supplier must match the booking', 'CONTRACT_PLAN_MISMATCH')
+      const from = new Date(`${valid.checkIn}T00:00:00Z`); const to = new Date(Date.parse(`${valid.checkOut}T00:00:00Z`) - 86_400_000)
+      if (from < plan.contract.validFrom || to > plan.contract.validTo || (plan.validFrom && from < plan.validFrom) || (plan.validTo && to > plan.validTo)) throw bad('The stay is outside the contract or plan validity', 'CONTRACT_PLAN_INVALID')
+      const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies)
+      const terms = freezeCancellationTerms(resolved.rules, valid.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights: valid.nights, timeZone: hotel.timeZone, contractId: plan.contract.id, contractVersion: plan.contract.version, ratePlanId: plan.id })
+      const read = readFrozenTerms(terms)
+      if (resolved.missing || !terms || read.kind !== 'frozen' || (plan.refundable && read.rules.length === 0)) throw bad('The plan has no usable cancellation policy', 'CONTRACT_POLICY_UNAVAILABLE')
+      const cancelDeadline = new CancellationPolicyService().freeCancellationDeadline({ refundable: plan.refundable, checkIn: valid.checkIn, timeZone: hotel.timeZone, rules: read.rules })
+      return { terms, supplierId: plan.contract.supplierId, refundable: plan.refundable, cancelDeadline: cancelDeadline ? new Date(cancelDeadline) : null }
+    }) : null
+
+    return this.db.withTenantWrite(tenantId, async (tx) => {
+      const existing = await tx.booking.findUnique({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, select: { id: true, reference: true, status: true, version: true, closedAt: true, searchSnapshot: true } })
+      if (existing) {
+        const stored = (existing.searchSnapshot as { manual?: { requestFingerprint?: string } } | null)?.manual?.requestFingerprint
+        if (stored !== fingerprint) throw new ConflictException({ message: 'This idempotency key was already used for a different request', code: 'IDEMPOTENCY_CONFLICT' })
+        return { bookingId: existing.id, reference: existing.reference, status: existing.status as BookingStatus, version: existing.version, closed: existing.closedAt !== null, replayed: true }
+      }
+      const reference = `FB-${randomBytes(10).toString('hex').toUpperCase()}`
+      const snapshot = { source: 'manual', manual: { requestFingerprint: fingerprint, enteredBy: userId }, checkIn: valid.checkIn, checkOut: valid.checkOut, nights: valid.nights, currency: valid.currency, sellMinor: valid.sellMinor.toString() }
+      const created = await tx.booking.create({ data: {
+        tenantId, reference, supplier: valid.supplier, ...(linked ? { supplierId: linked.supplierId } : {}), hotelId: valid.hotelId, status: 'PENDING_SUPPLIER', currency: valid.currency, totalMinor: valid.sellMinor, idempotencyKey: key, searchSnapshot: snapshot,
+        agencyId: valid.agencyId, channel: 'MANUAL', agentRef: valid.agentRef, checkIn: new Date(`${valid.checkIn}T00:00:00Z`), checkOut: new Date(`${valid.checkOut}T00:00:00Z`), nights: valid.nights,
+        netMinor: valid.netMinor, markupMinor: valid.markupMinor, paymentMode: valid.paymentMode, isRefundable: linked ? linked.refundable : valid.isRefundable, cancelDeadline: linked ? linked.cancelDeadline : valid.cancelDeadline,
+        cancellationPolicy: linked ? linked.terms as Prisma.InputJsonObject : valid.cancellationRules ? ({ rules: valid.cancellationRules, frozenAt: new Date().toISOString(), source: 'MANUAL_ENTRY', timeZone: hotel.timeZone } as unknown as Prisma.InputJsonObject) : undefined,
+      }, select: { id: true, version: true } })
+      const rooms = []
+      for (const room of valid.rooms) rooms.push(await tx.bookingRoom.create({ data: { tenantId, bookingId: created.id, position: room.position, roomName: room.roomName, boardCode: room.boardCode, adults: room.adults, children: room.children, childAges: room.childAges }, select: { id: true } }))
+      for (const guest of valid.guests) await tx.bookingGuest.create({ data: { tenantId, bookingId: created.id, roomId: rooms[0]?.id ?? null, title: guest.title, firstName: guest.firstName, lastName: guest.lastName, isLead: guest.isLead, type: guest.type, age: guest.age }, select: { id: true } })
+      await tx.bookingEvent.create({ data: { tenantId, bookingId: created.id, fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: userId, reason: null, action: 'createManual', payload: { channel: 'MANUAL', noSupplierCall: true, noCreditUsed: true, queuedForSupplier: send } } })
+      if (send) {
+        const jobKey = `${key}:book`.slice(0, 128)
+        const queued = await tx.bookingSupplierJob.create({ data: { tenantId, bookingId: created.id, kind: 'BOOK', status: 'QUEUED', runAfter: new Date(), requestedByUserId: userId, idempotencyKey: jobKey, requestFingerprint: createHash('sha256').update(JSON.stringify([created.id, 'send'])).digest('hex') }, select: { id: true } })
+        await tx.bookingEvent.create({ data: { tenantId, bookingId: created.id, fromStatus: 'PENDING_SUPPLIER', toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: userId, action: 'supplierQueued', payload: { op: 'send', kind: 'BOOK', jobId: queued.id } } })
+      }
+      await tx.auditEvent.createMany({ data: [{ tenantId, userId, actorType: 'USER', action: 'booking.manual.created', entityType: 'booking', entityId: created.id, payload: { channel: 'MANUAL', agencyId: valid.agencyId, hotelId: valid.hotelId, currency: valid.currency, sellMinor: valid.sellMinor.toString(), rooms: valid.rooms.length, guests: valid.guests.length, requestId } }] })
+      return { bookingId: created.id, reference, status: 'PENDING_SUPPLIER' as const, version: created.version, closed: false, replayed: false }
+    })
+  }
+}

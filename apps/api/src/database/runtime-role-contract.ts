@@ -1,0 +1,393 @@
+/**
+ * The one authoritative definition of what the API runtime database role (`fbeds_api`) may do (ADR 0031, ADR 0032).
+ *
+ * Everything else is derived from this module: the provisioning statements, the live verifier, the 403/503 classification of a
+ * database denial, the generated privilege matrix in docs/strict-runtime-db-role.md, and the drift guards in the specs
+ * (the forward migration must equal it; every runtime write in the source tree must be covered by it or listed as a privileged path).
+ * Do not state a grant anywhere else.
+ *
+ * Three separate enforcement layers apply to every request: application RBAC (guards and per-service permission checks),
+ * PostgreSQL privileges (this module), and row-level security (tenant policies). Passing one never implies passing the others.
+ */
+
+export type WritePrivilege = 'INSERT' | 'UPDATE' | 'DELETE'
+
+export interface RuntimeWrite {
+  op: WritePrivilege
+  /** Column-level grant. Absent means the whole table. */
+  columns?: readonly string[]
+  /** The application service that performs it. */
+  service: string
+  endpoints: readonly string[]
+  reason: string
+}
+
+export interface RuntimeGrant {
+  table: string
+  /** The Prisma model that maps to the table (for the drift scan). */
+  model: string
+  /** Table-level SELECT. Mutually exclusive with `readColumns`. */
+  read: boolean
+  /**
+   * Column-level SELECT: only these columns are readable and no table-level SELECT may exist. Used where a table holds fields the runtime must not see
+   * (ADR 0036 amendment). Every query on such a table must name its columns; `SELECT *` and implicit ORM column lists are denied by PostgreSQL.
+   */
+  readColumns?: readonly string[]
+  writes: readonly RuntimeWrite[]
+  /** `forced-tenant`: forced RLS on tenant_id through fbeds_current_tenant_id(). `none`: authentication tables outside RLS. */
+  rls: 'forced-tenant' | 'none'
+  note?: string
+}
+
+const ADMIN_CLIENTS = '/admin/clients'
+const HOTEL = '/admin/hotels/:hotelId'
+
+/** Hotel columns the named Admin workflows write (setup, status, amenities touch, publication). Nothing else on Hotel is writable. */
+export const HOTEL_WRITE_COLUMNS = ['name', 'property_type', 'country_code', 'city', 'address', 'latitude', 'longitude', 'time_zone', 'star_rating', 'content_status', 'updated_at'] as const
+
+/** RoomType columns the Admin rooms workflow updates. Nothing else on RoomType (id, hotel_id, created_at) is writable. */
+export const ROOM_WRITE_COLUMNS = ['name', 'code', 'max_adults', 'max_children', 'max_occupancy', 'bedding_metadata', 'is_active', 'updated_at'] as const
+
+/** Amenity columns the runtime may update (a fee type change). The hotel, room and tenant a row belongs to are immutable for the role (ADR 0032 amendment). */
+export const AMENITY_UPDATE_COLUMNS = ['fee_type', 'updated_by_id', 'updated_at'] as const
+
+/** HotelDeal columns the deal workflows update. Identity (id, tenant, hotel, creator, idempotency key, created_at) is immutable for the role and by trigger (ADR 0089). */
+export const HOTEL_DEAL_UPDATE_COLUMNS = ['code', 'code_key', 'name', 'kind', 'status', 'priority', 'percent_bp', 'amount_minor', 'currency', 'amount_scope', 'min_nights', 'free_nights', 'from_night', 'min_lead_days', 'book_from', 'book_to', 'stay_from', 'stay_to', 'weekdays', 'stay_window_mode', 'discount_base', 'combinable', 'stacking_group', 'incompatible_deal_ids', 'channels', 'source_markets', 'agency_ids', 'max_discount_bp', 'min_sell_floor_minor', 'min_margin_bp', 'funding_source', 'active_from', 'active_to', 'public_description', 'internal_notes', 'version', 'terms_fingerprint', 'approval_id', 'status_reason', 'status_changed_at', 'status_changed_by_id', 'activated_at', 'activated_by_id', 'updated_at'] as const
+
+/** Existing-night capacity only: identity, stock and provenance/freshness stay protected (ADR 0037). */
+export const POOL_DAY_CAPACITY_COLUMNS = ['capacity', 'updated_at'] as const
+
+/** InventoryHold columns the per-plan consumption report reads: tenant-scoped identity, the plan the hold was made for, and its lifecycle status. No guest, money, offer, search, idempotency or user fields. */
+export const HOLD_ATTRIBUTION_COLUMNS = ['id', 'tenant_id', 'rate_plan_id', 'status'] as const
+
+/** InventoryHoldNight columns the report reads: the hold, the recorded counter reference (kind and pool night) and the quantity. Nothing else. */
+export const HOLD_NIGHT_ATTRIBUTION_COLUMNS = ['tenant_id', 'hold_id', 'pool_day_id', 'counter_kind', 'quantity'] as const
+
+/** Booking columns the supplier extranet reads (ADR 0061 Amendment 1). Deliberately no sell/total, markup, FX, agency, agent, channel, payment or search snapshot. */
+export const BOOKING_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'reference', 'supplier_id', 'hotel_id', 'status', 'currency', 'net_minor', 'check_in', 'check_out', 'nights', 'supplier_ref', 'hotel_confirmation_no', 'created_at', 'updated_at'] as const
+/** BookingRoom columns the extranet reads: the room line and its supplier net. No sell amount, rate key or child ages. */
+export const BOOKING_ROOM_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'position', 'quantity', 'room_name', 'board_code', 'adults', 'children', 'net_minor'] as const
+/** BookingGuest columns the extranet reads: the lead guest's name only. No title, age, type, room link or any contact detail. */
+export const BOOKING_GUEST_SUPPLIER_READ_COLUMNS = ['id', 'tenant_id', 'booking_id', 'first_name', 'last_name', 'is_lead'] as const
+
+/** ComplianceRecord columns the Admin compliance evidence view reads (ADR 0067 amendment 1). Everything except the audit payload: the view shows its SHA-256 only. */
+export const COMPLIANCE_RECORD_READ_COLUMNS = ['id', 'tenant_id', 'category', 'action', 'entity_type', 'entity_id', 'actor_type', 'user_id', 'occurred_at', 'payload_sha256', 'origin_country', 'destination_country', 'cross_border'] as const
+
+/** Tables the runtime reads and never writes. */
+const READ_ONLY: ReadonlyArray<{ table: string; model: string; rls: RuntimeGrant['rls']; note?: string }> = [
+  { table: 'tenants', model: 'Tenant', rls: 'none' },
+  { table: 'memberships', model: 'Membership', rls: 'forced-tenant', note: 'also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008)' },
+  { table: 'Permission', model: 'Permission', rls: 'none' },
+  { table: 'Role', model: 'Role', rls: 'forced-tenant' },
+  { table: 'UserRole', model: 'UserRole', rls: 'forced-tenant' },
+  { table: 'RolePermission', model: 'RolePermission', rls: 'forced-tenant' },
+  { table: 'HotelSearchIndex', model: 'HotelSearchIndex', rls: 'forced-tenant' },
+  { table: 'BoardBasis', model: 'BoardBasis', rls: 'forced-tenant' },
+  { table: 'Supplier', model: 'Supplier', rls: 'forced-tenant' },
+  { table: 'SupplierHotelMapping', model: 'SupplierHotelMapping', rls: 'forced-tenant' },
+  { table: 'SupplierRoomMapping', model: 'SupplierRoomMapping', rls: 'forced-tenant' },
+  { table: 'SupplierRatePlanMapping', model: 'SupplierRatePlanMapping', rls: 'forced-tenant', note: 'governed supplier rate plan to canonical RatePlan links (ADR 0081); writes are the privileged mapping-governance path' },
+  { table: 'supplier_memberships', model: 'SupplierMembership', rls: 'forced-tenant' },
+  { table: 'Contract', model: 'Contract', rls: 'forced-tenant' },
+  { table: 'ContractVersion', model: 'ContractVersion', rls: 'forced-tenant', note: 'immutable contract term snapshots (ADR 0067); appended by the approved-change path, never updated or deleted (trigger)' },
+  { table: 'RatePlan', model: 'RatePlan', rls: 'forced-tenant' },
+  { table: 'DailyRate', model: 'DailyRate', rls: 'forced-tenant' },
+  { table: 'RatePlanPromotion', model: 'RatePlanPromotion', rls: 'forced-tenant', note: 'plan promotions (ADR 0058); search prices from them, authoring is a privileged supply path' },
+  { table: 'RatePlanGuestPrice', model: 'RatePlanGuestPrice', rls: 'forced-tenant', note: 'per-night child and extra-adult lines (ADR 0057, S6); search prices from them, authoring is a privileged supply path' },
+  { table: 'DailyAvailability', model: 'DailyAvailability', rls: 'forced-tenant' },
+  { table: 'CancellationPolicy', model: 'CancellationPolicy', rls: 'forced-tenant', note: 'search and recheck include each contract\'s cancellation terms' },
+  { table: 'BookingLeadTimeRule', model: 'BookingLeadTimeRule', rls: 'forced-tenant', note: 'search, recheck and hold enforce the contract booking lead time (ADR 0067, F-02)' },
+  { table: 'ChildPolicy', model: 'ChildPolicy', rls: 'forced-tenant', note: 'search, recheck and hold price children from the contract child policy (ADR 0067, F-03)' },
+  { table: 'ContractSupplement', model: 'ContractSupplement', rls: 'forced-tenant', note: 'search, recheck and hold add board and compulsory supplements to the price (ADR 0067)' },
+  { table: 'InventoryPool', model: 'InventoryPool', rls: 'forced-tenant', note: 'pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes' },
+  { table: 'ComplianceExportBatch', model: 'ComplianceExportBatch', rls: 'forced-tenant', note: 'Admin compliance evidence: export chain status (hashes, sequences, storage state; no record content). Written only by the compliance export role (ADR 0067)' },
+  { table: 'ComplianceExportBatchRecord', model: 'ComplianceExportBatchRecord', rls: 'forced-tenant', note: 'Admin compliance evidence: which batch holds a record. Written only by the compliance export role (ADR 0067)' },
+]
+
+/** Tables the runtime reads through named columns only, and never writes. */
+const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
+  { table: 'Booking', model: 'Booking', read: false, readColumns: BOOKING_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only (ADR 0061 Amendment 1): no sell price, markup, FX, agency, channel, payment or snapshot column; never written by this role' },
+  { table: 'BookingRoom', model: 'BookingRoom', read: false, readColumns: BOOKING_ROOM_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: room line and supplier net; no sell amount or rate key' },
+  { table: 'BookingGuest', model: 'BookingGuest', read: false, readColumns: BOOKING_GUEST_SUPPLIER_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'supplier extranet bookings only: lead guest name; no contact detail, age or room link' },
+  { table: 'InventoryHold', model: 'InventoryHold', read: false, readColumns: HOLD_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): rate plan and status of a hold; no guest, money, offer or user column' },
+  { table: 'ComplianceRecord', model: 'ComplianceRecord', read: false, readColumns: COMPLIANCE_RECORD_READ_COLUMNS, writes: [], rls: 'forced-tenant', note: 'Admin compliance evidence (ADR 0067 amendment 1): every column except the audit payload; never written by any role (capture trigger only); own tenant only by RLS' },
+  { table: 'InventoryHoldNight', model: 'InventoryHoldNight', read: false, readColumns: HOLD_NIGHT_ATTRIBUTION_COLUMNS, writes: [], rls: 'forced-tenant', note: 'per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference' },
+]
+
+/** Tables the runtime also writes, each with the exact operation, service, endpoints and reason. */
+const READ_WRITE: readonly RuntimeGrant[] = [
+  { table: 'InventoryPoolDay', model: 'InventoryPoolDay', read: true, rls: 'forced-tenant', note: 'capacity-only column UPDATE; INSERT, DELETE, sold and held stay with the hold path and the hold-expiry role', writes: [
+    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged' },
+  ] },
+  { table: 'users', model: 'User', read: true, rls: 'none', writes: [
+    { op: 'UPDATE', columns: ['last_login_at', 'password_hash', 'updated_at'], service: 'AuthService.login, AuthService.confirmPasswordReset', endpoints: ['POST /auth/login', 'POST /auth/password-reset/confirm'], reason: 'record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091)' },
+  ] },
+  { table: 'password_reset_tokens', model: 'PasswordResetToken', read: true, rls: 'none', note: 'user-scoped like sessions: a reset runs before any tenant context exists; only the SHA-256 of the token is stored (ADR 0091)', writes: [
+    { op: 'INSERT', service: 'AuthService.requestPasswordReset', endpoints: ['POST /auth/password-reset/request'], reason: 'issue a single-use reset token (hash only)' },
+    { op: 'UPDATE', columns: ['used_at'], service: 'AuthService.requestPasswordReset, AuthService.confirmPasswordReset', endpoints: ['POST /auth/password-reset/request', 'POST /auth/password-reset/confirm'], reason: 'consume a token, or supersede earlier unused tokens, by stamping used_at' },
+  ] },
+  { table: 'sessions', model: 'Session', read: true, rls: 'none', writes: [
+    { op: 'INSERT', service: 'AuthService.login', endpoints: ['POST /auth/login'], reason: 'create the opaque session (ADR 0001)' },
+    { op: 'UPDATE', columns: ['last_seen_at', 'revoked_at'], service: 'AuthService (session guard, logout)', endpoints: ['every authenticated route', 'POST /auth/logout'], reason: 'slide and revoke the session' },
+  ] },
+  { table: 'AuditEvent', model: 'AuditEvent', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'AuditService and the RBAC guards', endpoints: ['every mutation and every denial'], reason: 'immutable audit trail (INSERT only: no UPDATE or DELETE)' },
+  ] },
+  { table: 'supplier_room_drafts', model: 'SupplierRoomDraft', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'SupplierExtranetService.upsertRoomDraft', endpoints: ['PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft'], reason: 'supplier room-note drafts (ADR 0011)' },
+    { op: 'UPDATE', service: 'SupplierExtranetService.upsertRoomDraft', endpoints: ['PATCH /supplier/extranet/hotels/:hotelId/rooms/:roomId/draft'], reason: 'edit an own draft' },
+  ] },
+
+  { table: 'supplier_change_sets', model: 'SupplierChangeSet', read: true, rls: 'forced-tenant', note: 'ADR 0061 Amendment 3: the supplier prepares, submits and withdraws; review and apply columns (decided_*, applied_at, failure_code) are not granted until the staff review step', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService.create', endpoints: ['POST /supplier/extranet/change-sets'], reason: 'create a draft availability change set' },
+    { op: 'UPDATE', columns: ['status', 'version', 'cell_count', 'content_sha256', 'submitted_at', 'submitted_by_user_id', 'updated_at'], service: 'SupplierChangeSetsService.replace, submit, withdraw', endpoints: ['PUT /supplier/extranet/change-sets/:changeSetId', 'POST /supplier/extranet/change-sets/:changeSetId/submit', 'POST /supplier/extranet/change-sets/:changeSetId/withdraw'], reason: 'replace a draft, submit it, or withdraw it (status edges are enforced by a database trigger)' },
+  ] },
+  { table: 'supplier_change_set_cells', model: 'SupplierChangeSetCell', read: true, rls: 'forced-tenant', note: 'cells freeze when the set leaves DRAFT (database trigger); no UPDATE', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService.create, replace', endpoints: ['POST /supplier/extranet/change-sets', 'PUT /supplier/extranet/change-sets/:changeSetId'], reason: 'store the validated cells of a draft' },
+    { op: 'DELETE', service: 'SupplierChangeSetsService.replace', endpoints: ['PUT /supplier/extranet/change-sets/:changeSetId'], reason: 'replace the cells of a draft' },
+  ] },
+  { table: 'supplier_change_set_events', model: 'SupplierChangeSetEvent', read: true, rls: 'forced-tenant', note: 'append-only (database trigger)', writes: [
+    { op: 'INSERT', service: 'SupplierChangeSetsService', endpoints: ['POST /supplier/extranet/change-sets', 'PUT /supplier/extranet/change-sets/:changeSetId', 'POST /supplier/extranet/change-sets/:changeSetId/submit', 'POST /supplier/extranet/change-sets/:changeSetId/withdraw'], reason: 'record every change-set transition' },
+  ] },
+
+  { table: 'Agency', model: 'Agency', read: true, rls: 'forced-tenant', note: 'also read by the agency-suspension guard and the distribution lookup (mandatory commercial control)', writes: [
+    { op: 'INSERT', service: 'ClientsService.create', endpoints: [`POST ${ADMIN_CLIENTS}/agencies`], reason: 'create an agency' },
+    { op: 'UPDATE', service: 'ClientsService.update; AgencySuspensionService.execute', endpoints: [`PATCH ${ADMIN_CLIENTS}/agencies/:agencyId`, `POST ${ADMIN_CLIENTS}/agencies/suspension-approvals/:approvalId/execute`], reason: 'edit an agency; apply an approved suspension change' },
+  ] },
+  { table: 'AgencyMember', model: 'AgencyMember', read: true, rls: 'forced-tenant', note: 'also read by the suspension guard and the distribution lookup (mandatory commercial control)', writes: [
+    { op: 'INSERT', service: 'ClientsService.addMember', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/:agencyId/members`], reason: 'attach a user to an agency' },
+    { op: 'DELETE', service: 'ClientsService.removeMember', endpoints: [`DELETE ${ADMIN_CLIENTS}/agencies/:agencyId/members/:userId`], reason: 'detach a user from an agency' },
+  ] },
+  { table: 'AgencyCreditLimit', model: 'AgencyCreditLimit', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'AgencyCreditService.execute', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/credit-approvals/:approvalId/execute`], reason: 'set the first credit limit after approval' },
+    { op: 'UPDATE', service: 'AgencyCreditService.execute', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/credit-approvals/:approvalId/execute`], reason: 'change the limit after approval' },
+    { op: 'DELETE', service: 'AgencyCreditService.execute', endpoints: [`POST ${ADMIN_CLIENTS}/agencies/credit-approvals/:approvalId/execute`], reason: 'remove the limit after approval' },
+  ] },
+  { table: 'ApprovalRequest', model: 'ApprovalRequest', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'ApprovalService.request', endpoints: ['POST /admin/commercial/markups/:ruleId/request-activation', 'POST /admin/commercial/fx-rates/:rateId/request-activation', `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-suspension-change`, `POST ${ADMIN_CLIENTS}/agencies/:agencyId/request-credit-limit`, `POST ${HOTEL}/setup/publication/request`, `POST ${HOTEL}/inventory/pools/:poolId/night-requests`], reason: 'maker-checker request (ADR 0016); a pool night request is applied by the owner tool, never by the API (ADR 0036 Amendment 4)' },
+    { op: 'UPDATE', service: 'ApprovalService.decide/cancel/execute', endpoints: ['POST .../approvals/:approvalId/{approve,reject,cancel,execute}', `POST ${HOTEL}/inventory/pools/:poolId/night-requests/:approvalId/{approve,reject,cancel}`], reason: 'record the decision and the execution' },
+  ] },
+  { table: 'CommercialMarkupRule', model: 'CommercialMarkupRule', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a NET rate is priced (mandatory commercial control)', writes: [
+    { op: 'INSERT', service: 'CommercialMarkupService.create', endpoints: ['POST /admin/commercial/markups'], reason: 'draft a markup rule' },
+    { op: 'UPDATE', service: 'CommercialMarkupService.retire/execute', endpoints: ['POST /admin/commercial/markups/:ruleId/retire', 'POST /admin/commercial/markups/approvals/:approvalId/execute'], reason: 'activate or retire a rule (rules are otherwise immutable)' },
+  ] },
+  { table: 'FxRate', model: 'FxRate', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck when a contract in another currency is priced (mandatory commercial control, ADR 0067 F-12)', writes: [
+    { op: 'INSERT', service: 'CommercialFxService.create', endpoints: ['POST /admin/commercial/fx-rates'], reason: 'draft a controlled FX rate' },
+    { op: 'UPDATE', service: 'CommercialFxService.retire/execute', endpoints: ['POST /admin/commercial/fx-rates/:rateId/retire', 'POST /admin/commercial/fx-rates/approvals/:approvalId/execute'], reason: 'activate or retire a rate (rates are otherwise immutable)' },
+  ] },
+  { table: 'HotelDeal', model: 'HotelDeal', read: true, rls: 'forced-tenant', note: 'also read by Agent search, recheck and hold: ACTIVE deals price a stay through the one evaluator (mandatory commercial control, ADR 0089)', writes: [
+    { op: 'INSERT', service: 'HotelDealService.create', endpoints: ['POST /admin/commercial/promotions'], reason: 'draft a deal; the database starts every deal as a DRAFT' },
+    { op: 'UPDATE', columns: HOTEL_DEAL_UPDATE_COLUMNS, service: 'HotelDealService.update/transition/execute', endpoints: ['PATCH /admin/commercial/promotions/:dealId', 'POST /admin/commercial/promotions/:dealId/{submit,withdraw,pause,resume,suspend,return-to-draft,archive,reconcile}', 'POST /admin/commercial/promotions/approvals/:approvalId/execute'], reason: 'edit a draft, move a deal along the lifecycle, activate it once after approval; a trigger refuses any change to the terms of a deal that is not a DRAFT, and any transition the state machine does not allow' },
+  ] },
+  { table: 'HotelDealRatePlan', model: 'HotelDealRatePlan', read: true, rls: 'forced-tenant', note: 'also read by Agent search, recheck and hold to find the ACTIVE deals of a plan (ADR 0089)', writes: [
+    { op: 'INSERT', service: 'HotelDealService.create/update', endpoints: ['POST /admin/commercial/promotions', 'PATCH /admin/commercial/promotions/:dealId'], reason: 'set the rate plans a draft deal applies to; a trigger refuses a plan of another hotel' },
+    { op: 'DELETE', service: 'HotelDealService.update', endpoints: ['PATCH /admin/commercial/promotions/:dealId'], reason: 'replace the scope of a draft deal; a trigger refuses it once the deal has left DRAFT' },
+  ] },
+  { table: 'DistributionRestriction', model: 'DistributionRestriction', read: true, rls: 'forced-tenant', note: 'also read by Agent search and recheck (mandatory commercial control)', writes: [
+    { op: 'INSERT', service: 'DistributionService.create', endpoints: ['POST /admin/distribution/restrictions'], reason: 'restrict a hotel or supplier for an agency' },
+    { op: 'UPDATE', service: 'DistributionService.retire', endpoints: ['POST /admin/distribution/restrictions/:restrictionId/retire'], reason: 'retire a restriction' },
+  ] },
+  { table: 'ServiceCase', model: 'ServiceCase', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'ServiceCasesService.create', endpoints: ['POST /admin/service/cases'], reason: 'open a case' },
+    { op: 'UPDATE', service: 'ServiceCasesService.transition/assign', endpoints: ['POST /admin/service/cases/:caseId/transition', 'POST /admin/service/cases/:caseId/assign'], reason: 'move or assign a case' },
+  ] },
+  { table: 'ServiceCaseNote', model: 'ServiceCaseNote', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'ServiceCasesService.addNote/transition/assign', endpoints: ['POST /admin/service/cases/:caseId/notes'], reason: 'append a note (notes are immutable)' },
+  ] },
+  { table: 'RoomEvent', model: 'RoomEvent', read: true, rls: 'forced-tenant', note: 'also read by assessPlanSelect when an event supplement is priced (ADR 0089)', writes: [
+    { op: 'INSERT', service: 'RoomEventsService.create', endpoints: ['POST /admin/room-events'], reason: 'draft an event master record' },
+    { op: 'UPDATE', service: 'RoomEventsService.update/submit/decide/cancelApproval/cancel/archive', endpoints: ['PATCH /admin/room-events/:roomEventId', 'POST /admin/room-events/:roomEventId/submit', 'POST /admin/room-events/:roomEventId/{cancel,archive}', 'POST /admin/room-event-approvals/:approvalId/{approve,reject,cancel}'], reason: 'edit a draft, move it through the maker-checker lifecycle, or cancel/archive it' },
+  ] },
+  { table: 'EventSupplement', model: 'EventSupplement', read: true, rls: 'forced-tenant', note: 'also read by assessPlanSelect and the Agent search contract include for pricing (ADR 0089); only ACTIVE rows of an APPROVED RoomEvent are ever loaded there', writes: [
+    { op: 'INSERT', service: 'EventSupplementsService.create', endpoints: ['POST /admin/event-supplements'], reason: 'draft an event supplement' },
+    { op: 'UPDATE', service: 'EventSupplementsService.submit/decide/cancelApproval/activate/suspend', endpoints: ['POST /admin/event-supplements/:eventSupplementId/submit', 'POST /admin/event-supplements/:eventSupplementId/{activate,suspend}', 'POST /admin/event-supplement-approvals/:approvalId/{approve,reject,cancel}'], reason: 'move it through the maker-checker lifecycle, activate an approved rule, or suspend an active one' },
+  ] },
+  { table: 'EventSupplementVersion', model: 'EventSupplementVersion', read: true, rls: 'forced-tenant', note: 'immutable event supplement term snapshots (ADR 0089, modeled on ContractVersion/ADR 0067 F-01); appended only on activation, never updated or deleted (trigger)', writes: [
+    { op: 'INSERT', service: 'EventSupplementsService.activate', endpoints: ['POST /admin/event-supplements/:eventSupplementId/activate'], reason: 'append the reviewed terms snapshot the moment the rule goes live' },
+  ] },
+
+  { table: 'Hotel', model: 'Hotel', read: true, rls: 'forced-tenant', note: 'INSERT, plus column-level UPDATE only; DELETE and every other column stay with the privileged supply-authoring path', writes: [
+    { op: 'INSERT', service: 'SupplyService.createHotel', endpoints: ['POST /supply/hotels (Admin "Add hotel")'], reason: 'create a draft hotel, the first step of the setup journey (publication stays a separate maker-checker step)' },
+    { op: 'UPDATE', columns: HOTEL_WRITE_COLUMNS, service: 'HotelSetupService.save/changeStatus; touchSetup (amenities); HotelPublicationService.execute', endpoints: [`PATCH ${HOTEL}/setup`, `POST ${HOTEL}/setup/status`, `PUT ${HOTEL}/amenities`, `POST ${HOTEL}/setup/publication/:approvalId/execute`], reason: 'the profile workflows also stamp or change the hotel row (details, status, updated_at stale-token)' },
+  ] },
+  { table: 'HotelProfile', model: 'HotelProfile', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'HotelSetupService; touchSetup; HotelPublicationService', endpoints: [`PATCH ${HOTEL}/setup`, `POST ${HOTEL}/setup/status`, `PUT ${HOTEL}/amenities`], reason: 'first save of a hotel profile' },
+    { op: 'UPDATE', service: 'HotelSetupService; touchSetup; HotelPublicationService', endpoints: [`PATCH ${HOTEL}/setup`, `POST ${HOTEL}/setup/status`, `PUT ${HOTEL}/amenities`, `POST ${HOTEL}/setup/publication/:approvalId/execute`], reason: 'save the profile, bump its version, stamp the approver' },
+  ] },
+  { table: 'HotelExternalIdentifier', model: 'HotelExternalIdentifier', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'HotelSetupService.save', endpoints: [`PATCH ${HOTEL}/setup`], reason: 'add an external identifier' },
+    { op: 'DELETE', service: 'HotelSetupService.save', endpoints: [`PATCH ${HOTEL}/setup`], reason: 'remove or replace an identifier (a changed value is delete plus insert, so no UPDATE)' },
+  ] },
+  { table: 'HotelAmenity', model: 'HotelAmenity', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'add an amenity' },
+    { op: 'UPDATE', columns: AMENITY_UPDATE_COLUMNS, service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'change an amenity fee type (upsert); the hotel it belongs to cannot be reassigned' },
+    { op: 'DELETE', service: 'HotelAmenitiesService.replace', endpoints: [`PUT ${HOTEL}/amenities`], reason: 'remove an amenity' },
+  ] },
+  { table: 'RoomType', model: 'RoomType', read: true, rls: 'forced-tenant', note: 'row-level security through the room\'s hotel', writes: [
+    { op: 'INSERT', service: 'HotelRoomsService.create', endpoints: [`POST ${HOTEL}/rooms`], reason: 'add a canonical room to a hotel (publication needs one active room)' },
+    { op: 'UPDATE', columns: ROOM_WRITE_COLUMNS, service: 'HotelRoomsService.update/archive/restore', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`, `POST ${HOTEL}/rooms/:roomId/archive`, `POST ${HOTEL}/rooms/:roomId/restore`], reason: 'edit, archive or restore a room (rooms are never deleted)' },
+  ] },
+  { table: 'RoomAmenity', model: 'RoomAmenity', read: true, rls: 'forced-tenant', writes: [
+    { op: 'INSERT', service: 'HotelRoomsService.replaceAmenities', endpoints: [`POST ${HOTEL}/rooms`, `PATCH ${HOTEL}/rooms/:roomId`], reason: 'record a room amenity' },
+    { op: 'UPDATE', columns: AMENITY_UPDATE_COLUMNS, service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'change an amenity fee type (upsert); the room it belongs to cannot be reassigned' },
+    { op: 'DELETE', service: 'HotelRoomsService.replaceAmenities', endpoints: [`PATCH ${HOTEL}/rooms/:roomId`], reason: 'remove an amenity from a room' },
+  ] },
+  { table: 'HotelImage', model: 'HotelImage', read: true, rls: 'forced-tenant', note: 'also read by Agent search (primary image) and the Agent image route', writes: [
+    { op: 'INSERT', service: 'HotelImagesService.upload', endpoints: [`POST ${HOTEL}/images`], reason: 'upload an image' },
+    { op: 'UPDATE', service: 'HotelImagesService.update/reorder', endpoints: [`PATCH ${HOTEL}/images/:imageId`, `PUT ${HOTEL}/images/order`], reason: 'edit, reorder, choose the primary image' },
+    { op: 'DELETE', service: 'HotelImagesService.remove', endpoints: [`DELETE ${HOTEL}/images/:imageId`], reason: 'delete an image' },
+  ] },
+]
+
+/**
+ * SECURITY DEFINER functions the runtime may execute (ADR 0075 amendments 3-4). Each returns identity or a result only, never a stored hash, so the
+ * runtime authenticates partners and issues their tokens with no privilege on the credential tables at all. Every other function that PUBLIC cannot
+ * execute stays unexecutable by the runtime (the verifier checks both directions).
+ */
+export interface RuntimeFunctionGrant {
+  name: string
+  /** Exactly as `GRANT EXECUTE ON FUNCTION` takes it. */
+  signature: string
+  service: string
+  endpoints: readonly string[]
+  reason: string
+}
+
+const DISTRIBUTION_PARTNER_ROUTES = ['GET /distribution/v1/me'] as const
+
+export const RUNTIME_FUNCTION_GRANTS: readonly RuntimeFunctionGrant[] = [
+  { name: 'fbeds_distribution_authenticate_key', signature: '"fbeds_distribution_authenticate_key"(text, text)', service: 'DistributionAuthGuard', endpoints: DISTRIBUTION_PARTNER_ROUTES, reason: 'authenticate a partner API key; returns identity, scopes, allowlist and limits, never a hash' },
+  { name: 'fbeds_distribution_authenticate_token', signature: '"fbeds_distribution_authenticate_token"(text)', service: 'DistributionAuthGuard', endpoints: DISTRIBUTION_PARTNER_ROUTES, reason: 'authenticate a partner OAuth access token; scopes cut to the client\'s current scopes' },
+  { name: 'fbeds_distribution_issue_token', signature: '"fbeds_distribution_issue_token"(text, text, text, "DistributionApiScope"[], integer, text)', service: 'DistributionTokenService.issue', endpoints: ['POST /distribution/v1/oauth/token'], reason: 're-verify the OAuth client secret, then write the token hash and its audit event atomically' },
+]
+
+export const RUNTIME_ROLE_GRANTS: readonly RuntimeGrant[] = [
+  ...READ_ONLY.map((r): RuntimeGrant => ({ ...r, read: true, writes: [] })),
+  ...READ_COLUMNS_ONLY,
+  ...READ_WRITE,
+]
+
+/**
+ * Tables the API process writes in some code path that the runtime role deliberately does NOT write. Each is a PRIVILEGED PATH:
+ * the write belongs to a trusted operator or a separate role, or to a capability that is gated off. The runtime answers a caller who
+ * reaches one with a typed 403 (`RUNTIME_ROLE_OPERATION_PROHIBITED`), never a 5xx. `Hotel` and `users` appear here too: the runtime
+ * holds only their listed columns, the rest of their writes (hotel insert, other columns; user creation) are privileged.
+ */
+export const PRIVILEGED_WRITE_MODELS: Readonly<Record<string, string>> = {
+  SandboxContentRun: 'operator-only quarantined sandbox content; no API runtime grant',
+  SandboxContentPage: 'immutable operator-only sandbox content pages; no API runtime grant',
+  SandboxContentLease: 'operator-only sandbox synchronization fencing; no API runtime grant',
+  Hotel: 'DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted',
+  BoardBasis: 'supply authoring',
+  Supplier: 'supply authoring', Contract: 'supply authoring', ContractVersion: 'supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)', RatePlan: 'supply authoring and pool membership/release', DailyRate: 'supply authoring and Quick Update', RatePlanGuestPrice: 'supply authoring (guest price lines)', RatePlanPromotion: 'supply authoring (promotions)',
+  DailyAvailability: 'supply authoring and Quick Update', BookingLeadTimeRule: 'supply authoring', CancellationPolicy: 'supply authoring', ChildPolicy: 'supply authoring', ContractSupplement: 'supply authoring',
+  SupplierHotelMapping: 'mapping governance', SupplierRoomMapping: 'mapping governance', SupplierRatePlanMapping: 'mapping governance (ADR 0081)',
+  InventoryPool: 'pool authoring needs RatePlan and DailyAvailability writes', InventoryPoolDay: 'INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted',
+  SupplierMutation: 'booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds',
+  Booking: 'booking is disabled; finance-gated', BookingDocument: 'booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)', BookingBulkOperation: 'booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)', BookingBulkOperationItem: 'booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)', BookingSavedView: 'booking module only: a person\'s own saved booking views, written (and deleted) by the booking role; preferences, never policy (ADR 0039, Phase 6B)', BookingFinanceEvent: 'booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)',
+  BookingAmendment: 'booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)',
+  BookingEmail: 'booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it',
+  BookingRoom: 'booking is disabled; written with the booking in one transaction (ADR 0039)', BookingGuest: 'booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)', BookingOpsState: 'booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)', BookingSupplierJob: 'booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)', BookingSupplierCall: 'booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)', BookingEvent: 'booking is disabled; append-only lifecycle log written with the booking (ADR 0039)', InventoryHold: 'holds are gated; written by the booking path',
+  InventoryHoldNight: 'holds are gated', LedgerEntry: 'finance-gated', Cancellation: 'booking is disabled',
+  Wallet: 'finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)',
+  FundingReceipt: 'finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)',
+  SupplierStatement: 'finance-gated: imported supplier settlement statements are immutable; the reconciliation role provisioning is a separate operator step (ADR 0070)',
+  SupplierStatementLine: 'finance-gated: immutable statement lines (ADR 0070)',
+  ReconciliationRun: 'finance-gated: the reconciliation job queue; the API inserts QUEUED runs and the worker claims them (ADR 0070)',
+  ReconciliationFinding: 'finance-gated: match results and the dispute queue workflow; never posts to LedgerEntry or Wallet (ADR 0070)',
+  ReconciliationDecision: 'finance-gated: append-only history of dispute queue decisions (ADR 0070)',
+  BankStatement: 'finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)',
+  BankStatementEntry: 'finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)',
+  BankMatchFinding: 'finance-gated: bank-to-books match results and their exception workflow; closing one posts nothing to LedgerEntry or Wallet (ADR 0093)',
+  BookingCreditNote: 'finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)',
+  AgencyCommissionPayout: 'finance-gated: proposed and approved tier-based commission payouts to agencies; approval posts a CREDIT to LedgerEntry on the API connection, which the runtime role never writes (ADR 0098)',
+  FinancePeriodClose: 'finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)',
+  GlAccount: 'finance-gated: the general-ledger chart of accounts of a tenant; code, name and type never change, only active; written on the API connection (ADR 0102)',
+  GlCategoryMapping: 'finance-gated: append-only versions of which GL account pair each ledger movement category posts to; written on the API connection (ADR 0102)',
+  LedgerAdjustment: 'finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)',
+  LedgerChainLink: 'finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)',
+  BookingFinancePosting: 'finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)',
+  SupplierPaymentTerms: 'finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)',
+  SupplierSettlement: 'finance-gated: supplier payments recorded against posted payables, proposed and approved by different people; written only by the narrow finance posting role (ADR 0077)',
+  SupplierPayableEntry: 'finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)',
+  SupplierPromotionRun: 'promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)',
+  SupplierIngestRun: 'ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)',
+  SupplierRateObservation: 'ingestion-gated: latest supplier net per supplier night, an observation that is never sellable by itself (ADR 0078)',
+  SupplierAllotmentObservation: 'ingestion-gated: latest supplier stock statement per night, an observation that is never sellable by itself (ADR 0078)',
+  SupplierCancellationObservation: 'ingestion-gated: latest supplier cancellation policy per rate plan, an observation that is never sellable by itself (ADR 0078)',
+  HotelSearchIndex: 'search-index maintenance (reindex) is an operator job; the runtime only reads the index',
+  TenantControlProfile: 'dedicated tenant control authoring role only', Membership: 'dedicated tenant membership authoring role only', Tenant: 'tenant settings authoring', TenantSettings: 'tenant settings authoring',
+  User: 'identity provisioning (create user) is an operator action; the runtime only records the last sign-in',
+  ComplianceRecord: 'never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event\'s own transaction (ADR 0067)',
+  ComplianceExportBatch: 'compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)',
+  ComplianceExportBatchRecord: 'compliance export role only: append-only batch membership (ADR 0067)',
+  PlatformRole: 'platform administration', PlatformRoleAssignment: 'platform administration', PlatformRolePermission: 'platform administration',
+}
+
+// ---- Derived views -----------------------------------------------------------------------------------------------------------------
+
+const quote = (name: string) => `"${name}"`
+
+/** Statements the owner runs. REVOKE ALL first, then exactly the contract. */
+export function runtimeGrantStatements(group: string): string[] {
+  const role = quote(group)
+  const statements = [`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${role}`, `REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM ${role}`, `DO $$ DECLARE r record; BEGIN FOR r IN SELECT c.relname, a.attname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname='public' AND c.relkind IN ('r','p') AND a.attnum>0 AND NOT a.attisdropped LOOP EXECUTE format('REVOKE ALL (%I) ON %I FROM %I', r.attname, r.relname, '${group}'); END LOOP; END $$`, `GRANT USAGE ON SCHEMA public TO ${role}`]
+  for (const grant of RUNTIME_ROLE_GRANTS) {
+    const table = quote(grant.table)
+    const privileges: string[] = [...(grant.read ? ['SELECT'] : []), ...grant.writes.filter((w) => !w.columns).map((w) => w.op)]
+    const ordered = (['SELECT', 'INSERT', 'UPDATE', 'DELETE'] as const).filter((p) => privileges.includes(p))
+    if (ordered.length) statements.push(`GRANT ${ordered.join(', ')} ON ${table} TO ${role}`)
+    if (grant.readColumns) statements.push(`GRANT SELECT (${grant.readColumns.map(quote).join(', ')}) ON ${table} TO ${role}`)
+    for (const write of grant.writes.filter((w) => w.columns)) statements.push(`GRANT ${write.op} (${write.columns!.map(quote).join(', ')}) ON ${table} TO ${role}`)
+  }
+  for (const fn of RUNTIME_FUNCTION_GRANTS) statements.push(`GRANT EXECUTE ON FUNCTION ${fn.signature} TO ${role}`)
+  return statements
+}
+
+/** Every table-level or column-level write the contract grants: the expected state the verifier compares against. */
+export function expectedWrites(): Map<string, { table: Set<WritePrivilege>; columns: Map<WritePrivilege, Set<string>> }> {
+  const out = new Map<string, { table: Set<WritePrivilege>; columns: Map<WritePrivilege, Set<string>> }>()
+  for (const grant of RUNTIME_ROLE_GRANTS) {
+    if (grant.writes.length === 0) continue
+    const entry = { table: new Set<WritePrivilege>(), columns: new Map<WritePrivilege, Set<string>>() }
+    for (const write of grant.writes) {
+      if (write.columns) entry.columns.set(write.op, new Set(write.columns))
+      else entry.table.add(write.op)
+    }
+    out.set(grant.table, entry)
+  }
+  return out
+}
+
+export const RUNTIME_READ_TABLES = RUNTIME_ROLE_GRANTS.filter((g) => g.read).map((g) => g.table)
+
+/** Tables read through named columns only, with the exact column set. The verifier compares both directions. */
+export function expectedColumnReads(): Map<string, Set<string>> {
+  return new Map(RUNTIME_ROLE_GRANTS.filter((g) => g.readColumns).map((g) => [g.table, new Set(g.readColumns!)]))
+}
+
+const cell = (value: boolean) => (value ? 'yes' : '-')
+const readCell = (grant: RuntimeGrant): string => (grant.readColumns ? `cols (${grant.readColumns.length})` : cell(grant.read))
+const opCell = (grant: RuntimeGrant, op: WritePrivilege): string => {
+  const write = grant.writes.find((w) => w.op === op)
+  return write ? (write.columns ? `cols (${write.columns.length})` : 'yes') : '-'
+}
+
+/** The generated privilege matrix embedded in docs/strict-runtime-db-role.md. */
+export function renderRuntimeRoleMatrix(): string {
+  const lines = [
+    '| Table | SELECT | INSERT | UPDATE | DELETE | RLS | Writer (service, endpoints) and reason |',
+    '| --- | :-: | :-: | :-: | :-: | --- | --- |',
+  ]
+  for (const grant of [...RUNTIME_ROLE_GRANTS].sort((a, b) => a.table.localeCompare(b.table))) {
+    const who = grant.writes.length
+      ? [...new Map(grant.writes.map((w) => [`${w.service}|${w.reason}`, w])).values()].map((w) => `${w.op}${w.columns ? ` (${w.columns.join(', ')})` : ''}: ${w.service}; ${w.endpoints.join(', ')}; ${w.reason}`).join(' / ')
+      : grant.readColumns ? `SELECT (${grant.readColumns.join(', ')}): ${grant.note ?? 'column-level read'}` : (grant.note ?? 'read only')
+    lines.push(`| \`${grant.table}\` | ${readCell(grant)} | ${opCell(grant, 'INSERT')} | ${opCell(grant, 'UPDATE')} | ${opCell(grant, 'DELETE')} | ${grant.rls === 'forced-tenant' ? 'forced tenant' : 'none (auth)'} | ${who} |`)
+  }
+  lines.push('', 'Functions the runtime may execute (SECURITY DEFINER; every other non-PUBLIC function is denied):', '')
+  for (const fn of RUNTIME_FUNCTION_GRANTS) lines.push(`- \`${fn.name}\`: ${fn.service}; ${fn.endpoints.join(', ')}; ${fn.reason}`)
+  lines.push('', 'Privileged paths (written by the API process somewhere, never by the runtime role):', '')
+  for (const [model, reason] of Object.entries(PRIVILEGED_WRITE_MODELS).sort(([a], [b]) => a.localeCompare(b))) lines.push(`- \`${model}\`: ${reason}`)
+  return lines.join('\n')
+}

@@ -1,0 +1,32 @@
+region                  = "ap-south-1" # ADR 0055
+availability_zone_names = ["ap-south-1a", "ap-south-1b"] # confirm against the final region decision before apply (CKV_AWS_394)
+environment    = "staging"
+domain_name    = "fbeds.com"
+hosted_zone_id = "ZXXXXXXXXXXXXX"
+nat_per_az     = false
+db_multi_az    = false
+db_instance_class = "db.t4g.medium"
+api_desired_count    = 1
+portal_desired_count = 1
+
+# Cost guardrails: set the owner-approved ceiling before the first chargeable apply (budgets.tf).
+# monthly_budget_usd = 0
+# budget_emails      = ["finops@example.com"]
+
+# ADR 0055: staging stays access-restricted. Replace with your office/VPN egress ranges; 0.0.0.0/0 is refused.
+public_ingress_cidrs = ["203.0.113.0/24"]
+
+# Compliance WORM archive and scheduled export (ADR 0067 amendment 2). Off until the owner provisions fbeds_compliance_export.
+# Archived objects cannot be deleted by anyone until their retention ends; the bucket outlives terraform destroy for that long.
+# compliance_export_enabled = true
+# compliance_retention_days = 2557
+
+# ADR 0091: password reset by email. Leave both empty to keep it OFF (no SES permission, no reset link on sign-in).
+# email_from       = "fabBeds <no-reply@your-verified-domain.example>"
+# ses_identity_arn = "arn:aws:ses:<region>:<account-id>:identity/your-verified-domain.example"
+
+# ADR 0093: distributed tracing. Adds an ADOT collector sidecar to api, admin, agent and supplier, and X-Ray write permission to their task roles.
+# Terraform only creates the first task definition revision: for a running environment follow docs/runbooks/distributed-tracing.md.
+# Confirm the collector image and its config path in staging before enabling in production.
+tracing_enabled      = true
+tracing_sample_ratio = "0.1"

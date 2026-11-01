@@ -8,7 +8,7 @@ export function pageMetadata({ title, description, path }: PageMetadataInput): M
     title,
     description,
     alternates: { canonical },
-    openGraph: { title, description, url: canonical, siteName: siteConfig.brandName, type: 'website', images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'fBeds hotel distribution platform' }] },
+    openGraph: { title, description, url: canonical, siteName: siteConfig.brandName, type: 'website', images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'fabbeds B2B hotel distribution marketplace' }] },
     twitter: { card: 'summary_large_image', title, description, images: ['/opengraph-image'] },
   }
 }

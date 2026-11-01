@@ -1,19 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { WalletLedgerSummaryRead } from '@bedbanks/contracts'
-import { PageHeader } from '@/components/common/PageHeader'
-import { DataTable, type DataTableColumn } from '@/components/tables/DataTable'
+import Link from 'next/link'
+import type { LedgerEntryView, WalletLedgerSummaryRead } from '@bedbanks/contracts'
+import { OpsListPage } from '@/components/ops/OpsListPage'
+import { Money, Tag, when } from '@/components/ops/ops-ui'
+import { getOpsLedger } from '@/lib/data/operations'
 import { getWalletLedgerSummaries, postLedgerAdjustment } from '@/lib/data'
 import { formatMinorUnits } from '@/lib/minor-units'
 
-type LedgerRow = WalletLedgerSummaryRead['entries'][number] & { walletId: string }
-
 export default function LedgerPage() {
   const [wallets, setWallets] = useState<WalletLedgerSummaryRead[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
   const [selectedWalletId, setSelectedWalletId] = useState('')
   const [currency, setCurrency] = useState('AED')
   const [type, setType] = useState<'REFUND' | 'CREDIT' | 'DEBIT' | 'RELEASE'>('REFUND')
@@ -25,19 +22,14 @@ export default function LedgerPage() {
 
   const loadWallets = async () => {
     try {
-      setLoading(true)
       const data = await getWalletLedgerSummaries()
       setWallets(data)
       if (data[0] && !selectedWalletId) {
         setSelectedWalletId(data[0].walletId)
         setCurrency(data[0].currency)
       }
-      setError(null)
     } catch {
-      setWallets([])
-      setError('B2B Wallet & Ledger summaries are unavailable. No fallback data is shown.')
-    } finally {
-      setLoading(false)
+      // OpsListPage below handles primary ledger load errors.
     }
   }
 
@@ -66,34 +58,36 @@ export default function LedgerPage() {
     }
   }
 
-  const allEntries: LedgerRow[] = wallets.flatMap((w) =>
-    w.entries.map((entry) => ({ ...entry, walletId: w.walletId })),
-  )
-
-  const columns: DataTableColumn<LedgerRow>[] = [
-    { key: 'walletId', header: 'Wallet', render: (e) => e.walletId },
-    { key: 'type', header: 'Type', render: (e) => e.type },
-    { key: 'amount', header: 'Amount', render: (e) => formatMinorUnits(e.amountMinor, e.currency), align: 'right' },
-    { key: 'reference', header: 'Reference', render: (e) => e.reference ?? '—' },
-    { key: 'idempotencyKey', header: 'Idempotency Key', render: (e) => e.idempotencyKey },
-    { key: 'immutableAt', header: 'Posted At (UTC)', render: (e) => e.immutableAt.slice(0, 19).replace('T', ' ') },
-  ]
-
   return (
-    <div className="admin-page">
-      <PageHeader
-        eyebrow="FINANCE · LEDGER ADJUSTMENTS"
-        title="B2B Wallet Credit Limits & Ledger Adjustments"
-        description="Connect cancellation refunds and commercial adjustments directly to B2B agency credit limits and append-only ledger tables."
+    <div style={{ display: 'grid', gap: 20 }}>
+      <OpsListPage<LedgerEntryView>
+        eyebrow="FINANCE"
+        title="Ledger"
+        description="Immutable wallet ledger entries, newest first, paired with B2B agency credit limits and idempotent cancellation refund adjustments."
+        filters={[
+          { key: 'type', label: 'Type', type: 'select', options: ['CREDIT', 'DEBIT', 'HOLD', 'RELEASE', 'REFUND', 'ADJUSTMENT', 'REVERSAL'].map((v) => ({ value: v, label: v })) },
+          { key: 'bookingId', label: 'Booking id', type: 'text' },
+          { key: 'from', label: 'From', type: 'date' },
+          { key: 'to', label: 'To', type: 'date' },
+        ]}
+        load={getOpsLedger}
+        getRowId={(e) => e.id}
+        emptyTitle="No ledger entries"
+        emptyDescription="The query succeeded and no ledger entry matches these filters."
+        columns={[
+          { key: 'at', header: 'When', render: (e) => when(e.at) },
+          { key: 'type', header: 'Type', render: (e) => <Tag tone={e.type === 'DEBIT' ? 'warn' : e.type === 'REFUND' ? 'ok' : 'neutral'}>{e.type}</Tag> },
+          { key: 'amount', header: 'Amount', align: 'right', render: (e) => <Money minor={e.amountMinor} currency={e.currency} /> },
+          { key: 'booking', header: 'Booking', render: (e) => (e.bookingId ? <Link href={`/bookings/${e.bookingId}`}>{e.bookingId}</Link> : '—') },
+          { key: 'key', header: 'Idempotency key', render: (e) => <code>{e.idempotencyKey}</code> },
+        ]}
       />
-      {error && <div role="alert" className="admin-empty-state">{error}</div>}
-      {loading && <p role="status">Loading B2B wallets and ledger entries…</p>}
 
       {wallets.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
           {wallets.map((w) => (
             <div key={w.walletId} className="admin-card" style={{ padding: 16 }}>
-              <div style={{ fontSize: 12, color: '#698088' }}>WALLET · {w.currency} ({w.walletId})</div>
+              <div style={{ fontSize: 12, color: 'var(--c-6b6b6b)' }}>WALLET · {w.currency} ({w.walletId})</div>
               <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4 }}>
                 Available Credit: {formatMinorUnits(w.availableCreditMinor, w.currency)}
               </div>
@@ -105,7 +99,7 @@ export default function LedgerPage() {
         </div>
       )}
 
-      <section className="admin-card" aria-label="Post B2B Ledger Adjustment" style={{ marginBottom: 20 }}>
+      <section className="admin-card" aria-label="Post B2B Ledger Adjustment">
         <h2>Post Idempotent Cancellation Refund / Ledger Adjustment</h2>
         <div className="admin-filter-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
           <select aria-label="Wallet" value={selectedWalletId} onChange={(e) => setSelectedWalletId(e.target.value)} className="admin-filter-select">
@@ -129,13 +123,6 @@ export default function LedgerPage() {
         </div>
         {statusMessage && <p role="status" style={{ marginTop: 10 }}>{statusMessage}</p>}
       </section>
-
-      <DataTable
-        columns={columns}
-        data={allEntries}
-        getRowId={(e) => e.id}
-        emptyTitle={loading ? 'Loading ledger entries' : 'No immutable ledger entries recorded'}
-      />
     </div>
   )
 }

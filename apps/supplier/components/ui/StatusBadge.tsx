@@ -1,12 +1,8 @@
 import type { StatusTone } from '../../lib/types'
+import { statusLabel, statusTone } from '../../lib/status'
 
-const inferredTones: Record<string, StatusTone> = {
-  active: 'success', confirmed: 'success', loaded: 'success', mapped: 'success', approved: 'success',
-  draft: 'neutral', pending: 'warning', 'review due': 'warning', 'action required': 'danger',
-  unmapped: 'danger', 'not loaded': 'danger', 'needs attention': 'danger',
-}
-
-export function StatusBadge({ children, tone }: { children: string; tone?: StatusTone }) {
-  const resolvedTone = tone ?? inferredTones[children.toLowerCase()] ?? 'info'
-  return <span className={`status-badge ${resolvedTone}`}>{children}</span>
+/** `children` is either a ready label or a raw API status key; the tone is derived from the key unless given. */
+export function StatusBadge({ children, tone, raw }: { children: string; tone?: StatusTone; raw?: string }) {
+  const resolvedTone = tone ?? statusTone(raw ?? children)
+  return <span className={`status-badge ${resolvedTone}`}><i aria-hidden="true" />{raw ? statusLabel(raw) : children}</span>
 }

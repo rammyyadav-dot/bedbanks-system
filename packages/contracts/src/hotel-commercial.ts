@@ -1,0 +1,352 @@
+/**
+ * Hotel commercial operations contracts (`/admin/operations/hotels*`, `/admin/operations/exceptions`).
+ *
+ * Every state here is computed server-side by the same evaluator the Agent uses (`evaluateContractedStay`).
+ * The Admin renders these values; it never derives readiness, expiry or sellability itself.
+ * Money is integer minor units (strings) plus an ISO-4217 currency.
+ */
+
+/** One server-side threshold for "contract expiring". Every page and filter uses it. */
+export const CONTRACT_EXPIRING_DAYS = 30
+/** Expiry windows offered as filters. */
+export const CONTRACT_EXPIRY_FILTER_DAYS = [7, 30, 60, 90] as const
+export const COMMERCIAL_WINDOW_DEFAULT_DAYS = 30
+export const COMMERCIAL_WINDOW_MAX_DAYS = 90
+
+export type CommercialReadiness = 'READY' | 'PARTIAL' | 'BLOCKED'
+export type MappingState = 'MAPPED' | 'PENDING' | 'REJECTED' | 'NONE'
+/** ACTIVE: in force and not near its end. EXPIRING: in force, ends within CONTRACT_EXPIRING_DAYS. EXPIRED: ended or marked EXPIRED. INACTIVE: DRAFT / REVIEW / SUSPENDED. NONE: no contract. */
+export type ContractState = 'ACTIVE' | 'EXPIRING' | 'EXPIRED' | 'INACTIVE' | 'NONE'
+export type SupplyDataState = 'OK' | 'GAPS' | 'NONE'
+export type InventoryState = 'OK' | 'GAPS' | 'STOP_SELL' | 'EXHAUSTED' | 'NONE'
+export type IssueSeverity = 'CRITICAL' | 'HIGH' | 'WARNING'
+export type HotelSection = 'overview' | 'rooms' | 'mappings' | 'contracts' | 'rates' | 'inventory' | 'sellability'
+
+/**
+ * Categories are a closed set derived from canonical reason codes. `UNMAPPED_HOTEL` and `UNMAPPED_ROOM` both carry the canonical
+ * `SUPPLIER_MAPPING_INVALID` reason; the category records which mapping failed.
+ */
+export const COMMERCIAL_ISSUE_CATEGORIES = [
+  'UNMAPPED_HOTEL', 'UNMAPPED_ROOM', 'CONTRACT_EXPIRED', 'CONTRACT_EXPIRING', 'RATE_MISSING', 'RATE_INVALID', 'AVAILABILITY_MISSING',
+  'STOP_SELL', 'INVENTORY_EXHAUSTED', 'INVENTORY_CLOSED', 'INVENTORY_STALE', 'OCCUPANCY_UNSUPPORTED', 'CURRENCY_OR_BASIS', 'ENTITY_INACTIVE', 'HOTEL_CONTENT',
+] as const
+export type CommercialIssueCategory = (typeof COMMERCIAL_ISSUE_CATEGORIES)[number]
+
+/**
+ * The Agent silently skips a hotel with no 1-5 star rating. Admin surfaces that as an explicit diagnostic so a hotel is never
+ * "ready" in Admin yet invisible to Agents. It is the only code that is not part of `evaluateContractedStay`.
+ */
+export const HOTEL_STAR_RATING_MISSING = 'HOTEL_STAR_RATING_MISSING'
+
+/** Plain-language wording for every canonical reason code, shared by the API (issue messages) and the Admin (chips and legends). */
+export const COMMERCIAL_REASON_TEXT: Record<string, string> = {
+  HOTEL_INACTIVE: 'Hotel content is not COMPLETE', HOTEL_STAR_RATING_MISSING: 'Hotel has no 1-5 star rating, so Agents cannot list it',
+  ROOM_TYPE_INACTIVE: 'Room type is inactive', BOARD_BASIS_INACTIVE: 'Board basis is inactive', SUPPLIER_INACTIVE: 'Supplier is not ACTIVE', RATE_PLAN_INACTIVE: 'Rate plan is not ACTIVE',
+  AGENCY_SUSPENDED: 'The selected agency is suspended', DISTRIBUTION_RESTRICTED: 'The hotel or supplier is restricted for the selected agency',
+  NATIONALITY_NOT_ALLOWED: 'The contract does not accept this guest nationality', SOURCE_MARKET_NOT_ALLOWED: 'The contract is not sold to this buyer market', RATE_PLAN_SOURCE_MARKET_NOT_ALLOWED: 'The rate plan is not sold to this buyer market', RATE_PLAN_NATIONALITY_NOT_ALLOWED: 'The rate plan does not accept this guest nationality', RATE_PLAN_MARKET_RULE_INVALID: 'The rate plan sales-market or nationality list is malformed, so it is not sold', CONTRACT_MARKET_RULE_INVALID: 'The contract sales-market or nationality list is malformed, so it is not sold',
+  RATE_PLAN_MISSING: 'No rate plan is configured', CONTRACT_INACTIVE: 'Contract is not ACTIVE', OUTSIDE_CONTRACT_VALIDITY: 'Date is outside the contract validity', OUTSIDE_RATE_PLAN_VALIDITY: 'Date is outside the rate plan sale window', CANCELLATION_POLICY_MISSING: 'The rate plan names a cancellation rule set that has no rules', DERIVED_TERMS_INVALID: 'The derived rate plan has no valid price adjustment', DERIVED_PARENT_MISSING: 'The derived rate plan has no parent plan', DERIVED_PARENT_IS_DERIVED: 'The parent of this derived plan is itself derived', DERIVED_PARENT_MISMATCH: 'The parent plan has a different contract, hotel, currency or occupancy', DERIVED_PARENT_INACTIVE: 'The parent plan is not active, so this derived plan has no price',
+  SUPPLIER_MAPPING_INVALID: 'Supplier mapping is missing or not approved', OCCUPANCY_UNSUPPORTED: 'Rate plan occupancy exceeds what the room supports', CHILD_AGES_REQUIRED: "A child price plan needs one age (0-17) per child", CHILD_AGE_NOT_COVERED: "No child price line covers this child's age", CHILD_PRICE_MISSING: "The contract child band for this child's age has no supplement recorded", CHILD_PRICE_AMBIGUOUS: "More than one child price line covers this child's age", EXTRA_ADULT_PRICE_MISSING: "The party has an extra adult but the plan has no extra-adult price", GUEST_PRICE_BASIS_MIXED: "The guest price lines used mix NET and SELL", GUEST_PRICE_BASIS_MISMATCH: "A guest price line has a different basis (NET or SELL) than the nightly rate", GUEST_PRICE_CURRENCY_MISMATCH: "A guest price line is in a different currency than the plan",
+  DAILY_RATE_MISSING_OR_INVALID: 'Daily rate is missing or invalid', RATE_CURRENCY_MISMATCH: 'Rate currency differs from the plan or contract currency', SUPPLEMENT_CURRENCY_MISMATCH: 'A contract supplement is in another currency than the plan',
+  RATE_AMOUNT_BASIS_UNVERIFIED: 'Rate amount basis is not verified', NET_RATE_MARKUP_UNAVAILABLE: 'Net rate has no markup rule, so no sell price exists',
+  AVAILABILITY_MISSING: 'No availability row is loaded', STOP_SELL: 'Stop-sell is active', NO_INVENTORY: 'No inventory remains (allotment - sold - held = 0)',
+  MIN_STAY_NOT_MET: 'Minimum stay is not met', MAX_STAY_EXCEEDED: 'Maximum stay is exceeded', RELEASE_DAYS_NOT_MET: 'Past the release deadline (hotel local time)', LEAD_TIME_TOO_SHORT: "Inside the contract's minimum booking lead time", LEAD_TIME_TOO_LONG: "Beyond the contract's maximum booking window", CLOSED_TO_ARRIVAL: 'Closed to arrival on the check-in date',
+  CLOSED_TO_DEPARTURE: 'Closed to departure on the check-out date', POOL_EXHAUSTED: 'The shared allotment pool has no units left (capacity - sold - held = 0)',
+  INVENTORY_CLOSED: 'Inventory mode is CLOSED for at least one night', ON_REQUEST_ONLY: 'On request only: not confirmed inventory, so it cannot be held or booked instantly',
+  INVENTORY_STALE: 'Inventory data is past its freshness window, so it is treated as unavailable',
+}
+
+export interface CommercialIssue {
+  /** Deterministic: hotel | room | plan | reason, so the same condition keeps the same id between requests. */
+  id: string
+  severity: IssueSeverity
+  category: CommercialIssueCategory
+  /** Canonical reason code (see `evaluateContractedStay`), or HOTEL_STAR_RATING_MISSING, or null for pure expiry warnings. */
+  reason: string | null
+  hotelId: string; hotelName: string
+  roomTypeId: string | null; roomName: string | null
+  ratePlanId: string | null; ratePlanCode: string | null
+  supplierId: string | null; supplierName: string | null
+  /** Affected night range inside the assessed window (inclusive), when the issue is date-specific. */
+  from: string | null; to: string | null; nights: number
+  /** Hotel 360 section that resolves it. */
+  section: HotelSection
+  message: string
+  observedAt: string
+}
+
+export interface HotelSupplierRef { id: string; displayName: string }
+/** Profile summary for one directory row (ADR 0021). The row's `profile` is null when the API database role cannot read profiles. */
+export interface HotelRowProfile {
+  /** False until the first Hotel Setup save; completeness is still computed from the hotel record. */
+  exists: boolean
+  completenessPercent: number
+  publishable: boolean
+  starVerified: boolean
+  area: string | null
+  /** Name or email of the last person to save the setup. */
+  updatedBy: string | null
+  externalIdentifiers: Array<{ scheme: string; value: string }>
+}
+
+export interface HotelCommercialRow {
+  id: string; name: string; /** Hotel.externalRef */ code: string | null
+  /** Approved (MAPPED) supplier hotel mappings. A hotel may have several. */
+  verifiedMappings: number
+  profile: HotelRowProfile | null
+  /** The hotel's primary image (ADR 0027), or null when it has none or images cannot be read. Never a placeholder. */
+  primaryImage: { imageId: string; altText: string } | null
+  city: string; countryCode: string; starRating: number | null; propertyType: string
+  /** Entity status (`Hotel.contentStatus`). Not commercial readiness. */
+  contentStatus: string
+  suppliers: HotelSupplierRef[]
+  contractState: ContractState; contractDaysToExpiry: number | null
+  hotelMapping: MappingState
+  rooms: { total: number; active: number; mapped: number }
+  ratePlans: { total: number; active: number }
+  rates: SupplyDataState; inventory: InventoryState
+  readiness: CommercialReadiness
+  /** Canonical reasons across the window, most frequent first (max 5). */
+  blockers: string[]
+  issues: { total: number; critical: number; high: number; warning: number }
+  updatedAt: string
+}
+export interface HotelCommercialQuery {
+  search?: string; countryCode?: string; destination?: string; supplierId?: string; contentStatus?: string
+  readiness?: CommercialReadiness; mapping?: MappingState; contractState?: ContractState
+  /** Canonical reason code or issue category. */
+  issue?: string
+  /** Contracts that end within N days (7 | 30 | 60 | 90). */
+  expiresWithinDays?: number
+  from?: string; days?: number; page?: number; pageSize?: number
+}
+/** Present when a computed filter had to scan the bounded hotel set (cap) rather than the whole tenant. */
+export interface HotelCommercialPage { items: HotelCommercialRow[]; profilesAvailable: boolean; page: number; pageSize: number; total: number; window: { from: string; to: string; days: number }; scanCapped: boolean; destinations: string[] }
+
+export interface HotelCommercialSummary {
+  generatedAt: string
+  window: { from: string; to: string; days: number }
+  scanCapped: boolean
+  totalHotels: number
+  /** Exact counts of every hotel in the tenant by `Hotel.contentStatus` (not limited by the scan cap). Profile approval, not sellability. */
+  profileStatus: { draft: number; incomplete: number; complete: number; suspended: number; archived: number }
+  readiness: { ready: number; partial: number; blocked: number }
+  mappingIssueHotels: number
+  rateGapHotels: number
+  availabilityGapHotels: number
+  /** Hotels where at least one assessed plan-night is on stop-sell. */
+  stopSellHotels: number
+  /** Hotels with an ACTIVE contract ending inside CONTRACT_EXPIRING_DAYS. */
+  contractsExpiring: number
+  contractsExpired: number
+  contractExpiringDays: number
+  definitions: Record<string, string>
+}
+
+// ---- Hotel 360 ---------------------------------------------------------------------------------------------------
+export type GateState = 'PASS' | 'FAIL' | 'WARN' | 'NA'
+export interface ReadinessGate { key: string; label: string; state: GateState; detail: string; section: HotelSection }
+
+export interface RoomCommercialRow {
+  id: string; name: string; code: string; maxAdults: number; maxChildren: number; maxOccupancy: number; isActive: boolean
+  /** MAPPED if any approved mapping exists under the hotel's supplier mappings; otherwise the most advanced status; NONE if unmapped. */
+  mapping: MappingState
+  supplierRoomIds: string[]
+  ratePlans: { total: number; active: number }
+  inventory: InventoryState
+  readiness: CommercialReadiness
+  blockers: string[]
+}
+
+export interface HotelCommercial360 {
+  generatedAt: string
+  window: { from: string; to: string; days: number }
+  hotel: {
+    id: string; name: string; code: string | null; city: string; countryCode: string; starRating: number | null; propertyType: string
+    contentStatus: string; timeZone: string; address: string | null; updatedAt: string
+  }
+  suppliers: HotelSupplierRef[]
+  readiness: CommercialReadiness
+  /** True when the Agent would currently list at least one offer for some night in the window (same evaluator). */
+  agentSellable: boolean
+  blockers: string[]
+  gates: ReadinessGate[]
+  rooms: RoomCommercialRow[]
+  issues: CommercialIssue[]
+  counts: { bookings: number | null; activeHolds: number | null }
+  contractState: ContractState
+  hotelMapping: MappingState
+}
+
+/** `provenance` is the mapping's recorded `sourceMetadata.source` when it is a short string; raw source metadata is never returned. */
+export interface HotelMappingRow { id: string; supplierId: string; supplierName: string; supplierHotelId: string; status: string; confidence: number | null; provenance: string | null; createdAt: string; updatedAt: string }
+export interface RoomMappingRow { id: string; hotelMappingId: string; roomTypeId: string; roomName: string; supplierRoomId: string; status: string; confidence: number | null; provenance: string | null; createdAt: string; updatedAt: string }
+export interface HotelMappingsView { hotelMappings: HotelMappingRow[]; roomMappings: RoomMappingRow[]; unmappedRooms: Array<{ roomTypeId: string; roomName: string; hotelMappingId: string; supplierName: string }> }
+
+export interface HotelContractRow {
+  id: string; code: string; supplierId: string; supplierName: string; status: string; state: ContractState
+  validFrom: string; validTo: string; daysToExpiry: number; currency: string; version: number; updatedAt: string
+  ratePlans: { total: number; active: number }
+  /** null when the API database role cannot read the policy tables (reported as unavailable, never as zero). */
+  policies: { cancellation: number; child: number; leadTime: number } | null
+  /** Contract linked to this hotel through a mapping, or reached only through its rate plans. */
+  link: 'MAPPING' | 'RATE_PLAN'
+  mappingId: string | null
+  /** Sales markets (buyer agency country) and guest nationalities the contract is sold to. Empty means unrestricted. Agent search, recheck and hold enforce them (ADR 0035); Admin readiness is buyer-independent and does not. */
+  salesMarkets: string[]
+  nationalities: string[]
+  /** ADR 0067 F-20/F-15 header terms; null where the contract does not state them. */
+  rateType: 'NET' | 'COMMISSIONABLE' | null; commissionBp: number | null; allotmentType: 'GUARANTEED' | 'NON_GUARANTEED' | 'FREE_SALE' | null; minStayMode: 'STAY_THROUGH' | 'ARRIVAL'
+  ownerUserId: string | null; renewalReminderDays: number
+  /** True from `renewalReminderDays` before the last stay night until expiry: the owner should be renegotiating. */
+  renewalDue: boolean
+}
+export interface HotelRatePlanRow {
+  id: string; code: string; status: string; contractId: string; contractCode: string
+  roomTypeId: string; roomName: string; boardBasisId: string; boardCode: string; boardActive: boolean
+  occupancy: number; currency: string; refundable: boolean; minStay: number; maxStay: number | null; releaseDays: number
+  /** Share of window nights by canonical outcome. */
+  window: { nights: number; sellable: number; rateMissing: number; availabilityMissing: number; stopSell: number; exhausted: number; blockedOther: number }
+  /** Amount basis seen on loaded rates in the window: SELL, NET, UNVERIFIED, or MIXED. */
+  amountBasis: 'SELL' | 'NET' | 'UNVERIFIED' | 'MIXED' | 'NONE'
+  readiness: CommercialReadiness
+}
+export interface HotelContractsView { contracts: HotelContractRow[]; ratePlans: HotelRatePlanRow[]; expiringDays: number }
+
+export interface CalendarCell {
+  date: string
+  rateMinor: string | null; currency: string | null; amountBasis: 'SELL' | 'NET' | null
+  allotment: number | null; sold: number | null; held: number | null
+  /** Remaining units from the counter the night sells from: the pool day for a pooled plan, the plan row otherwise. Null when no row exists, the pool day is missing, or the mode does not count stock (free sale, on request, closed). */
+  remaining: number | null
+  /** How the night sells (ADR 0030). Null when no availability row exists: unknown, not closed. */
+  inventoryMode: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' | null
+  /** Which counter `remaining` comes from. */
+  stockSource: 'PLAN_ROW' | 'POOL' | 'NONE' | null
+  poolId: string | null
+  /** For a pooled plan: the pool's name and its authoritative stock for this night (null when the pool day does not exist). The plan's own allotment, sold and held do not control a pooled plan's stock. */
+  poolName: string | null
+  poolCapacity: number | null; poolSold: number | null; poolHeld: number | null
+  source: string | null
+  freshUntil: string | null
+  /** True when the night's data is past its freshness window (or supplier-sourced with no window). A stale night is not sellable. */
+  stale: boolean
+  stopSell: boolean | null; closedToArrival: boolean | null; minStay: number | null
+  /** Applied to the DEPARTURE date: a stay may not end on a night where this is set. A missing row is not closed. */
+  closedToDeparture: boolean | null
+  /** Release for a check-in on this night when it overrides the plan's (ADR 0067, F-08); null uses the plan's release. */
+  releaseDays: number | null
+  /** When the supplier last updated this night's rate and availability, if the source recorded it. A missing value means unknown, not fresh. */
+  rateSourceUpdatedAt: string | null; availabilitySourceUpdatedAt: string | null
+  sellable: boolean
+  /** Canonical reasons for this night (stay-length rules excluded). */
+  reasons: string[]
+}
+export interface CalendarRow {
+  ratePlanId: string; ratePlanCode: string; planStatus: string; roomTypeId: string; roomName: string; boardCode: string; currency: string; occupancy: number
+  contractCode: string; supplierName: string
+  /** Set when the plan is derived from another plan (ADR 0058, S10b): its cells show the parent's rate adjusted, and they are not editable here. */
+  derived?: { parentCode: string; mode: 'PERCENT_BP' | 'FIXED_MINOR'; adjustment: number } | null
+  cells: CalendarCell[]
+}
+export interface HotelCalendar { hotelId: string; window: { from: string; to: string; days: number }; rows: CalendarRow[]; truncated: boolean }
+
+export interface SellabilityInspectRequest { checkIn: string; checkOut: string; adults: number; children: number; rooms?: number; roomTypeId?: string; agencyId?: string; nationality?: string; currency?: 'AED' }
+export type NightVerdict = { date: string; sellable: boolean; reasons: string[]; rateMinor: string | null; remaining: number | null }
+export interface SellabilityGateResult { key: string; label: string; state: 'PASS' | 'FAIL' | 'NA' }
+export interface SellabilityPlanResult {
+  ratePlanId: string; ratePlanCode: string; roomTypeId: string; roomName: string; boardCode: string; contractCode: string; supplierName: string
+  contractId?: string; supplierId?: string
+  sellable: boolean
+  /** Stay-level canonical reasons (includes min/max stay, release days, closed-to-arrival). */
+  reasons: string[]
+  gates: SellabilityGateResult[]
+  nights: NightVerdict[]
+  /** Only present when the stay is sellable and every night has a SELL-basis rate. */
+  totalMinor: string | null; currency: string
+}
+export interface HotelStayReadinessGate {
+  key: 'content' | 'mapping' | 'contract' | 'rate' | 'inventory' | 'distribution' | 'search_recheck'
+  label: string
+  state: 'PASS' | 'FAIL' | 'UNKNOWN' | 'NOT_APPLICABLE'
+  reasons: string[]
+  entityRefs: { hotelId: string; roomTypeId: string; ratePlanId: string; contractId: string | null; supplierId: string | null }
+  evaluatedAt: string
+  /** Criteria are the response request; no universal hotel readiness is implied. */
+  criteriaRef: 'request'
+  action: { tab: 'setup' | 'mappings' | 'contracts' | 'rates' | 'inventory' | 'sellability'; permission: string } | null
+}
+export interface HotelStayReadiness {
+  scope: 'STAY_DIAGNOSTIC_NOT_CERTIFICATION'
+  buyer: { agencyId: string | null; market: string | null; nationality: string | null; assessed: boolean }
+  requestedCurrency: 'AED' | null
+  /** Children are priced by age from plan lines or the contract child policy (ADR 0067, F-17). */
+  occupancy: { uniformRooms: boolean; childPolicyAssessed: boolean }
+  plans: Array<{ ratePlanId: string; gates: HotelStayReadinessGate[] }>
+  certification: 'NOT_VERIFIED'
+}
+export interface SellabilityInspection {
+  hotelId: string; hotelName: string
+  request: { checkIn: string; checkOut: string; adults: number; children: number; rooms: number; nights: number; roomTypeId: string | null; agencyId?: string | null; market?: string | null; nationality?: string | null; currency?: string | null }
+  sellable: boolean
+  /** Hotel-level reasons that apply before any plan is considered. */
+  hotelReasons: string[]
+  offers: number
+  cheapestMinor: string | null; currency: string | null
+  plans: SellabilityPlanResult[]
+  evaluatedAt: string
+  readiness?: HotelStayReadiness
+}
+
+// ---- Exceptions centre -------------------------------------------------------------------------------------------
+export interface ExceptionsQuery { severity?: IssueSeverity; category?: CommercialIssueCategory; supplierId?: string; hotelId?: string; from?: string; days?: number; page?: number; pageSize?: number }
+export interface ExceptionsPage { items: CommercialIssue[]; page: number; pageSize: number; total: number; scanCapped: boolean; window: { from: string; to: string; days: number }; counts: Record<IssueSeverity, number> }
+
+// ---- Distribution & readiness (ADR 0021, stage 6) ------------------------------------------------------------------
+export interface DistributionBlocker {
+  /** Canonical reason code (see COMMERCIAL_REASON_TEXT). */
+  reason: string
+  nights: number
+  dates: string[]
+  rooms: string[]
+  ratePlans: string[]
+  suppliers: string[]
+}
+export interface DistributionCoverageRow { label: string; planNights: number; sellable: number }
+
+/**
+ * Catalogue publication, distribution eligibility, transaction enablement and a seven-day coverage assessment, kept apart on purpose:
+ * a published hotel is eligible for the catalogue, eligibility is not sellability, and neither enables booking or payment.
+ * Everything is computed by the same evaluator Agent search uses; this view only reads.
+ */
+export interface HotelDistribution {
+  generatedAt: string
+  hotelId: string
+  catalogue: {
+    /** `Hotel.contentStatus`, the profile approval state. */
+    status: string
+    published: boolean
+    suspended: boolean
+    starRatingValid: boolean
+    /** Published, not suspended, and with a 1-5 star rating: the hotel may appear in Agent search if something is sellable. Not a sellability verdict. */
+    eligible: boolean
+    reasons: string[]
+  }
+  transaction: {
+    /** The platform booking switch. Publishing a hotel never changes it. */
+    bookingEnabled: boolean
+  }
+  /** Agency distribution restrictions (ADR 0019) touching this hotel or its suppliers. null when the API database role cannot read them. */
+  restrictions: { hotel: number; supplier: number } | null
+  agentSellable: boolean
+  coverage: {
+    window: { from: string; to: string; days: number }
+    planNights: number
+    sellableNights: number
+    byRoom: DistributionCoverageRow[]
+    bySupplier: DistributionCoverageRow[]
+    /** True when more rate plans exist than the assessment covers. */
+    truncated: boolean
+  }
+  /** Why nights are not sellable, grouped by reason, with the dates, rooms, rate plans and suppliers affected. */
+  blockers: DistributionBlocker[]
+}

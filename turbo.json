@@ -3,15 +3,38 @@
   "globalDependencies": [
     "**/package.json",
     "**/tsconfig.json",
-    ".env"
+    ".env",
+    "tools/deployment/**",
+    "**/.env.local",
+    "**/.env.production",
+    "**/.env.production.local"
   ],
   "globalEnv": [
     "NODE_ENV"
   ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "env": [
+        "VERCEL",
+        "NEXT_PUBLIC_AGENT_API_URL",
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_AGENT_URL",
+        "NEXT_PUBLIC_ADMIN_URL",
+        "NEXT_PUBLIC_SUPPLIER_URL",
+        "NEXT_PUBLIC_CONTACT_EMAIL",
+        "VERCEL_PROJECT_PRODUCTION_URL",
+        "VERCEL_URL",
+        "NEXT_OUTPUT"
+      ],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**",
+        "build/**"
+      ]
     },
     "dev": {
       "cache": false,
@@ -24,7 +47,9 @@
       "outputs": []
     },
     "test": {
-      "outputs": ["coverage/**"]
+      "outputs": [
+        "coverage/**"
+      ]
     },
     "test:watch": {
       "cache": false,

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable }
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import type { AppConfig } from '../../config/configuration';
+import { isTrustedOrigin } from '../../config/trusted-origins';
 
 /** CORS alone does not prevent cross-site mutations, including login CSRF. */
 @Injectable()
@@ -11,8 +12,7 @@ export class OriginGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return true;
-    const allowed = this.config.get('adminOrigin', { infer: true });
-    if (!allowed || req.get('origin') !== allowed) {
+    if (!isTrustedOrigin(this.config, req.get('origin'))) {
       throw new ForbiddenException('Untrusted request origin');
     }
     return true;

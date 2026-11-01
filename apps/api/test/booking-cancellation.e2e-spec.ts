@@ -1,0 +1,304 @@
+import { transitionBooking } from '../src/booking-ops/booking-transition'
+import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
+import { buildNoShowQuote, buildPenaltyQuote } from '../src/booking-ops/booking-penalty-quote'
+import { CancellationSettlementService } from '../src/agent/cancellation-settlement.service'
+import { enableBookingOps } from './support/booking-ops'
+import { Prisma } from '@prisma/client'
+import { PrismaService } from '../src/database/prisma.service'
+import { AgentAuditService } from '../src/agent/audit.service'
+import { InventoryHoldService } from '../src/agent/inventory-hold.service'
+import { BookingPersistenceService } from '../src/agent/booking-persistence.service'
+import { BookingFinancialAuthorizationService } from '../src/agent/booking-financial-authorization.service'
+import { PrebookCompensationRecoveryService } from '../src/agent/prebook-compensation-recovery.service'
+import { SupplierPrebookOrchestrationService } from '../src/agent/supplier-prebook-orchestration.service'
+import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-journal.service'
+import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
+import { BookingTransactionService } from '../src/agent/booking-transaction.service'
+import { BookingCancellationService } from '../src/agent/booking-cancellation.service'
+import { CancellationPolicyService } from '../src/agent/cancellation-policy.service'
+import { LedgerService } from '../src/agent/ledger.service'
+import type { SupplierAdapter } from '../src/agent/supplier.port'
+import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { eraseLedger } from './ledger-erasure'
+
+describe('booking cancellation and refunds (PostgreSQL)', () => {
+  const prisma = new PrismaService()
+  const poolIds: string[] = []
+  let restoreOps = () => {}; let ops: BookingOpsDatabase
+  const audit = new AgentAuditService(prisma)
+  const holds = new InventoryHoldService(prisma)
+  const persistence = new BookingPersistenceService(prisma)
+  const finance = new BookingFinancialAuthorizationService(prisma)
+  const recovery = new PrebookCompensationRecoveryService(finance, holds, audit)
+  const confirmation = new BookingConfirmationService(prisma)
+  const cancellations = new BookingCancellationService(prisma, new CancellationPolicyService(), new LedgerService(prisma), audit)
+  const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
+  const journal = new SupplierMutationJournalService(prisma, audit)
+  const tx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, journal, supplier), confirmation)
+  const suffix = `cancel-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const nights = [new Date('2099-03-01'), new Date('2099-03-02')]
+  let tenantId: string, userId: string, supplierId: string, hotelId: string, roomId: string, boardId: string, contractId: string, ratePlanId: string, walletId: string
+
+  const newHold = (key: string) => holds.create({ tenantId, userId, requestId: `${key}-req`, idempotencyKey: key, offerId: `offer-${key}`, searchId: `search-${key}`, ratePlanId,
+    canonicalHotelId: hotelId, canonicalRoomTypeId: roomId, boardBasisId: boardId, checkIn: '2099-03-01', checkOut: '2099-03-03', rooms: 1, currency: 'AED', sellAmountMinor: 125099, offerExpiresAt: '2099-03-01T12:00:00.000Z' })
+  const walletNet = async () => (await prisma.ledgerEntry.aggregate({ where: { walletId }, _sum: { amountMinor: true } }))._sum.amountMinor ?? 0n
+
+  beforeAll(async () => {
+    await prisma.$connect()
+    restoreOps = await enableBookingOps(prisma)
+    ops = new BookingOpsDatabase()
+    tenantId = (await prisma.tenant.create({ data: { name: suffix, slug: suffix } })).id
+    userId = (await prisma.user.create({ data: { email: `${suffix}@example.test` } })).id
+    await prisma.membership.create({ data: { tenantId, userId, role: 'owner' } })
+    supplierId = (await prisma.supplier.create({ data: { tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} s`, displayName: 'S', countryCode: 'AE', defaultCurrency: 'AED' } })).id
+    hotelId = (await prisma.hotel.create({ data: { tenantId, name: `${suffix} h`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE' } })).id
+    roomId = (await prisma.roomType.create({ data: { hotelId, name: 'R', code: suffix, maxAdults: 2, maxOccupancy: 2 } })).id
+    boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'RO', name: 'Room only' } })).id
+    contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 5 })) })
+    walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId // ADR 0028 slice 3: the booker's agency account
+  })
+
+  afterAll(async () => {
+    await prisma.auditEvent.deleteMany({ where: { tenantId } })
+    await eraseLedger(prisma, { where: { tenantId } })
+    await prisma.supplierMutation.deleteMany({ where: { tenantId } })
+    await prisma.booking.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHoldNight.deleteMany({ where: { tenantId } })
+    await prisma.inventoryHold.deleteMany({ where: { tenantId } })
+    await prisma.inventoryPoolDay.deleteMany({ where: { tenantId, poolId: { in: poolIds } } })
+    await prisma.inventoryPool.deleteMany({ where: { tenantId, id: { in: poolIds } } })
+    await prisma.wallet.deleteMany({ where: { tenantId } })
+    await removeAgencyBookers(prisma, tenantId)
+    await prisma.dailyAvailability.deleteMany({ where: { ratePlanId } })
+    await prisma.ratePlan.delete({ where: { id: ratePlanId } })
+    await prisma.contract.delete({ where: { id: contractId } })
+    await prisma.boardBasis.delete({ where: { id: boardId } })
+    await prisma.roomType.delete({ where: { id: roomId } })
+    await prisma.hotel.delete({ where: { id: hotelId } })
+    await prisma.supplier.delete({ where: { id: supplierId } })
+    await prisma.membership.deleteMany({ where: { tenantId } })
+    await prisma.user.delete({ where: { id: userId } })
+    await prisma.tenant.delete({ where: { id: tenantId } })
+    await ops?.onModuleDestroy()
+    restoreOps()
+    await prisma.$disconnect()
+  })
+
+  const guest = { firstName: 'Test', lastName: 'Guest' }
+  const bookConfirmed = async (key: string) => {
+    await prisma.dailyAvailability.updateMany({ where: { ratePlanId }, data: { allotment: 20 } })
+    const hold = await newHold(key)
+    const pre = await tx.prebook({ tenantId, userId, requestId: `${key}-req`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
+    await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
+    return { bookingId: pre.bookingId, holdId: hold.holdId }
+  }
+  const cancel = (bookingId: string, extra: object = {}) => cancellations.cancel({ tenantId, userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request', ...extra })
+  const sold = () => prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { held: true, sold: true } })
+  const types = (bookingId: string) => prisma.ledgerEntry.findMany({ where: { walletId, reference: `booking:${bookingId}` }, orderBy: { immutableAt: 'asc' }, select: { type: true, amountMinor: true } })
+  const setPolicy = async (rules: Array<{ kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: bigint; penaltyNights?: number; currency?: string }>) => {
+    await prisma.cancellationPolicy.deleteMany({ where: { contractId } })
+    for (const rule of rules) await prisma.cancellationPolicy.create({ data: { contractId, ...rule } })
+  }
+
+  it('no penalty window: refunds the whole charge, returns inventory, and is idempotent', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }]) // penalty only inside 3 days of check-in (2099 is far away)
+    const { bookingId, holdId } = await bookConfirmed(`${suffix}-free`)
+    const before = await sold()
+    expect(before.every((night) => night.sold >= 1)).toBe(true)
+    const net = await walletNet()
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q', bookingId })).toMatchObject({ penaltyMinor: '0', refundMinor: '125099' })
+
+    const result = await cancel(bookingId)
+    expect(result).toMatchObject({ status: 'CANCELLED', alreadyCancelled: false, penaltyMinor: '0', refundMinor: '125099', totalMinor: '125099', currency: 'AED' })
+    expect(await types(bookingId)).toEqual([{ type: 'HOLD', amountMinor: -125099n }, { type: 'RELEASE', amountMinor: 125099n }, { type: 'DEBIT', amountMinor: -125099n }, { type: 'REFUND', amountMinor: 125099n }])
+    expect(await walletNet()).toBe(net + 125099n)
+    expect((await sold()).map((night) => night.sold)).toEqual(before.map((night) => night.sold - 1))
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: holdId } })).toMatchObject({ status: 'RELEASED' })
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'CANCELLED' })
+    expect(await prisma.cancellation.findUniqueOrThrow({ where: { bookingId } })).toMatchObject({ refundMinor: 125099n, reason: 'guest request' })
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancelled', entityId: bookingId, userId } })).toBe(1)
+
+    expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED', alreadyCancelled: true, refundMinor: '125099', cancellationId: result.cancellationId })
+    expect((await types(bookingId)).length).toBe(4)
+    expect(await walletNet()).toBe(net + 125099n)
+  })
+
+  it('applies the contract penalty with integer arithmetic and refunds only the rest', async () => {
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }]) // a rule that always applies
+    const { bookingId } = await bookConfirmed(`${suffix}-penalty`)
+    const net = await walletNet()
+    const result = await cancel(bookingId)
+    expect(result).toMatchObject({ penaltyMinor: '37529', refundMinor: '87570' }) // floor(125099*30/100)=37529; 125099-37529=87570
+    expect(BigInt(result.penaltyMinor) + BigInt(result.refundMinor)).toBe(125099n)
+    expect(await walletNet()).toBe(net + 87570n)
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([{ type: 'REFUND', amountMinor: 87570n }])
+
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyMinor: 20_000n, currency: 'AED' }])
+    const fixed = await bookConfirmed(`${suffix}-fixed`)
+    expect(await cancel(fixed.bookingId)).toMatchObject({ penaltyMinor: '20000', refundMinor: '105099' })
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
+    const total = await bookConfirmed(`${suffix}-total`)
+    const net2 = await walletNet()
+    expect(await cancel(total.bookingId)).toMatchObject({ penaltyMinor: '125099', refundMinor: '0' })
+    expect(await walletNet()).toBe(net2) // non-refundable: no REFUND entry at all
+    expect((await types(total.bookingId)).some((entry) => entry.type === 'REFUND')).toBe(false)
+  })
+
+  it('F13: the terms frozen at booking govern the cancellation and the voucher, even if the contract changes afterwards', async () => {
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-frozen`)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }], source: 'CONTRACT_AT_BOOKING' } })
+    // the hotel later makes the contract far stricter; the booking made earlier keeps what the buyer was shown
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q-frozen', bookingId })).toMatchObject({ penaltyMinor: '37529', refundMinor: '87570' })
+    expect(await cancel(bookingId)).toMatchObject({ penaltyMinor: '37529', refundMinor: '87570' })
+    // a booking whose frozen terms are unreadable is never treated as free
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
+    const broken = await bookConfirmed(`${suffix}-broken`)
+    await prisma.booking.update({ where: { id: broken.bookingId }, data: { cancellationPolicy: { rules: 'nonsense', frozenAt: 'x' } } })
+    await expect(cancel(broken.bookingId)).rejects.toThrow('manual review: the frozen cancellation terms are unreadable')
+    // a booking made before terms were frozen (no stored terms) still reads the live rules
+    await prisma.booking.update({ where: { id: broken.bookingId }, data: { cancellationPolicy: Prisma.JsonNull } })
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 40 }])
+    expect(await cancel(broken.bookingId)).toMatchObject({ penaltyMinor: '50039' }) // floor(125099*40/100)
+  })
+
+  it('ADR 0067 F-10: nights penalties, the client buffer and the no-show rule are frozen and applied as the buyer was sold them', async () => {
+    // One night of a two-night stay, pro rata: floor(125099 * 1 / 2) = 62549.
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyNights: 1 }, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }])
+    const nightsBooking = await bookConfirmed(`${suffix}-nights`)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: nightsBooking.bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyNights: 1 }], noShow: { penaltyPercent: 100 }, stayNights: 2, bufferDays: 0 } })
+    expect(await cancel(nightsBooking.bookingId)).toMatchObject({ penaltyMinor: '62549', refundMinor: '62550' })
+
+    // The hotel's tier starts in 5 days, so the hotel would still cancel free; with a 10-day client buffer the buyer's tier has already started.
+    const daysToCheckIn = Math.floor((Date.parse('2099-03-01T00:00:00.000Z') - Date.now()) / 86_400_000)
+    await setPolicy([{ daysBeforeCheckin: daysToCheckIn - 5, penaltyPercent: 50 }])
+    const hotelOnly = await bookConfirmed(`${suffix}-nobuffer`)
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q-nobuffer', bookingId: hotelOnly.bookingId })).toMatchObject({ penaltyMinor: '0' })
+    await prisma.contract.update({ where: { id: contractId }, data: { clientBufferDays: 10 } })
+    try {
+      const buffered = await bookConfirmed(`${suffix}-buffer`)
+      expect(await prisma.booking.findUniqueOrThrow({ where: { id: buffered.bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: daysToCheckIn + 5, penaltyPercent: 50 }], bufferDays: 10 } })
+      expect(await cancel(buffered.bookingId)).toMatchObject({ penaltyMinor: '62549', refundMinor: '62550' })
+      // The earlier booking keeps the terms it was sold: the buffer added later does not reach it.
+      expect(await cancel(hotelOnly.bookingId)).toMatchObject({ penaltyMinor: '0' })
+    } finally {
+      await prisma.contract.update({ where: { id: contractId }, data: { clientBufferDays: 0 } })
+    }
+  })
+
+  it('converges 25 simultaneous cancellations on one refund', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-race`)
+    const net = await walletNet(), before = await sold()
+    const results = await Promise.allSettled(Array.from({ length: 25 }, () => cancel(bookingId)))
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true)
+    expect(results.filter((result) => result.status === 'fulfilled' && !result.value.alreadyCancelled)).toHaveLength(1)
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toHaveLength(1)
+    expect(await walletNet()).toBe(net + 125099n)
+    expect((await sold()).map((night) => night.sold)).toEqual(before.map((night) => night.sold - 1))
+    expect(await prisma.cancellation.count({ where: { bookingId } })).toBe(1)
+  })
+
+  it('fails closed without changing anything: no policy, started stay, unconfirmed booking, unknown or foreign booking', async () => {
+    await setPolicy([])
+    const noPolicy = await bookConfirmed(`${suffix}-nopolicy`)
+    const net = await walletNet(), before = await sold()
+    await expect(cancel(noPolicy.bookingId)).rejects.toThrow('manual review: missing_cancellation_policy')
+    expect(await walletNet()).toBe(net); expect(await sold()).toEqual(before)
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: noPolicy.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancel.refused', entityId: noPolicy.bookingId } })).toBe(1)
+
+    // the terms are frozen at booking: a booking sold with no rules stays "no rules" (manual review) even after the contract gains one
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    await expect(cancel(noPolicy.bookingId, { now: new Date('2099-03-02T00:00:00.000Z') })).rejects.toThrow('manual review: missing_cancellation_policy')
+    const started = await bookConfirmed(`${suffix}-started`)
+    await expect(cancel(started.bookingId, { now: new Date('2099-03-02T00:00:00.000Z') })).rejects.toThrow('Stay has already started')
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: started.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
+
+    const hold = await newHold(`${suffix}-pending`)
+    const pending = await tx.prebook({ tenantId, userId, requestId: 'p', inventoryHoldId: hold.holdId, idempotencyKey: `${suffix}-pending`, adults: 2, children: 0, childAges: [], leadGuest: guest })
+    await expect(cancel(pending.bookingId)).rejects.toThrow('not cancellable')
+    await expect(cancel('does-not-exist')).rejects.toThrow('Booking not found')
+
+    const other = await prisma.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })
+    try {
+      await expect(cancellations.cancel({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toThrow('Booking not found')
+      await expect(cancellations.quote({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toThrow('Booking not found')
+    } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
+    await holds.release(tenantId, hold.holdId, 'cleanup', { type: 'USER', userId })
+  })
+
+  it('admin cancellation releases sold stock exactly once through the limited booking role', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const booked = await bookConfirmed(`${suffix}-admin-release`)
+    const before = await sold()
+    const b = await prisma.booking.findUniqueOrThrow({ where: { id: booked.bookingId } })
+    const penaltyQuote = buildPenaltyQuote({ sellMinor: b.totalMinor, currency: b.currency, isRefundable: b.isRefundable, checkIn: '2099-03-01', checkOut: '2099-03-03', rules: b.cancellationPolicy, requestedAt: new Date(), timeZone: 'UTC' })
+    expect(penaltyQuote).toMatchObject({ status: 'quotable', penaltyMinor: '0' })
+    const move = { tenantId, bookingId: b.id, actor: { type: 'USER' as const, id: userId }, level: 'OPERATOR' as const, now: new Date(), emitFinance: true }
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'requestCancellation', expectedStatus: 'CONFIRMED', reason: 'Guest requested', penaltyQuote, idempotencyKey: 'admin-release-request' }))
+    const complete = () => ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'confirmCancellation', expectedStatus: 'CANCEL_REQUESTED', supplierCancellationRef: 'CXL-ADMIN', idempotencyKey: 'admin-release-complete' }))
+    expect(await complete()).toMatchObject({ status: 'CANCELLED', replayed: false })
+    expect(await complete()).toMatchObject({ status: 'CANCELLED', replayed: true })
+    expect((await sold()).map(n => n.sold)).toEqual(before.map(n => n.sold - 1))
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: booked.holdId } })).toMatchObject({ status: 'RELEASED' })
+    await expect(ops.withTenant(tenantId, t => t.inventoryHold.findFirst())).rejects.toThrow() // still no direct inventory grant
+    const other = await prisma.tenant.create({ data: { name: `${suffix}-release-other`, slug: `${suffix}-release-other` } })
+    try { await expect(ops.withTenantWrite(other.id, t => t.$queryRaw`SELECT fbeds_booking_release_cancelled_inventory(${b.id})`)).rejects.toThrow() } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
+    const settlement = new CancellationSettlementService(prisma)
+    expect(await settlement.settle({ tenantId, userId, bookingId: b.id, requestId: 'admin-release', source: 'test' })).toMatchObject({ outcome: 'settled', refundMinor: b.totalMinor.toString() })
+  })
+
+  it('a failed inventory release rolls back the cancelled status and finance event', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const booked = await bookConfirmed(`${suffix}-admin-rollback`)
+    const move = { tenantId, bookingId: booked.bookingId, actor: { type: 'USER' as const, id: userId }, level: 'OPERATOR' as const, now: new Date(), emitFinance: true }
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'requestCancellation', expectedStatus: 'CONFIRMED', reason: 'Guest requested' }))
+    const before = await sold()
+    // A corrupted/missing held night must refuse the whole cancellation, not lose its inventory.
+    const night = await prisma.inventoryHoldNight.findFirstOrThrow({ where: { holdId: booked.holdId } })
+    await prisma.inventoryHoldNight.update({ where: { id: night.id }, data: { quantity: 1000 } })
+    await expect(ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'confirmCancellation', expectedStatus: 'CANCEL_REQUESTED', supplierCancellationRef: 'CXL-BAD' }))).rejects.toThrow('inconsistent')
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: booked.bookingId } })).toMatchObject({ status: 'CANCEL_REQUESTED' })
+    expect(await sold()).toEqual(before)
+    expect(await prisma.bookingFinanceEvent.count({ where: { bookingId: booked.bookingId, type: 'CANCELLED' } })).toBe(0)
+    await prisma.inventoryHoldNight.update({ where: { id: night.id }, data: { quantity: night.quantity } })
+  })
+
+  it('no-show charges its own clause and refunds the rest once, without a cancellation record', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }, { kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyNights: 1 }])
+    const booked = await bookConfirmed(`${suffix}-no-show`)
+    const b = await prisma.booking.findUniqueOrThrow({ where: { id: booked.bookingId } })
+    const now = new Date('2099-03-03T10:00:00Z')
+    const penaltyQuote = buildNoShowQuote({ sellMinor: b.totalMinor, currency: b.currency, isRefundable: b.isRefundable, checkIn: '2099-03-01', checkOut: '2099-03-03', rules: b.cancellationPolicy, requestedAt: now, timeZone: 'UTC' })
+    const move = { tenantId, bookingId: b.id, actor: { type: 'USER' as const, id: userId }, level: 'OPERATOR' as const, now, emitFinance: true }
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, level: 'SYSTEM', action: 'markCheckedOut', expectedStatus: 'CONFIRMED' }))
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'markNoShow', expectedStatus: 'CHECKED_OUT', reason: 'Hotel reported no-show', penaltyQuote }))
+    expect(await prisma.bookingFinanceEvent.findFirst({ where: { bookingId: b.id, type: 'NO_SHOW' } })).toMatchObject({ penaltyMinor: 62549n, refundMinor: 62550n })
+    const settlement = new CancellationSettlementService(prisma)
+    const command = { tenantId, userId, bookingId: b.id, requestId: 'no-show', source: 'test' }
+    expect(await settlement.settle(command)).toMatchObject({ outcome: 'settled', refundMinor: '62550' })
+    expect(await settlement.settle(command)).toMatchObject({ outcome: 'already_settled', postedMinor: '0' })
+    expect(await prisma.cancellation.findUnique({ where: { bookingId: b.id } })).toBeNull()
+    expect(await prisma.ledgerEntry.count({ where: { reference: `booking:${b.id}`, type: 'REFUND' } })).toBe(1)
+  })
+  it('admin cancellation returns pool stock to its original pool even after the plan is detached', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const pool = await prisma.inventoryPool.create({ data: { tenantId, hotelId, supplierId, name: `${suffix}-pool`, createdById: userId } })
+    poolIds.push(pool.id)
+    await prisma.inventoryPoolDay.createMany({ data: nights.map(stayDate => ({ tenantId, poolId: pool.id, stayDate, capacity: 5 })) })
+    await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { inventoryPoolId: pool.id } })
+    const booked = await bookConfirmed(`${suffix}-pool-admin`)
+    await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { inventoryPoolId: null } })
+    const planBefore = await sold()
+    const move = { tenantId, bookingId: booked.bookingId, actor: { type: 'USER' as const, id: userId }, level: 'OPERATOR' as const, now: new Date(), emitFinance: true }
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'requestCancellation', expectedStatus: 'CONFIRMED', reason: 'Guest requested' }))
+    await ops.withTenantWrite(tenantId, t => transitionBooking(t, { ...move, action: 'confirmCancellation', expectedStatus: 'CANCEL_REQUESTED', supplierCancellationRef: 'CXL-POOL' }))
+    expect(await prisma.inventoryPoolDay.findMany({ where: { poolId: pool.id }, select: { sold: true, held: true } })).toEqual([{ sold: 0, held: 0 }, { sold: 0, held: 0 }])
+    expect(await sold()).toEqual(planBefore)
+  })
+
+})

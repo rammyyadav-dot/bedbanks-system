@@ -20,7 +20,7 @@ function setup(result: SupplierRecheckResult | Error, mapped = true) {
   const supplier = { name: 'test-supplier', recheck: jest.fn() } as unknown as SupplierAdapter
   if (result instanceof Error) (supplier.recheck as jest.Mock).mockRejectedValue(result)
   else (supplier.recheck as jest.Mock).mockResolvedValue(result)
-  const plan = mapped ? { id: 'plan-a', minStay: 1, maxStay: 30, releaseDays: 0 } : null
+  const plan = mapped ? { id: 'plan-a', minStay: 1, maxStay: 30, releaseDays: 0, releaseTimeLocal: '00:00', availability: [], roomType: { hotel: { timeZone: 'Asia/Dubai' } } } : null
   const prisma = { withTenant: jest.fn(async (_tenant: string, work: (tx: unknown) => Promise<unknown>) =>
     work({ ratePlan: { findFirst: jest.fn().mockResolvedValue(plan) } })) } as unknown as PrismaService
   const holds = { create: jest.fn().mockResolvedValue({ holdId: 'hold-a', requestId: 'request-a', status: 'held',
@@ -48,6 +48,13 @@ describe('authoritative supplier recheck and hold boundary', () => {
   it('returns price_changed without creating a hold', async () => {
     const fixture = setup({ status: 'available', offer: { ...authority, sellAmountMinor: 125100 } })
     await expect(fixture.service.execute(command)).resolves.toMatchObject({ status: 'price_changed', sellAmountMinor: 125100 })
+    expect(fixture.holds.create).not.toHaveBeenCalled()
+  })
+
+  it('returns price_changed when the authoritative price decreases and does not hold', async () => {
+    const fixture = setup({ status: 'available', offer: { ...authority, sellAmountMinor: 124000 } })
+    const { idempotencyKey: _idempotencyKey, ...recheckCommand } = command
+    await expect(fixture.service.recheck(recheckCommand)).resolves.toMatchObject({ status: 'price_changed', currency: 'AED', sellAmountMinor: 124000 })
     expect(fixture.holds.create).not.toHaveBeenCalled()
   })
 

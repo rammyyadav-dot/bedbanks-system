@@ -1,7 +1,9 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+// Developer seed: needs write access the restricted runtime login does not have, so it uses the owner credential (never in production).
+if (process.env.NODE_ENV === 'production') throw new Error('The developer seed must not run in production');
+const prisma = new PrismaClient({ datasourceUrl: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL });
 const BCRYPT_SALT_ROUNDS = 12;
 
 async function withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -64,6 +66,8 @@ async function main(): Promise<void> {
     ['booking.cancel', 'Cancel a booking'],
     ['finance.read', 'View tenant finance'],
     ['audit.read', 'View tenant audit events'],
+    ['booking.reconcile', 'Reconcile interrupted booking attempts'],
+    ['booking.read', 'View booking vouchers, invoices and credit notes'],
   ] as const;
   const permissions = await Promise.all(permissionKeys.map(([key, description]) => prisma.permission.upsert({ where: { key }, update: { description }, create: { key, description } })));
   await withTenant(tenant.id, async (tx) => {
@@ -75,7 +79,9 @@ async function main(): Promise<void> {
     const ownerRole = await tx.role.upsert({ where: { tenantId_name: { tenantId: tenant.id, name: 'owner' } }, update: {}, create: { tenantId: tenant.id, name: 'owner' } });
     await Promise.all(permissions.map((permission) => tx.rolePermission.upsert({ where: { roleId_permissionId: { roleId: ownerRole.id, permissionId: permission.id } }, update: {}, create: { roleId: ownerRole.id, permissionId: permission.id } })));
     await tx.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: ownerRole.id } }, update: { tenantId: tenant.id }, create: { userId: user.id, roleId: ownerRole.id, tenantId: tenant.id } });
-    await tx.wallet.upsert({ where: { tenantId_currency: { tenantId: tenant.id, currency: 'USD' } }, update: {}, create: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, cachedBalance: 0 } });
+    // House account (ADR 0028: agencyId null). Its uniqueness is a partial index Prisma cannot address, so find-then-create.
+    const house = await tx.wallet.findFirst({ where: { tenantId: tenant.id, agencyId: null, currency: 'USD' } });
+    if (!house) await tx.wallet.create({ data: { tenantId: tenant.id, currency: 'USD', creditLimit: 0, cachedBalance: 0 } });
   });
 
   console.log('Seed complete:');

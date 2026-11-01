@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../database/prisma.service';
@@ -22,7 +23,12 @@ describe('opaque session lifecycle', () => {
     db.membership.findMany.mockResolvedValue([]);
     db.session.update.mockResolvedValue({});
     db.session.updateMany.mockResolvedValue({ count: 1 });
-    db.$transaction.mockResolvedValue([]);
+    db.$transaction.mockImplementation((input: unknown) => {
+      if (typeof input === 'function') {
+        return (input as (tx: unknown) => unknown)({ $executeRaw: jest.fn().mockResolvedValue(0), membership: db.membership });
+      }
+      return Promise.resolve([]);
+    });
   });
   it('creates a unique opaque token, persists only its hash and returns a safe identity', async () => {
     const before = Date.now();
@@ -35,6 +41,23 @@ describe('opaque session lifecycle', () => {
     expect(JSON.stringify(data)).not.toContain(result.rawToken);
     expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 60000);
     expect(result.identity.user).not.toHaveProperty('passwordHash');
+  });
+  it('keeps the standard lifetime unless the caller opts in, and gives an opted-in session the remember window', async () => {
+    const standard = await service.login(user.email, 'correct-password');
+    expect(standard.ttlSeconds).toBe(60);
+    const remembered = new AuthService(db as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60, rememberSessionTtlSeconds: 1296000 } }));
+    const result = await remembered.login(user.email, 'correct-password', true);
+    expect(result.ttlSeconds).toBe(1296000);
+    const data = db.session.create.mock.calls.at(-1)[0].data;
+    expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 1295000 * 1000);
+  });
+  it.each([[10, 60], [99999999, 2592000]])('clamps a misconfigured remember window of %i s to %i s', async (configured, expected) => {
+    const clamped = new AuthService(db as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60, rememberSessionTtlSeconds: configured } }));
+    expect((await clamped.login(user.email, 'correct-password', true)).ttlSeconds).toBe(expected);
+  });
+  it('does not honour rememberMe for a rejected login', async () => {
+    await expect(service.login(user.email, 'wrong', true)).rejects.toThrow('Invalid email or password');
+    expect(db.session.create).not.toHaveBeenCalled();
   });
   it.each(['missing', 'passwordless', 'wrong', 'suspended'])('rejects %s login generically', async (kind) => {
     db.user.findUnique.mockResolvedValue(kind === 'missing' ? null : { ...user, passwordHash: kind === 'passwordless' ? null : user.passwordHash, status: kind === 'suspended' ? 'SUSPENDED' : 'ACTIVE' });
@@ -60,7 +83,7 @@ describe('opaque session lifecycle', () => {
     db.session.findUnique.mockResolvedValue({ id: 's1', user, revokedAt: null, expiresAt: new Date(Date.now() + 60000) });
     const result = await service.validateSession(generateSessionToken());
     expect(result?.user.id).toBe(user.id);
-    expect(db.membership.findMany).toHaveBeenCalledWith({ where: { userId: user.id, tenant: { status: 'ACTIVE' } }, include: { tenant: true } });
+    expect(db.membership.findMany).toHaveBeenCalledWith({ where: { userId: user.id, revokedAt: null, tenant: { status: 'ACTIVE' } }, include: { tenant: true } });
   });
   it('revokes by hash and tolerates repeated or absent cookies', async () => {
     const raw = generateSessionToken();
@@ -73,5 +96,36 @@ describe('opaque session lifecycle', () => {
   it('fails closed on database errors', async () => {
     db.session.findUnique.mockRejectedValueOnce(new Error('unavailable'));
     await expect(service.validateSession(generateSessionToken())).rejects.toThrow('unavailable');
+  });
+});
+
+describe('AuthService audit persistence (CTO audit F01)', () => {
+  const auditCreate = jest.fn();
+  const executeRaw = jest.fn().mockResolvedValue(0);
+  const prisma = {
+    user: { findUnique: jest.fn() },
+    session: { findUnique: jest.fn().mockResolvedValue({ userId: 'u1' }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    auditEvent: { create: jest.fn() },
+    $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn({ $executeRaw: executeRaw, auditEvent: { createMany: auditCreate } })),
+  };
+  const service = new AuthService(prisma as unknown as PrismaService, new ConfigService({ auth: { sessionTtlSeconds: 60 } }));
+  const token = 'a'.repeat(64);
+
+  it('writes the auth event in a transaction that sets the auth-audit flag first', async () => {
+    auditCreate.mockResolvedValue({});
+    await service.logout(token);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(auditCreate.mock.calls[0][0].data[0]).toMatchObject({ action: 'auth.logout', entityType: 'auth', entityId: 'u1', userId: 'u1' });
+  });
+
+  it('does not block logout when persistence fails, and logs only a safe code', async () => {
+    const logSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    auditCreate.mockRejectedValue(Object.assign(new Error('new row violates row-level security policy for table "AuditEvent" secret'), { meta: { code: '42501' } }));
+    await expect(service.logout(token)).resolves.toBeUndefined();
+    const logged = logSpy.mock.calls.join(' ');
+    logSpy.mockRestore();
+    expect(logged).toContain('auth_audit_persist_failed');
+    expect(logged).toContain('42501');
+    expect(logged).not.toContain('secret');
   });
 });

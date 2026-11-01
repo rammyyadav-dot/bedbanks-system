@@ -1,0 +1,16 @@
+Target: http://localhost:3003
+PASS  H1 the Agent serves its sign-in page  — status 200
+PASS  H2 the served HTML and scripts contain no server-only value names or connection strings  — 9 scripts scanned
+PASS  H3 the same-origin /api/v1 proxy reaches the API (health 200)  — status 200
+PASS  H4 an unauthenticated request is refused (401), not served  — status 401
+PASS  H5 sign-in with the test account succeeds  — status 200
+PASS  H6 the session cookie is host-only, HttpOnly and Secure
+PASS  H7 the authenticated context names the workspace from the server and reports booking state  — bookingEnabled=false
+PASS  H8 Dubai resolves from the canonical destination catalogue  — 2 results
+PASS  H9 a Dubai search (one room, two adults, AED) returns hotels with server pagination  — status 201, 25 hotels, total 36
+PASS  H10 the offers carry canonical offer ids and AED totals  — AED minor 61400
+PASS  H11 the authoritative recheck answers with a defined outcome  — status=rechecked
+PASS  H12 booking and hold endpoints are closed (no 2xx)  — 403/404
+PASS  H13 sign-out ends the session (the old cookie is refused)  — status 401
+
+Result: PASS (13/13)

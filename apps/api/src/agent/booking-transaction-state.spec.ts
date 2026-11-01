@@ -7,6 +7,8 @@ describe('booking transaction state guard', () => {
     ['RECHECKED', 'INVENTORY_HELD'],
     ['INVENTORY_HELD', 'FINANCE_AUTHORIZED'],
     ['FINANCE_AUTHORIZED', 'PREBOOKED'],
+    ['FINANCE_AUTHORIZED', 'UNKNOWN'],
+    ['UNKNOWN', 'PREBOOKED'],
     ['PREBOOKED', 'BOOKING_PENDING'],
     ['BOOKING_PENDING', 'CONFIRMED'],
   ]
@@ -16,7 +18,7 @@ describe('booking transaction state guard', () => {
     expect(() => assertBookingTransactionTransition(from, to)).not.toThrow()
   })
 
-  it.each(['RECHECKED', 'INVENTORY_HELD', 'FINANCE_AUTHORIZED', 'PREBOOKED', 'BOOKING_PENDING'] as BookingTransactionState[])(
+  it.each(['RECHECKED', 'INVENTORY_HELD', 'FINANCE_AUTHORIZED', 'PREBOOKED', 'BOOKING_PENDING', 'UNKNOWN'] as BookingTransactionState[])(
     'allows non-terminal state %s to fail closed',
     state => expect(() => assertBookingTransactionTransition(state, 'FAILED')).not.toThrow(),
   )
@@ -31,6 +33,10 @@ describe('booking transaction state guard', () => {
     ['CONFIRMED', 'FAILED'],
     ['FAILED', 'RECHECKED'],
     ['FAILED', 'CONFIRMED'],
+    ['UNKNOWN', 'CONFIRMED'],
+    ['UNKNOWN', 'INVENTORY_HELD'],
+    ['PREBOOKED', 'UNKNOWN'],
+    ['CONFIRMED', 'UNKNOWN'],
   ] as Array<[BookingTransactionState, BookingTransactionState]>)('rejects invalid transition %s -> %s', (from, to) => {
     expect(canTransitionBookingTransaction(from, to)).toBe(false)
     expect(() => assertBookingTransactionTransition(from, to)).toThrow(ConflictException)

@@ -1,34 +1,191 @@
+import { agentRoutes, authRoutes } from './agent-routes';
+
 export const routes = {
-  auth: { login: '/auth/login', logout: '/auth/logout', me: '/auth/me' },
-  agent: {
-    context: '/agent/context', searchStatus: '/agent/search/status', search: '/agent/search', recheck: '/agent/rates/recheck', holdOffer: '/agent/offers/:offerId/hold', prebook: '/agent/prebook',
-    bookings: '/agent/bookings', cancelBooking: '/agent/bookings/:id', financeSummary: '/agent/finance/summary', audit: '/agent/audit',
-  },
+  auth: authRoutes,
+  agent: agentRoutes,
   admin: { dashboard: '/admin/dashboard', settings: '/admin/settings' },
+  // Hotel Setup (ADR 0021): descriptive and operational hotel content, saved with optimistic concurrency.
+  adminHotelImages: {
+    images: '/admin/hotels/:hotelId/images', imagesOrder: '/admin/hotels/:hotelId/images/order', image: '/admin/hotels/:hotelId/images/:imageId', imageContent: '/admin/hotels/:hotelId/images/:imageId/content',
+  },
+  adminHotelSetup: {
+    locationOptions: '/admin/hotels/location-options',
+    setup: '/admin/hotels/:hotelId/setup', status: '/admin/hotels/:hotelId/setup/status', ownerCandidates: '/admin/hotels/:hotelId/setup/owner-candidates',
+    publicationRequest: '/admin/hotels/:hotelId/setup/publication/request',
+    publicationApprove: '/admin/hotels/:hotelId/setup/publication/:approvalId/approve', publicationReject: '/admin/hotels/:hotelId/setup/publication/:approvalId/reject',
+    publicationCancel: '/admin/hotels/:hotelId/setup/publication/:approvalId/cancel', publicationExecute: '/admin/hotels/:hotelId/setup/publication/:approvalId/execute',
+    rooms: '/admin/hotels/:hotelId/rooms', room: '/admin/hotels/:hotelId/rooms/:roomId',
+    roomArchive: '/admin/hotels/:hotelId/rooms/:roomId/archive', roomRestore: '/admin/hotels/:hotelId/rooms/:roomId/restore',
+    amenities: '/admin/hotels/:hotelId/amenities',
+    quickUpdatePreview: '/admin/hotels/:hotelId/quick-update/preview', quickUpdateApply: '/admin/hotels/:hotelId/quick-update/apply',
+  },
+  // Inventory & Allotment (ADR 0030): shared pools, release rule and the inventory summary. Calendar and stock edits reuse the commercial calendar and Quick Update.
+  adminHotelInventory: {
+    summary: '/admin/hotels/:hotelId/inventory/summary', pools: '/admin/hotels/:hotelId/inventory/pools', pool: '/admin/hotels/:hotelId/inventory/pools/:poolId',
+    poolMembersAdd: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/add', poolMembersRemove: '/admin/hotels/:hotelId/inventory/pools/:poolId/members/remove',
+    planRelease: '/admin/hotels/:hotelId/inventory/rate-plans/:ratePlanId/release',
+    poolConsumption: '/admin/hotels/:hotelId/inventory/pools/:poolId/consumption',
+    poolCapacityPreview: '/admin/hotels/:hotelId/inventory/pools/:poolId/capacity/preview', poolCapacityApply: '/admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply',
+    poolNightRequests: '/admin/hotels/:hotelId/inventory/pools/:poolId/night-requests', poolNightRequestApprove: '/admin/hotels/:hotelId/inventory/pools/:poolId/night-requests/:approvalId/approve',
+    poolNightRequestReject: '/admin/hotels/:hotelId/inventory/pools/:poolId/night-requests/:approvalId/reject', poolNightRequestCancel: '/admin/hotels/:hotelId/inventory/pools/:poolId/night-requests/:approvalId/cancel',
+  },
+  // Clients, Service and Distribution (ADR 0019): record-keeping and exposure control, no money.
+  adminClients: {
+    summary: '/admin/clients/summary', agencies: '/admin/clients/agencies', agency: '/admin/clients/agencies/:agencyId',
+    agencyMembers: '/admin/clients/agencies/:agencyId/members', agencyMember: '/admin/clients/agencies/:agencyId/members/:userId', memberCandidates: '/admin/clients/member-candidates',
+    agencyCreditRequest: '/admin/clients/agencies/:agencyId/request-credit-limit',
+    agencyCreditApprove: '/admin/clients/agencies/credit-approvals/:approvalId/approve', agencyCreditReject: '/admin/clients/agencies/credit-approvals/:approvalId/reject',
+    agencyCreditCancel: '/admin/clients/agencies/credit-approvals/:approvalId/cancel', agencyCreditExecute: '/admin/clients/agencies/credit-approvals/:approvalId/execute',
+    agencySuspensionRequest: '/admin/clients/agencies/:agencyId/request-suspension-change',
+    agencySuspensionApprove: '/admin/clients/agencies/suspension-approvals/:approvalId/approve', agencySuspensionReject: '/admin/clients/agencies/suspension-approvals/:approvalId/reject',
+    agencySuspensionCancel: '/admin/clients/agencies/suspension-approvals/:approvalId/cancel', agencySuspensionExecute: '/admin/clients/agencies/suspension-approvals/:approvalId/execute',
+  },
+  adminService: {
+    summary: '/admin/service/summary', cases: '/admin/service/cases', case: '/admin/service/cases/:caseId', caseNotes: '/admin/service/cases/:caseId/notes',
+    caseTransition: '/admin/service/cases/:caseId/transition', caseAssign: '/admin/service/cases/:caseId/assign', assignees: '/admin/service/assignees',
+  },
+  adminDistribution: {
+    summary: '/admin/distribution/summary', restrictions: '/admin/distribution/restrictions', restrictionRetire: '/admin/distribution/restrictions/:restrictionId/retire',
+  },
+  // Commercial markup rules for NET rates (ADR 0018). Rules are immutable; activation needs a second person's approval.
+  adminCommercial: {
+    markups: '/admin/commercial/markups', markupRetire: '/admin/commercial/markups/:ruleId/retire', markupRequestActivation: '/admin/commercial/markups/:ruleId/request-activation',
+    markupApprovalApprove: '/admin/commercial/markups/approvals/:approvalId/approve', markupApprovalReject: '/admin/commercial/markups/approvals/:approvalId/reject',
+    markupApprovalCancel: '/admin/commercial/markups/approvals/:approvalId/cancel', markupApprovalExecute: '/admin/commercial/markups/approvals/:approvalId/execute',
+    // Controlled FX (ADR 0067 F-12): same maker-checker lifecycle as markups.
+    fxRates: '/admin/commercial/fx-rates', fxRateRetire: '/admin/commercial/fx-rates/:rateId/retire', fxRateRequestActivation: '/admin/commercial/fx-rates/:rateId/request-activation',
+    fxApprovalApprove: '/admin/commercial/fx-rates/approvals/:approvalId/approve', fxApprovalReject: '/admin/commercial/fx-rates/approvals/:approvalId/reject',
+    fxApprovalCancel: '/admin/commercial/fx-rates/approvals/:approvalId/cancel', fxApprovalExecute: '/admin/commercial/fx-rates/approvals/:approvalId/execute',
+    // Hotel deals and promotions (ADR 0089): draft, validate, preview, submit, approve, activate, pause, expire. Approval and activation are separate calls.
+    promotions: '/admin/commercial/promotions', promotionSummary: '/admin/commercial/promotions/summary', promotionApprovalQueue: '/admin/commercial/promotions/approval-queue', promotionReconcile: '/admin/commercial/promotions/reconcile',
+    promotion: '/admin/commercial/promotions/:dealId', promotionValidate: '/admin/commercial/promotions/:dealId/validate', promotionPreview: '/admin/commercial/promotions/:dealId/preview',
+    promotionSubmit: '/admin/commercial/promotions/:dealId/submit', promotionWithdraw: '/admin/commercial/promotions/:dealId/withdraw', promotionPause: '/admin/commercial/promotions/:dealId/pause',
+    promotionResume: '/admin/commercial/promotions/:dealId/resume', promotionSuspend: '/admin/commercial/promotions/:dealId/suspend', promotionReturnToDraft: '/admin/commercial/promotions/:dealId/return-to-draft',
+    promotionArchive: '/admin/commercial/promotions/:dealId/archive', promotionAudit: '/admin/commercial/promotions/:dealId/audit-log', promotionPerformance: '/admin/commercial/promotions/:dealId/performance',
+    promotionApprovalApprove: '/admin/commercial/promotions/approvals/:approvalId/approve', promotionApprovalReject: '/admin/commercial/promotions/approvals/:approvalId/reject', promotionApprovalExecute: '/admin/commercial/promotions/approvals/:approvalId/execute',
+  },
+  // Read-only operational views over the authoritative transaction chain, plus one confirmed reconciliation action.
+  adminFunding: {
+    receipts: '/admin/funding/receipts', receipt: '/admin/funding/receipts/:receiptId',
+    verify: '/admin/funding/receipts/:receiptId/verify', clearCompliance: '/admin/funding/receipts/:receiptId/clear-compliance',
+    post: '/admin/funding/receipts/:receiptId/post', reject: '/admin/funding/receipts/:receiptId/reject',
+  },
+  // Supplier statement reconciliation and the dispute queue (ADR 0070). Writes need an `Idempotency-Key`-style `requestId` in the body.
+  adminFinanceReconciliation: {
+    statements: '/admin/finance/reconciliation/statements', statementsStream: '/admin/finance/reconciliation/statements/stream', statement: '/admin/finance/reconciliation/statements/:statementId',
+    run: '/admin/finance/reconciliation/statements/:statementId/runs',
+    exceptions: '/admin/finance/reconciliation/exceptions', exceptionSummary: '/admin/finance/reconciliation/exceptions/summary', exception: '/admin/finance/reconciliation/exceptions/:exceptionId',
+    propose: '/admin/finance/reconciliation/exceptions/:exceptionId/propose', approve: '/admin/finance/reconciliation/exceptions/:exceptionId/approve', reject: '/admin/finance/reconciliation/exceptions/:exceptionId/reject',
+  },
+  // Bank statement reconciliation (ADR 0093). Imports need a `requestId` in the body.
+  adminBankReconciliation: {
+    statements: '/admin/finance/bank-reconciliation/statements', statement: '/admin/finance/bank-reconciliation/statements/:statementId',
+    exceptions: '/admin/finance/bank-reconciliation/exceptions', resolve: '/admin/finance/bank-reconciliation/exceptions/:exceptionId/resolve',
+  },
+  // Partial credit notes to agencies (ADR 0095 part B). A proposal needs a `requestId` in the body.
+  adminCreditNotes: { list: '/admin/finance/credit-notes', approve: '/admin/finance/credit-notes/:creditNoteId/approve', reject: '/admin/finance/credit-notes/:creditNoteId/reject' },
+  // Finance period close (ADR 0101). `close` takes `{ month, note? }`; `preview` takes `?month=YYYY-MM` and writes nothing.
+  adminFinancePeriods: { list: '/admin/finance/periods', preview: '/admin/finance/periods/preview', close: '/admin/finance/periods/close' },
+  // General-ledger chart of accounts and the derived journal (ADR 0102). `journal` takes `?month=YYYY-MM` of a closed month; `journalExport` also takes `kind=lines|totals` and returns a CSV file.
+  adminFinanceChart: { chart: '/admin/finance/chart', initialize: '/admin/finance/chart/initialize', accounts: '/admin/finance/chart/accounts', deactivate: '/admin/finance/chart/accounts/:accountId/deactivate', mappings: '/admin/finance/chart/mappings', journal: '/admin/finance/journal', journalExport: '/admin/finance/journal/export' },
+  // Ledger adjustments and reversals on an agency account (ADR 0100). A proposal needs a `requestId` in the body.
+  adminLedgerAdjustments: { list: '/admin/finance/ledger-adjustments', approve: '/admin/finance/ledger-adjustments/:adjustmentId/approve', reject: '/admin/finance/ledger-adjustments/:adjustmentId/reject' },
+  // Dynamic, tier-based agency commission payouts (ADR 0098). A proposal needs a `requestId` in the body.
+  adminCommissionPayouts: { list: '/admin/finance/commission-payouts', approve: '/admin/finance/commission-payouts/:payoutId/approve', reject: '/admin/finance/commission-payouts/:payoutId/reject' },
+  // Backlog of the booking Finance consumer (ADR 0076). Read-only.
+  adminBookingFinancePostings: { backlog: '/admin/finance/booking-postings', revenue: '/admin/finance/booking-postings/revenue', payables: '/admin/finance/booking-postings/payables', payablesAging: '/admin/finance/booking-postings/payables/aging', payablesDue: '/admin/finance/booking-postings/payables/due' },
+  // Supplier payment terms (ADR 0078).
+  adminSupplierTerms: { list: '/admin/finance/supplier-terms' },
+  // Supplier settlements (ADR 0077). Records payments made outside the system; moves no money.
+  adminSupplierSettlements: { list: '/admin/finance/supplier-settlements', approve: '/admin/finance/supplier-settlements/:settlementId/approve', reject: '/admin/finance/supplier-settlements/:settlementId/reject' },
+  // Rate plan audit and distribution certification (ADR 0033). Read-only: nothing here repairs, merges or publishes data.
+  adminRateCertification: {
+    summary: '/admin/rate-certification/summary', plans: '/admin/rate-certification/plans', plan: '/admin/rate-certification/plans/:ratePlanId',
+    hotels: '/admin/rate-certification/hotels', markupRules: '/admin/rate-certification/markup-rules', remediation: '/admin/rate-certification/remediation',
+    simulate: '/admin/rate-certification/simulate', report: '/admin/rate-certification/report',
+  },
+  adminOperations: {
+    capabilities: '/admin/operations/capabilities', readiness: '/admin/operations/readiness',
+    hotels: '/admin/operations/hotels', suppliers: '/admin/operations/suppliers',
+    hotelsSummary: '/admin/operations/hotels/summary', onboardingFunnel: '/admin/operations/onboarding-funnel', hotelsExport: '/admin/operations/hotels/export', searchMonitor: '/admin/operations/search-monitor', hotel: '/admin/operations/hotels/:hotelId',
+    hotelReports: '/admin/operations/hotels/:hotelId/reports',
+    hotelReportsExport: '/admin/operations/hotels/:hotelId/reports/export',
+    hotelContracts: '/admin/operations/hotels/:hotelId/contracts', hotelMappings: '/admin/operations/hotels/:hotelId/mappings',
+    hotelCalendar: '/admin/operations/hotels/:hotelId/calendar', hotelSellability: '/admin/operations/hotels/:hotelId/sellability',
+    hotelAudit: '/admin/operations/hotels/:hotelId/audit', hotelDistribution: '/admin/operations/hotels/:hotelId/distribution', hotelReadiness: '/admin/operations/hotels/:hotelId/readiness', exceptions: '/admin/operations/exceptions',
+    holds: '/admin/operations/holds', hold: '/admin/operations/holds/:holdId',
+    bookings: '/admin/operations/bookings', booking: '/admin/operations/bookings/:bookingId',
+    /** Phase 2 writes (ADR 0039): `POST bookings` enters a manual booking; the rest act on one booking. All need an Idempotency-Key header. */
+    bookingActions: '/admin/operations/bookings/:bookingId/actions', bookingReferences: '/admin/operations/bookings/:bookingId/references', bookingSupplier: '/admin/operations/bookings/:bookingId/supplier',
+    /** Operations queue (Phase 4). `bookingOps` is the list; counts, assignees and the per-booking actions hang off it. */
+    bookingFinance: '/admin/operations/booking-finance/:bookingId', bookingFinancePenalty: '/admin/operations/booking-finance/:bookingId/penalty', bookingFinanceDocument: '/admin/operations/booking-finance/:bookingId/documents/:type', bookingFinanceDocumentHtml: '/admin/operations/booking-finance/:bookingId/documents/:type/html',
+    bookingExport: '/admin/operations/bookings/export', bookingBulkActions: '/admin/operations/bookings/bulk-actions', bookingBulkAction: '/admin/operations/booking-bulk-actions/:operationId',
+    bookingViews: '/admin/operations/booking-views', bookingViewDefaultClear: '/admin/operations/booking-views/default/clear', bookingView: '/admin/operations/booking-views/:viewId', bookingViewDefault: '/admin/operations/booking-views/:viewId/default',
+    bookingOps: '/admin/operations/booking-queue', bookingOpsItem: '/admin/operations/booking-queue/:bookingId', bookingOpsAssignees: '/admin/operations/booking-queue/assignees', bookingOpsAssign: '/admin/operations/booking-queue/:bookingId/assign', bookingOpsAcknowledge: '/admin/operations/booking-queue/:bookingId/acknowledge', bookingOpsEscalate: '/admin/operations/booking-queue/:bookingId/escalate', bookingOpsNote: '/admin/operations/booking-queue/:bookingId/note', bookingOpsClear: '/admin/operations/booking-queue/:bookingId/clear', bookingOpsAnswer: '/admin/operations/booking-queue/:bookingId/supplier-answer',
+    bookingDocument: '/admin/operations/bookings/:bookingId/documents/:type/html',
+    reconciliation: '/admin/operations/reconciliation', reconcile: '/admin/operations/reconciliation/run',
+    cancellations: '/admin/operations/cancellations',
+    wallets: '/admin/operations/wallets', ledger: '/admin/operations/ledger', agencyAccount: '/admin/operations/agencies/:agencyId/account', receivables: '/admin/operations/receivables', creditRisk: '/admin/operations/credit-risk', supplierPayables: '/admin/operations/supplier-payables', creditNotes: '/admin/operations/credit-notes', reconciliationApprovals: '/admin/operations/reconciliation/approvals', reconciliationApprovalApprove: '/admin/operations/reconciliation/approvals/:approvalId/approve', reconciliationApprovalReject: '/admin/operations/reconciliation/approvals/:approvalId/reject',
+    reconciliationApprovalCancel: '/admin/operations/reconciliation/approvals/:approvalId/cancel', reconciliationApprovalExecute: '/admin/operations/reconciliation/approvals/:approvalId/execute',
+    commercialImpact: '/admin/operations/commercial/impact', marketsSummary: '/admin/operations/markets/summary', reliabilitySummary: '/admin/operations/reliability/summary', accessReviewSummary: '/admin/operations/access-review/summary', accessReviewUsers: '/admin/operations/access-review/users',
+    complianceSummary: '/admin/operations/compliance/summary', complianceRecords: '/admin/operations/compliance/records', complianceReport: '/admin/operations/compliance/report',
+    financeSummary: '/admin/operations/finance/summary', ledgerIntegrity: '/admin/operations/finance/ledger-integrity', cancellationSettlements: '/admin/operations/finance/cancellation-settlements', auditSummary: '/admin/operations/audit/summary',
+    audit: '/admin/operations/audit', connectors: '/admin/operations/connectors',
+  },
   platform: {
-    tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
+    tenantCreate: '/platform/tenants', tenantProfile: '/platform/tenants/:tenantId/profile', tenantMemberships: '/platform/tenants/:tenantId/memberships', tenantLifecycle: '/platform/tenants/:tenantId/lifecycle', tenantCompliance: '/platform/tenants/:tenantId/compliance', tenantAudit: '/platform/tenants/:tenantId/audit', tenantApproval: '/platform/tenants/:tenantId/approvals/:approvalId', tenants: '/platform/tenants', tenantSummary: '/platform/tenants/:tenantId/summary',
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', assignments: '/platform/access/assignments', revokeAssignment: '/platform/access/assignments/:userId/:roleId',
   },
-  supplier: {},
+  supplier: {
+    memberships: '/supplier/extranet/memberships',
+    context: '/supplier/extranet/context',
+    hotels: '/supplier/extranet/hotels',
+    hotel: '/supplier/extranet/hotels/:hotelId',
+    rooms: '/supplier/extranet/hotels/:hotelId/rooms',
+    roomDraft: '/supplier/extranet/hotels/:hotelId/rooms/:roomId/draft',
+    contracts: '/supplier/extranet/contracts',
+    bookings: '/supplier/extranet/bookings',
+    booking: '/supplier/extranet/bookings/:bookingId',
+    bookingAnswer: '/supplier/extranet/bookings/:bookingId/answer',
+    changeSets: '/supplier/extranet/change-sets',
+    changeSetPreview: '/supplier/extranet/change-sets/preview',
+    changeSet: '/supplier/extranet/change-sets/:changeSetId',
+    changeSetSubmit: '/supplier/extranet/change-sets/:changeSetId/submit',
+    changeSetWithdraw: '/supplier/extranet/change-sets/:changeSetId/withdraw',
+  },
   platformAccess: {
     permissions: '/platform/access/permissions', roles: '/platform/access/roles', role: '/platform/access/roles/:roleId', rolePermissions: '/platform/access/roles/:roleId/permissions', assignments: '/platform/access/assignments', assignment: '/platform/access/assignments/:userId/:roleId',
   },
   supply: {
+    ratePlanPortfolio: '/supply/rate-plan-portfolio', contractPortfolio: '/supply/contract-portfolio', roomTypePortfolio: '/supply/room-type-portfolio', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
     hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
-    mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId',
+    mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId', hotelMappingSuggestions: '/supply/mappings/hotels/suggestions',
     hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
     roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
+    ratePlanMappings: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/rate-plans', ratePlanMappingOptions: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/rate-plan-options',
+    ratePlanMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/approve', ratePlanMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/reject', ratePlanMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/rate-plans/:ratePlanMappingId/reopen',
     suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
     hotels: '/supply/hotels', hotel: '/supply/hotels/:hotelId', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId',
-    contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', simulateCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/simulate', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlan: '/supply/rate-plans/:ratePlanId', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk',
-    availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability',
+    contracts: '/supply/contracts', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', simulateCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/simulate', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', contractMarketValidity: '/supply/contracts/:contractId/market-validity', contractMarketValidityRule: '/supply/contracts/:contractId/market-validity/:ruleId', sourceMarketGroups: '/supply/source-market-groups', sourceMarketGroup: '/supply/source-market-groups/:groupId', ratePlans: '/supply/rate-plans', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlan: '/supply/rate-plans/:ratePlanId', ratePlanValidateMarket: '/supply/rate-plans/:ratePlanId/validate-market', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanGuestPrices: '/supply/rate-plans/:ratePlanId/guest-prices', ratePlanPromotions: '/supply/rate-plans/:ratePlanId/promotions', hotelPromotionsBulkApply: '/supply/hotels/:hotelId/promotions/bulk-apply', ratePlanDerivation: '/supply/rate-plans/:ratePlanId/derivation', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk',
+    contractLifecycle: '/supply/contracts/:contractId/lifecycle', contractSubmit: '/supply/contracts/:contractId/submit', contractReturnToDraft: '/supply/contracts/:contractId/return-to-draft', contractSuspend: '/supply/contracts/:contractId/suspend', contractActivationRequest: '/supply/contracts/:contractId/activation-request', contractAmendmentRequest: '/supply/contracts/:contractId/amendment-request',
+    contractApprovalApprove: '/supply/contract-approvals/:approvalId/approve', contractApprovalReject: '/supply/contract-approvals/:approvalId/reject', contractApprovalCancel: '/supply/contract-approvals/:approvalId/cancel', contractApprovalExecute: '/supply/contract-approvals/:approvalId/execute',
+    contractCancellationPolicy: '/supply/contracts/:contractId/policies/cancellation/:policyId', contractChildPolicy: '/supply/contracts/:contractId/policies/child/:policyId', contractSupplements: '/supply/contracts/:contractId/supplements', contractSupplement: '/supply/contracts/:contractId/supplements/:supplementId',
+    availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
     connectors: '/supply/connectors', connectorIngestInventory: '/supply/connectors/:connectorId/ingest-inventory',
     cancellationsExecute: '/supply/cancellations/execute',
     ledgerAdjustments: '/supply/finance/ledger-adjustments',
     cancellationVouchers: '/supply/notifications/cancellation-vouchers',
+    // ADR 0089: Room Event Master and event/exhibition supplements.
+    roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
+    roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
+    eventSupplements: '/admin/event-supplements', eventSupplement: '/admin/event-supplements/:eventSupplementId', eventSupplementSubmit: '/admin/event-supplements/:eventSupplementId/submit', eventSupplementActivate: '/admin/event-supplements/:eventSupplementId/activate', eventSupplementSuspend: '/admin/event-supplements/:eventSupplementId/suspend', eventSupplementPreview: '/admin/event-supplements/preview',
+    eventSupplementAmendmentRequest: '/admin/event-supplements/:eventSupplementId/amendment-request',
+    eventSupplementApprovalApprove: '/admin/event-supplement-approvals/:approvalId/approve', eventSupplementApprovalReject: '/admin/event-supplement-approvals/:approvalId/reject', eventSupplementApprovalCancel: '/admin/event-supplement-approvals/:approvalId/cancel', eventSupplementApprovalExecute: '/admin/event-supplement-approvals/:approvalId/execute',
   },
   partner: {},
-  health: { status: '/health' },
+  /** B2B Distribution API for machine partners (ADR 0075). Authenticated by API key or OAuth2 bearer token, never by a session. */
+  distribution: { oauthToken: '/distribution/v1/oauth/token', me: '/distribution/v1/me' },
+  health: { status: '/health', ready: '/health/ready' },
 } as const;
 
-export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.platformAccess)[keyof typeof routes.platformAccess] | (typeof routes.supply)[keyof typeof routes.supply] | (typeof routes.health)[keyof typeof routes.health];
+export type RoutePath = (typeof routes.auth)[keyof typeof routes.auth] | (typeof routes.agent)[keyof typeof routes.agent] | (typeof routes.admin)[keyof typeof routes.admin] | (typeof routes.platform)[keyof typeof routes.platform] | (typeof routes.platformAccess)[keyof typeof routes.platformAccess] | (typeof routes.supplier)[keyof typeof routes.supplier] | (typeof routes.supply)[keyof typeof routes.supply] | (typeof routes.distribution)[keyof typeof routes.distribution] | (typeof routes.health)[keyof typeof routes.health];

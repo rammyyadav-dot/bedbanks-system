@@ -1,0 +1,32 @@
+region                  = "ap-south-1" # ADR 0055
+availability_zone_names = ["ap-south-1a", "ap-south-1b", "ap-south-1c"] # confirm against the final region decision before apply (CKV_AWS_394)
+environment    = "production"
+domain_name    = "fbeds.com"
+hosted_zone_id = "ZXXXXXXXXXXXXX"
+nat_per_az     = true
+db_multi_az    = true
+# create_portal_records stays false until the cutover step in docs/runbooks/aws-ecs-deployment.md
+create_portal_records = false
+
+# Cost guardrails: set the owner-approved ceiling before the first chargeable apply (budgets.tf).
+# monthly_budget_usd = 0
+# budget_emails      = ["finops@example.com"]
+
+# ADR 0055: production requires CloudFront in front of the ALB (edge.tf). Set cloudfront_enabled = true once the staging edge checks pass,
+# or reference the approved exception here; a production apply is refused with neither.
+# cloudfront_enabled = true
+# production_edge_exception_ref = "ADR-0055-exception-<ticket>"
+# dns_cutover_authorization_ref = "<recorded CTO GO>"   # required before create_portal_records = true
+
+# Compliance WORM archive and scheduled export (ADR 0067 amendment 2). Off until the owner provisions fbeds_compliance_export.
+# Archived objects cannot be deleted by anyone until their retention ends; the bucket outlives terraform destroy for that long.
+# compliance_export_enabled = true
+# compliance_retention_days = 2557
+
+# ADR 0091: password reset by email. Leave both empty to keep it OFF (no SES permission, no reset link on sign-in).
+# email_from       = "fabBeds <no-reply@your-verified-domain.example>"
+# ses_identity_arn = "arn:aws:ses:<region>:<account-id>:identity/your-verified-domain.example"
+
+# ADR 0093: distributed tracing. Leave off until it has run in staging (collector image digest pinned, traces seen in X-Ray).
+# tracing_enabled      = true
+# tracing_sample_ratio = "0.1"

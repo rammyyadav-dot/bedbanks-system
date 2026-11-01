@@ -3,23 +3,38 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 3003",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 3003",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "node --test"
+    "test": "node --import tsx --test lib/status.test.ts lib/runtime.test.ts lib/format.test.ts lib/booking-filters.test.ts components/layout/nav-config.test.ts"
   },
   "dependencies": {
-    "lucide-react": "^1.16.0",
-    "next": "16.3.3",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/money": "workspace:*",
+    "@bedbanks/tracing": "workspace:*",
+    "@bedbanks/ui": "workspace:*",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.300.0",
+    "@opentelemetry/id-generator-aws-xray": "3.0.0",
+    "@opentelemetry/instrumentation": "0.300.0",
+    "@opentelemetry/instrumentation-http": "0.300.0",
+    "@opentelemetry/propagator-aws-xray": "3.0.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0",
+    "lucide-react": "^1.61.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/node": "^24",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "typescript": "5.7.3"
+    "@types/node": "^26",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3"
   }
 }

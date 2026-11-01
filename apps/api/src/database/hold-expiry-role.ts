@@ -6,10 +6,45 @@ const IDENTIFIER = /^[a-z][a-z0-9_]{2,62}$/
 // URL-safe so the credential can be embedded in a connection string unchanged.
 const PASSWORD = /^[A-Za-z0-9_-]{32,128}$/
 
+/**
+ * Explains why a password is rejected without revealing any of it: only its length and how many
+ * characters fall outside the allowed set are reported.
+ */
+export function describePasswordProblems(password: string): string[] {
+  const problems: string[] = []
+  if (password.length < 32) problems.push(`it is ${password.length} characters long; at least 32 are needed`)
+  if (password.length > 128) problems.push(`it is ${password.length} characters long; at most 128 are allowed`)
+  const invalid = [...password].filter(character => !/[A-Za-z0-9_-]/.test(character)).length
+  if (invalid > 0) problems.push(`${invalid} character${invalid === 1 ? ' is' : 's are'} not a letter, digit, hyphen or underscore (spaces, symbols, quotes and line breaks are not allowed)`)
+  return problems
+}
+
 export function assertProvisioningInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')
   if (loginRole === HOLD_EXPIRY_GROUP_ROLE || loginRole === 'postgres') throw new Error('Login role must be dedicated to the sweeper')
   if (!PASSWORD.test(password)) throw new Error('Password must be 32-128 URL-safe characters [A-Za-z0-9_-]')
+}
+
+/**
+ * SQL that creates a restricted login role, or updates an existing one. A superuser owner re-asserts every restricting attribute.
+ * A non-superuser owner (PostgreSQL 16 CREATEROLE, as on managed services) is not allowed to name SUPERUSER, REPLICATION or
+ * BYPASSRLS in ALTER ROLE, so it only changes login, password, inheritance and the connection limit, and fails closed if the
+ * existing role already carries an elevated attribute that a superuser must reset.
+ */
+export function upsertLoginRoleSql(loginRole: string, password: string, attributes: string, connectionLimit: number): string {
+  const who = `'${loginRole}'`
+  return `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${who}) THEN
+      CREATE ROLE "${loginRole}" LOGIN PASSWORD '${password}' ${attributes} INHERIT CONNECTION LIMIT ${connectionLimit};
+    ELSIF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+      ALTER ROLE "${loginRole}" LOGIN PASSWORD '${password}' ${attributes} INHERIT CONNECTION LIMIT ${connectionLimit};
+    ELSE
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${who} AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication)) THEN
+        RAISE EXCEPTION 'existing login role has an elevated attribute; a superuser must reset it before it can be provisioned';
+      END IF;
+      ALTER ROLE "${loginRole}" LOGIN PASSWORD '${password}' INHERIT CONNECTION LIMIT ${connectionLimit};
+    END IF;
+  END $$`
 }
 
 /**
@@ -24,7 +59,7 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
   const group = `"${HOLD_EXPIRY_GROUP_ROLE}"`
   const attributes = 'NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
   await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN CREATE ROLE ${group} NOLOGIN ${attributes}; END IF; END $$`)
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${input.loginRole}') THEN CREATE ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} INHERIT CONNECTION LIMIT 5; ELSE ALTER ROLE ${login} LOGIN PASSWORD '${input.password}' ${attributes} CONNECTION LIMIT 5; END IF; END $$`)
+  await db.$executeRawUnsafe(upsertLoginRoleSql(input.loginRole, input.password, attributes, 5))
   await db.$executeRawUnsafe(`GRANT ${group} TO ${login}`)
   await db.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${group}`)
   const grants = [
@@ -35,6 +70,8 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
     `GRANT SELECT ON "InventoryHoldNight" TO ${group}`,
     `GRANT SELECT ON "DailyAvailability" TO ${group}`,
     `GRANT UPDATE ("held", "updated_at") ON "DailyAvailability" TO ${group}`,
+    `GRANT SELECT ON "InventoryPoolDay" TO ${group}`,
+    `GRANT UPDATE ("held", "updated_at") ON "InventoryPoolDay" TO ${group}`,
     `GRANT SELECT, INSERT ON "AuditEvent" TO ${group}`,
   ]
   for (const statement of grants) await db.$executeRawUnsafe(statement)
@@ -43,9 +80,14 @@ export async function provisionHoldExpiryRole(db: Executor, input: { loginRole: 
 /** Removes the login role and, optionally, the group role. Used for rotation, rollback and tests. */
 export async function deprovisionHoldExpiryRole(db: Executor, loginRole: string, options: { dropGroup?: boolean } = {}): Promise<void> {
   if (!IDENTIFIER.test(loginRole) || loginRole === HOLD_EXPIRY_GROUP_ROLE || loginRole === 'postgres') throw new Error('Invalid login role')
-  await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN DROP OWNED BY "${loginRole}"; DROP ROLE "${loginRole}"; END IF; END $$`)
+  // PostgreSQL 16: a CREATEROLE (non-superuser) owner has ADMIN on roles it created but must also hold their privileges to DROP OWNED.
+  await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${loginRole}') THEN
+    IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN EXECUTE 'GRANT "${loginRole}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE'; END IF;
+    DROP OWNED BY "${loginRole}"; DROP ROLE "${loginRole}"; END IF; END $$`)
   if (options.dropGroup) {
-    await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN DROP OWNED BY "${HOLD_EXPIRY_GROUP_ROLE}"; DROP ROLE "${HOLD_EXPIRY_GROUP_ROLE}"; END IF; END $$`)
+    await db.$executeRawUnsafe(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${HOLD_EXPIRY_GROUP_ROLE}') THEN
+      IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN EXECUTE 'GRANT "${HOLD_EXPIRY_GROUP_ROLE}" TO CURRENT_USER WITH INHERIT TRUE, SET TRUE'; END IF;
+      DROP OWNED BY "${HOLD_EXPIRY_GROUP_ROLE}"; DROP ROLE "${HOLD_EXPIRY_GROUP_ROLE}"; END IF; END $$`)
   }
 }
 

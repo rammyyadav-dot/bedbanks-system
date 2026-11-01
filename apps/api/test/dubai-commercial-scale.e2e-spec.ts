@@ -9,6 +9,7 @@ import { ResponseInterceptor } from '../src/common/interceptors/response.interce
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
 import { hashPassword } from '../src/auth/utils/password'
 import { SUPPLIER_ADAPTER, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRequestContext, type SupplierSearchContext } from '../src/agent/supplier.port'
+import { setContractStatusFixture } from './contract-status-fixture'
 
 const prisma = new PrismaClient()
 
@@ -123,7 +124,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
 
     await prisma.hotel.createMany({
       data: Array.from({ length: hotelCount }, (_, index) => ({
-        tenantId, name: `Dubai Scale Hotel ${String(index + 1).padStart(3, '0')}`, propertyType: 'HOTEL', contentStatus: 'COMPLETE',
+        tenantId, name: `Dubai Scale Hotel ${String(index + 1).padStart(3, '0')}`, propertyType: 'HOTEL', contentStatus: 'COMPLETE', starRating: 5,
         city: 'Dubai', countryCode: 'AE', externalRef: `${suffix}-hotel-${index + 1}`,
       })),
     })
@@ -173,8 +174,8 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
       await agent.post(`${mappingPath}/approve`).expect(201)
       const mappedRoom = await agent.post(`${mappingPath}/rooms`).send({ supplierRoomId: `${suffix}-${room.id}`, roomTypeId: room.id }).expect(201)
       await agent.post(`${mappingPath}/rooms/${mappedRoom.body.data.id}/approve`).expect(201)
-      const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: plusOne(dateKeys[6]), settlementCurrency: 'AED' }).expect(201)
-      await agent.patch(`/api/v1/supply/contracts/${bound.body.data.id}`).send({ status: 'ACTIVE' }).expect(200)
+      const bound = await agent.post('/api/v1/supply/contracts').send({ supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${room.id}`, validFrom: dateKeys[0], validTo: dateKeys[6], settlementCurrency: 'AED' }).expect(201)
+      await setContractStatusFixture(prisma, bound.body.data.id, 'ACTIVE')
       await agent.patch(`/api/v1/supply/rate-plans/${plan.id}`).send({ contractId: bound.body.data.id }).expect(200)
       canonicalOffers.push({
         hotelId: room.hotelId, name: hotels.find(value => value.id === room.hotelId)!.name, destination: 'Dubai', starRating: 5,
@@ -388,13 +389,13 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     expect(beforeResponse.body.data.eligible).toBe(false)
     expect(beforeResponse.body.data.reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
 
-    // D+7 is intentionally contract-valid so the D+6 stay can check out on D+7.
-    // It has no seeded nightly rate or availability, so sellability must fail for commercial-data reasons.
+    // ADR 0067 F-06: validTo D+6 is the last stay night. The D+6 night sells and checks out on D+7; the D+7 night is outside the contract.
     const checkoutBoundary = plusOne(dateKeys[6])
+    const lastNightStay = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: dateKeys[6], checkInDate: dateKeys[6], nights: 1, occupancy: 2 }).expect(201)
+    expect(lastNightStay.body.data).toMatchObject({ eligible: true, reasons: [] })
     const boundaryResponse = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: checkoutBoundary, occupancy: 2 }).expect(201)
     expect(boundaryResponse.body.data.eligible).toBe(false)
-    expect(boundaryResponse.body.data.reasons).not.toContain('OUTSIDE_CONTRACT_VALIDITY')
-    expect(boundaryResponse.body.data.reasons).toContain('DAILY_RATE_MISSING_OR_INVALID')
+    expect(boundaryResponse.body.data.reasons).toContain('OUTSIDE_CONTRACT_VALIDITY')
     expect(boundaryResponse.body.data.reasons).toContain('AVAILABILITY_MISSING')
     const occupancy = await agent.post('/api/v1/supply/sellability').send({ ratePlanId, stayDate: dateKeys[0], occupancy: 4 }).expect(201)
     expect(occupancy.body.data.reasons).toContain('OCCUPANCY_UNSUPPORTED')

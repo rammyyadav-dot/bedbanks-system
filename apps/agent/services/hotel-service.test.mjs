@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { ApiHotelService } from './hotel-service.ts'
 
+const stayStart = new Date(Date.now() + 30 * 86400000)
+const stayEnd = new Date(stayStart.getTime() + 3 * 86400000)
 const criteria = {
-  destination: 'Dubai', checkIn: '2026-10-01', checkOut: '2026-10-04',
+  destination: 'Dubai', checkIn: stayStart.toISOString().slice(0, 10), checkOut: stayEnd.toISOString().slice(0, 10),
   rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'IN', currency: 'AED',
 }
 const hotel = {
@@ -21,27 +23,15 @@ const hotel = {
   }] }],
 }
 const originalFetch = globalThis.fetch
-const originalDemo = process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY
 const originalNodeEnv = process.env.NODE_ENV
 afterEach(() => {
   globalThis.fetch = originalFetch
-  if (originalDemo === undefined) delete process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY
-  else process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = originalDemo
+  delete process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV
   else process.env.NODE_ENV = originalNodeEnv
 })
-test('explicit nonproduction demo is labelled', async () => {
-  process.env.NODE_ENV = 'development'
-  process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
-  globalThis.fetch = () => { throw Error('demo must not call API') }
-  const result = await new ApiHotelService().search({ ...criteria, destination: 'Palace' }, 'tenant-a')
-  assert.equal(result.status, 'demo')
-  assert.equal(result.hotels.length, 1)
-  assert.deepEqual(result.liveHotels, [])
-})
 test('live canonical offer retains nested authoritative total', async () => {
   process.env.NODE_ENV = 'production'
-  process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
   globalThis.fetch = async (url, init) => {
     assert.equal(url, 'https://example.invalid/agent/search')
     assert.equal(init.headers['x-fbeds-tenant-id'], 'tenant-a')
@@ -51,9 +41,40 @@ test('live canonical offer retains nested authoritative total', async () => {
   }
   const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
   assert.equal(result.status, 'available')
-  assert.deepEqual(result.hotels, [])
+  assert.equal('hotels' in result, false)
   assert.equal(result.liveHotels[0].rooms[0].rates[0].total.amountMinor, 125099)
   assert.equal(result.liveHotels[0].rooms[0].rates[0].boardBasisId, 'b1')
+})
+test('accepts the buyer-only offer the API now sends and keeps no cost or supply field from an older API (ADR 0075)', async () => {
+  process.env.NODE_ENV = 'production'
+  const { supplierId: _s, supplierHotelId: _sh, ...shown } = hotel
+  const buyerRate = { offerId: 'o1', hotelId: 'h1', roomTypeId: 'r1', ratePlanId: 'p1', ratePlanName: 'Flexible', boardBasisId: 'b1', boardBasisName: 'Breakfast',
+    expiresAt: '2099-01-01T00:00:00Z', occupancy: { rooms: 1, adults: 2, children: 0, childAges: [] },
+    cancellation: { refundable: true, summary: 'Free until deadline' }, availability: 'available', available: true,
+    total: { amountMinor: 125099, currency: 'AED' }, taxAmountMinor: 10000, feeAmountMinor: 99, sellAmountMinor: 125099, paymentType: 'credit' }
+  for (const hotels of [[{ ...shown, rooms: [{ roomTypeId: 'r1', name: 'King', rates: [buyerRate] }] }], [hotel]]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+      request: criteria, hotels, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+    const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+    assert.equal(result.status, 'available')
+    assert.equal(result.liveHotels[0].rooms[0].rates[0].sellAmountMinor, 125099)
+    const kept = JSON.stringify(result.liveHotels)
+    for (const key of ['netAmountMinor', 'markupAmountMinor', 'totalAmountMinor', 'supplierId', 'supplierRateId', 'providerId', 'tenantId']) assert.equal(kept.includes(`"${key}"`), false, key)
+  }
+})
+test('keeps server pagination instead of treating the page as the full result', async () => {
+  process.env.NODE_ENV = 'production'
+  const pageCriteria = { ...criteria, limit: 1, offset: 1 }
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(JSON.parse(init.body).offset, 1)
+    return new Response(JSON.stringify({ data: { version: 1, searchId: 'search-b', requestId: 'request-b', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+      request: pageCriteria, hotels: [hotel], total: 1,
+      pagination: { limit: 1, offset: 1, total: 2, hasMore: false },
+      providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+  }
+  const result = await new ApiHotelService('https://example.invalid').search(pageCriteria, 'tenant-a')
+  assert.equal(result.liveHotels.length, 1)
+  assert.deepEqual(result.pagination, { limit: 1, offset: 1, total: 2, hasMore: false })
 })
 test('missing room mapping cannot be displayed live', async () => {
   process.env.NODE_ENV = 'production'
@@ -65,13 +86,22 @@ test('missing room mapping cannot be displayed live', async () => {
   assert.equal(result.status, 'mapping_unavailable')
   assert.deepEqual(result.liveHotels, [])
 })
-test('production failure never becomes demo availability', async () => {
+test('an unavailable supplier response resolves as provider_unavailable and does not throw', async () => {
   process.env.NODE_ENV = 'production'
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: 'https://supplier.internal/secret' }), { status: 503 })
+  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(result.status, 'provider_unavailable')
+  assert.deepEqual(result.liveHotels, [])
+  assert.equal(JSON.stringify(result).includes('supplier.internal'), false)
+})
+test('a provider failure never becomes availability, even if a demo flag is set', async () => {
+  process.env.NODE_ENV = 'development'
   process.env.NEXT_PUBLIC_ENABLE_DEMO_INVENTORY = 'true'
   globalThis.fetch = async () => { throw Error('offline') }
   const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
   assert.equal(result.status, 'provider_unavailable')
-  assert.deepEqual(result.hotels, [])
+  assert.deepEqual(result.liveHotels, [])
+  assert.equal(result.total, 0)
 })
 test('empty and forbidden responses are distinct', async () => {
   process.env.NODE_ENV = 'production'
@@ -80,6 +110,16 @@ test('empty and forbidden responses are distinct', async () => {
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'empty')
   globalThis.fetch = async () => new Response(null, { status: 403 })
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')).status, 'access_denied')
+})
+test('a suspended agency is told so, and an ordinary 403 stays a plain denial (search and recheck)', async () => {
+  const suspended = () => new Response(JSON.stringify({ success: false, error: { code: 'AGENCY_SUSPENDED', message: 'Your agency is suspended.', details: [] } }), { status: 403 })
+  globalThis.fetch = async () => suspended()
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'agency_suspended')
+  const rate = hotel.rooms[0].rates[0]
+  assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'agency_suspended')
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied', details: [] } }), { status: 403 })
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'access_denied')
+  assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'access_denied')
 })
 test('recheck sends only canonical offer identity and expected display amount without allocating inventory', async () => {
   const rate = hotel.rooms[0].rates[0]

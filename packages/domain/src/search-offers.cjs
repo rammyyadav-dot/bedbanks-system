@@ -10,39 +10,186 @@ const natural = (v, min) => Number.isSafeInteger(v) && v >= min
 const SUPPORTED_CURRENCIES = new Set(['AED', 'USD', 'EUR', 'INR', 'GBP', 'SAR', 'QAR', 'OMR', 'KWD', 'BHD', 'SGD', 'AUD', 'CAD', 'JPY'])
 const SUPPORTED_COUNTRIES = new Set(['AE', 'IN', 'GB', 'US', 'CA', 'AU', 'SG', 'SA', 'QA', 'OM', 'KW', 'BH', 'DE', 'FR', 'IT', 'ES', 'NL', 'BE', 'CH', 'AT', 'IE', 'PT', 'GR', 'TR', 'CN', 'JP', 'KR', 'ID', 'MY', 'TH', 'VN', 'PH', 'ZA', 'NZ'])
 const allowedKeys = (value, keys) => record(value) && Object.keys(value).every((key) => keys.includes(key))
-const sameCriteria = (left, right) => left.destination === right.destination &&
+const CITY_ID = /^city:([A-Z]{2}):([a-z0-9]+(?:-[a-z0-9]+)*)$/
+const propertyTypeOk = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9 .&-]{0,39}$/.test(value)
+const coordinateOk = (value) => typeof value === 'string' && /^-?\d{1,3}(\.\d{1,6})?$/.test(value)
+const imageOk = (v) => record(v) && id(v.imageId) && typeof v.altText === 'string' && v.altText.length > 0 && v.altText.length <= 200 && natural(v.width, 1) && natural(v.height, 1)
+const addressOk = (value) => typeof value === 'string' && value.length > 0 && value.length <= 240 && value.trim() === value && !/[\u0000-\u001f]/.test(value)
+const timeZoneOk = (value) => {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 64) return false
+  try { new Intl.DateTimeFormat('en-GB', { timeZone: value }); return true } catch { return false }
+}
+function citySlug(name) {
+  return String(name ?? '').trim().toLocaleLowerCase('en-US').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+function cityDestinationId(countryCode, cityName) {
+  const country = String(countryCode ?? '').trim().toUpperCase()
+  const slug = citySlug(cityName)
+  if (!/^[A-Z]{2}$/.test(country) || !slug) return ''
+  return `city:${country}:${slug}`
+}
+function validDestinationRef(value) {
+  if (value === undefined) return true
+  if (!record(value)) return false
+  if (value.type === 'city') {
+    if (!allowedKeys(value, ['type', 'id', 'countryCode']) || typeof value.id !== 'string' || typeof value.countryCode !== 'string') return false
+    if (!CITY_ID.test(value.id) || !value.id.startsWith(`city:${value.countryCode}:`)) return false
+    const words = value.id.slice(value.countryCode.length + 6).replace(/-/g, ' ')
+    return value.id === cityDestinationId(value.countryCode, words)
+  }
+  if (value.type === 'hotel') return allowedKeys(value, ['type', 'id']) && id(value.id)
+  return false
+}
+function validRoomStay(stay) {
+  return record(stay) && allowedKeys(stay, ['adults', 'children']) && natural(stay.adults, 1) && stay.adults <= 8 &&
+    Array.isArray(stay.children) && stay.children.length <= 8 &&
+    stay.children.every((child) => record(child) && allowedKeys(child, ['age']) && natural(child.age, 0) && child.age <= 17)
+}
+function roomStaysMatchAggregate(stays, criteria) {
+  if (!stays.every(validRoomStay) || stays.length !== criteria.rooms) return false
+  const uniform = stays.every((stay) => stay.adults === stays[0].adults && stay.children.length === stays[0].children.length &&
+    stay.children.every((child, index) => child.age === stays[0].children[index].age))
+  if (uniform) {
+    return criteria.adults === stays[0].adults && criteria.children === stays[0].children.length &&
+      criteria.childAges.length === stays[0].children.length &&
+      stays[0].children.every((child, index) => child.age === criteria.childAges[index])
+  }
+  const adults = stays.reduce((sum, stay) => sum + stay.adults, 0)
+  const ages = stays.flatMap((stay) => stay.children.map((child) => child.age))
+  return criteria.adults === adults && criteria.children === ages.length &&
+    criteria.childAges.length === ages.length && ages.every((age, index) => age === criteria.childAges[index])
+}
+function sameRoomStays(left, right) {
+  if (left === undefined && right === undefined) return true
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+  return left.every((stay, index) => stay.adults === right[index].adults && stay.children.length === right[index].children.length &&
+    stay.children.every((child, childIndex) => child.age === right[index].children[childIndex].age))
+}
+function sameDestinationRef(left, right) {
+  if (left === undefined && right === undefined) return true
+  if (!left || !right || left.type !== right.type || left.id !== right.id) return false
+  return left.type === 'hotel' || left.countryCode === right.countryCode
+}
+function filterKey(filters) {
+  if (!filters) return ''
+  return JSON.stringify({
+    starRatings: filters.starRatings ?? null,
+    boardBasisIds: filters.boardBasisIds ?? null,
+    refundableOnly: filters.refundableOnly ?? null,
+    minPriceMinor: filters.minPriceMinor ?? null,
+    maxPriceMinor: filters.maxPriceMinor ?? null,
+    propertyTypes: filters.propertyTypes ? [...filters.propertyTypes].slice().sort() : null,
+    brands: filters.brands ? [...filters.brands].slice().sort() : null,
+  })
+}
+const sameDestination = (left, right) => left.destination === right.destination ||
+  (sameDestinationRef(left.destinationRef, right.destinationRef) && left.destinationRef !== undefined &&
+    left.destination.trim().toLocaleLowerCase('en-US') === right.destination.trim().toLocaleLowerCase('en-US'))
+const sameCriteria = (left, right) => sameDestination(left, right) &&
+  sameDestinationRef(left.destinationRef, right.destinationRef) &&
   left.checkIn === right.checkIn && left.checkOut === right.checkOut &&
   left.rooms === right.rooms && left.adults === right.adults &&
   left.children === right.children && left.nationality === right.nationality &&
   left.currency === right.currency &&
+  (left.sort ?? 'default') === (right.sort ?? 'default') &&
   left.childAges.length === right.childAges.length &&
   left.childAges.every((age, i) => age === right.childAges[i]) &&
+  sameRoomStays(left.roomStays, right.roomStays) &&
   JSON.stringify(left.canonicalHotelIds ?? []) === JSON.stringify(right.canonicalHotelIds ?? []) &&
-  (left.limit ?? 50) === (right.limit ?? 50) && JSON.stringify(left.filters ?? {}) === JSON.stringify(right.filters ?? {})
+  (left.limit ?? 50) === (right.limit ?? 50) && (left.offset ?? 0) === (right.offset ?? 0) &&
+  filterKey(left.filters) === filterKey(right.filters)
+
+const MAX_SEARCH_OFFSET = 10_000
+
+function pageWindow(criteria) {
+  return { limit: criteria.limit ?? 50, offset: criteria.offset ?? 0 }
+}
 
 function validSearchCriteria(c, now = Date.now()) {
-  if (!record(c) || !allowedKeys(c, ['destination', 'canonicalHotelIds', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges', 'nationality', 'currency', 'limit', 'filters'])) return false
+  if (!record(c) || !allowedKeys(c, ['destination', 'destinationRef', 'canonicalHotelIds', 'checkIn', 'checkOut', 'rooms', 'adults', 'children', 'childAges', 'roomStays', 'nationality', 'currency', 'limit', 'offset', 'sort', 'filters'])) return false
   const today = new Date(now).toISOString().slice(0, 10)
   const nights = date(c.checkIn) && date(c.checkOut) ? Math.round((Date.parse(c.checkOut) - Date.parse(c.checkIn)) / 86400000) : 0
   const hotelsValid = c.canonicalHotelIds === undefined || (Array.isArray(c.canonicalHotelIds) && c.canonicalHotelIds.length > 0 && c.canonicalHotelIds.length <= 50 && c.canonicalHotelIds.every(id))
   const filters = c.filters
-  const filtersValid = filters === undefined || (allowedKeys(filters, ['starRatings', 'boardBasisIds', 'refundableOnly', 'minPriceMinor', 'maxPriceMinor']) &&
+  const filtersValid = filters === undefined || (allowedKeys(filters, ['starRatings', 'boardBasisIds', 'refundableOnly', 'minPriceMinor', 'maxPriceMinor', 'propertyTypes', 'brands']) &&
     (filters.starRatings === undefined || (Array.isArray(filters.starRatings) && filters.starRatings.every((v) => natural(v, 1) && v <= 5))) &&
     (filters.boardBasisIds === undefined || (Array.isArray(filters.boardBasisIds) && filters.boardBasisIds.length <= 20 && filters.boardBasisIds.every(id))) &&
+    (filters.propertyTypes === undefined || (Array.isArray(filters.propertyTypes) && filters.propertyTypes.length > 0 && filters.propertyTypes.length <= 20 && filters.propertyTypes.every(propertyTypeOk))) &&
+    (filters.brands === undefined || (Array.isArray(filters.brands) && filters.brands.length > 0 && filters.brands.length <= 20 && filters.brands.every(propertyTypeOk))) &&
     (filters.refundableOnly === undefined || typeof filters.refundableOnly === 'boolean') &&
     (filters.minPriceMinor === undefined || natural(filters.minPriceMinor, 0)) &&
     (filters.maxPriceMinor === undefined || natural(filters.maxPriceMinor, 0)) &&
     (filters.minPriceMinor === undefined || filters.maxPriceMinor === undefined || filters.maxPriceMinor >= filters.minPriceMinor))
-  return (id(c.destination) || hotelsValid) && hotelsValid && date(c.checkIn) && date(c.checkOut) &&
+  const staysValid = c.roomStays === undefined || (Array.isArray(c.roomStays) && c.roomStays.length >= 1 && c.roomStays.length <= 8 && roomStaysMatchAggregate(c.roomStays, c))
+  const sortValid = c.sort === undefined || c.sort === 'default' || c.sort === 'price' || c.sort === 'stars' || c.sort === 'name'
+  return (id(c.destination) || hotelsValid) && hotelsValid && validDestinationRef(c.destinationRef) && date(c.checkIn) && date(c.checkOut) &&
     c.checkIn >= today && nights >= 1 && nights <= 30 && natural(c.rooms, 1) && c.rooms <= 8 &&
     natural(c.adults, 1) && c.adults <= 40 && natural(c.children, 0) && c.children <= 40 &&
     Array.isArray(c.childAges) && c.childAges.length === c.children &&
     c.childAges.every((age) => natural(age, 0) && age <= 17) &&
+    staysValid && sortValid &&
     SUPPORTED_COUNTRIES.has(c.nationality) && SUPPORTED_CURRENCIES.has(c.currency) &&
-    (c.limit === undefined || (natural(c.limit, 1) && c.limit <= 100)) && filtersValid
+    (c.limit === undefined || (natural(c.limit, 1) && c.limit <= 100)) &&
+    (c.offset === undefined || (natural(c.offset, 0) && c.offset <= MAX_SEARCH_OFFSET)) && filtersValid
 }
 
-function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId) {
+function declaredPagination(value, criteria, pageLength) {
+  const { limit, offset } = pageWindow(criteria)
+  if (value === undefined) return offset === 0 ? undefined : null
+  if (!record(value) || !allowedKeys(value, ['limit', 'offset', 'total', 'hasMore', 'nextOffset'])) return null
+  if (value.limit !== limit || value.offset !== offset || !natural(value.total, 0) || pageLength > limit) return null
+  if (value.total < offset + pageLength) return null
+  const hasMore = offset + pageLength < value.total
+  if (value.hasMore !== hasMore) return null
+  if (hasMore) {
+    if (pageLength !== limit || value.nextOffset !== offset + limit) return null
+  } else if (value.nextOffset !== undefined) return null
+  return { limit, offset, total: value.total, hasMore, ...(hasMore ? { nextOffset: offset + limit } : {}) }
+}
+
+/**
+ * The buyer's view of a rate (ADR 0075). Net cost, markup, supplier cost, supplier and provider identity, contract and tenant
+ * stay on the server: recheck and hold resolve them from the stored offer by `offerId`.
+ */
+function agentRate(rate) {
+  return {
+    offerId: rate.offerId, hotelId: rate.hotelId, roomTypeId: rate.roomTypeId,
+    ratePlanId: rate.ratePlanId, ratePlanName: rate.ratePlanName, boardBasisId: rate.boardBasisId, boardBasisName: rate.boardBasisName,
+    expiresAt: rate.expiresAt,
+    occupancy: { rooms: rate.occupancy.rooms, adults: rate.occupancy.adults,
+      children: rate.occupancy.children, childAges: [...rate.occupancy.childAges] },
+    availability: rate.availability, available: rate.available,
+    cancellation: { refundable: rate.cancellation.refundable, summary: rate.cancellation.summary,
+      ...(rate.cancellation.deadline === undefined ? {} : { deadline: rate.cancellation.deadline }) },
+    total: { amountMinor: rate.total.amountMinor, currency: rate.total.currency },
+    taxAmountMinor: rate.taxAmountMinor, feeAmountMinor: rate.feeAmountMinor, sellAmountMinor: rate.sellAmountMinor,
+    paymentType: rate.paymentType, ...(rate.promotion === undefined ? {} : { promotion: { name: rate.promotion.name, kind: rate.promotion.kind } }),
+    ...(rate.supplements === undefined ? {} : { supplements: rate.supplements.map((x) => ({ name: x.name, kind: x.kind, amountMinor: x.amountMinor })) }),
+    ...(rate.priceIncludes === undefined ? {} : { priceIncludes: { taxes: rate.priceIncludes.taxes, fees: rate.priceIncludes.fees } }),
+    ...(rate.payAtHotel === undefined ? {} : { payAtHotel: rate.payAtHotel.map((c) => ({ kind: c.kind, label: c.label, amountMinor: c.amountMinor, currency: c.currency, basis: c.basis, estimatedTotalMinor: c.estimatedTotalMinor })) }),
+  }
+}
+
+/** Server-side fields and the supplier-cost identities: total = net + tax + fee, sell = total + markup. Never checked in the browser. */
+function internalRateOk(rate, hotel, room, expectedTenantId) {
+  return id(rate.tenantId) && (expectedTenantId === undefined || rate.tenantId === expectedTenantId) &&
+    id(rate.providerId) && rate.canonicalHotelId === hotel.hotelId && rate.canonicalRoomTypeId === room.roomTypeId &&
+    id(rate.canonicalHotelId) && id(rate.canonicalRoomTypeId) &&
+    rate.supplierId === hotel.supplierId && rate.supplierRoomId === room.supplierRoomId &&
+    (rate.contractId === undefined || id(rate.contractId)) && id(rate.supplierRateId) &&
+    (rate.offerToken === undefined || id(rate.offerToken)) &&
+    natural(rate.netAmountMinor, 0) && natural(rate.totalAmountMinor, 0) && natural(rate.markupAmountMinor, 0) &&
+    rate.totalAmountMinor === rate.netAmountMinor + rate.taxAmountMinor + rate.feeAmountMinor &&
+    rate.sellAmountMinor === rate.totalAmountMinor + rate.markupAmountMinor &&
+    ['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)
+}
+
+/**
+ * `audience: 'internal'` (default) validates supplier output on the API and keeps every field. `audience: 'agent'` validates the
+ * buyer projection in the browser: it checks only what a buyer is sent and returns only `agentRate` fields.
+ */
+function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantId, paginate = true, audience = 'internal') {
+  const agent = audience === 'agent'
   if (!validSearchCriteria(criteria) || !Array.isArray(input)) return { ok: false, reason: 'mapping_unavailable' }
   const offerIds = new Set()
   const hotelIds = new Set()
@@ -50,30 +197,30 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
     const hotels = input.map((hotel) => {
       if (!record(hotel) || !id(hotel.hotelId) || !id(hotel.name) || !id(hotel.destination) ||
           !natural(hotel.starRating, 1) || hotel.starRating > 5 ||
-          !id(hotel.supplierId) || !id(hotel.supplierHotelId) ||
+          (hotel.propertyType !== undefined && !propertyTypeOk(hotel.propertyType)) ||
+          (hotel.brand !== undefined && !propertyTypeOk(hotel.brand)) ||
+          (hotel.address !== undefined && !addressOk(hotel.address)) ||
+          ((hotel.latitude !== undefined) !== (hotel.longitude !== undefined)) ||
+          (hotel.latitude !== undefined && (!coordinateOk(hotel.latitude) || !coordinateOk(hotel.longitude))) ||
+          (hotel.timeZone !== undefined && !timeZoneOk(hotel.timeZone)) ||
+          (hotel.primaryImage !== undefined && !imageOk(hotel.primaryImage)) ||
+          (!agent && (!id(hotel.supplierId) || !id(hotel.supplierHotelId))) ||
           !Array.isArray(hotel.rooms) || hotel.rooms.length === 0 ||
           hotelIds.has(hotel.hotelId))
         throw Error('hotel')
       hotelIds.add(hotel.hotelId)
       const roomIds = new Set()
       const rooms = hotel.rooms.map((room) => {
-        if (!record(room) || !id(room.roomTypeId) || !id(room.name) || !id(room.supplierRoomId) ||
+        if (!record(room) || !id(room.roomTypeId) || !id(room.name) || (!agent && !id(room.supplierRoomId)) ||
             !Array.isArray(room.rates) || room.rates.length === 0 ||
             roomIds.has(room.roomTypeId)) throw Error('room')
         roomIds.add(room.roomTypeId)
         const rates = room.rates.map((rate) => {
           if (!record(rate) || !id(rate.offerId) || offerIds.has(rate.offerId) ||
-              !id(rate.tenantId) || (expectedTenantId !== undefined && rate.tenantId !== expectedTenantId) ||
-              !id(rate.providerId) || !id(rate.canonicalHotelId) ||
-              rate.canonicalHotelId !== hotel.hotelId || !id(rate.canonicalRoomTypeId) ||
-              rate.canonicalRoomTypeId !== room.roomTypeId ||
               rate.hotelId !== hotel.hotelId || rate.roomTypeId !== room.roomTypeId ||
-              rate.supplierId !== hotel.supplierId || rate.supplierRoomId !== room.supplierRoomId ||
-              !id(rate.ratePlanId) || !id(rate.ratePlanName) || !id(rate.boardBasisId) ||
-              !id(rate.boardBasisName) || !id(rate.supplierRateId) ||
-              (rate.offerToken !== undefined && !id(rate.offerToken)) ||
+              !id(rate.ratePlanId) || !id(rate.ratePlanName) || !id(rate.boardBasisId) || !id(rate.boardBasisName) ||
               !instant(rate.expiresAt) || Date.parse(rate.expiresAt) <= now ||
-              !['available', 'limited', 'sold_out'].includes(rate.availability) ||
+              !['available', 'limited', 'sold_out', 'on_request'].includes(rate.availability) ||
               !record(rate.occupancy) || rate.occupancy.rooms !== criteria.rooms ||
               rate.occupancy.adults !== criteria.adults || rate.occupancy.children !== criteria.children ||
               !Array.isArray(rate.occupancy.childAges) ||
@@ -82,50 +229,54 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               !record(rate.cancellation) || typeof rate.cancellation.refundable !== 'boolean' ||
               !id(rate.cancellation.summary) ||
               (rate.cancellation.deadline !== undefined && !instant(rate.cancellation.deadline)) ||
-              typeof rate.available !== 'boolean' || rate.available !== (rate.availability !== 'sold_out') ||
+              typeof rate.available !== 'boolean' || rate.available !== (rate.availability === 'available' || rate.availability === 'limited') ||
               !record(rate.total) || rate.total.currency !== criteria.currency || !natural(rate.total.amountMinor, 0) ||
-              !natural(rate.netAmountMinor, 0) || !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) ||
-              !natural(rate.totalAmountMinor, 0) || !natural(rate.markupAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
-              rate.totalAmountMinor !== rate.netAmountMinor + rate.taxAmountMinor + rate.feeAmountMinor ||
-              rate.sellAmountMinor !== rate.totalAmountMinor + rate.markupAmountMinor ||
+              !natural(rate.taxAmountMinor, 0) || !natural(rate.feeAmountMinor, 0) || !natural(rate.sellAmountMinor, 0) ||
               rate.total.amountMinor !== rate.sellAmountMinor ||
-              !['prepaid', 'pay_at_hotel', 'credit'].includes(rate.paymentType) ||
-              !['hotel_direct', 'dmc', 'bedbank', 'channel_manager', 'gds'].includes(rate.source)) throw Error('rate')
+              !['prepaid', 'pay_at_hotel', 'credit', 'unspecified'].includes(rate.paymentType) ||
+              (rate.promotion !== undefined && (!record(rate.promotion) || !id(rate.promotion.name) || !['EARLY_BIRD', 'LAST_MINUTE', 'LONG_STAY', 'FREE_NIGHTS', 'PERCENT_OFF', 'FLASH_SALE', 'SUBSEQUENT_NIGHTS', 'EVERY_NTH_FREE', 'FIXED_OFF'].includes(rate.promotion.kind))) ||
+              (rate.supplements !== undefined && (!Array.isArray(rate.supplements) || rate.supplements.length > 30 || rate.supplements.some((x) => !record(x) || !id(x.name) || !['BOARD', 'COMPULSORY'].includes(x.kind) || !natural(x.amountMinor, 1)))) ||
+              (rate.priceIncludes !== undefined && (!record(rate.priceIncludes) || typeof rate.priceIncludes.taxes !== 'boolean' || typeof rate.priceIncludes.fees !== 'boolean')) ||
+              (rate.payAtHotel !== undefined && (!Array.isArray(rate.payAtHotel) || rate.payAtHotel.length > 10 || rate.payAtHotel.some((c) => !record(c) || !id(c.kind) || !id(c.label) ||
+                !natural(c.amountMinor, 0) || !natural(c.estimatedTotalMinor, 0) || !/^[A-Z]{3}$/.test(c.currency) ||
+                !['PER_ROOM_PER_NIGHT', 'PER_PERSON_PER_NIGHT', 'PER_ROOM_PER_STAY', 'PER_PERSON_PER_STAY'].includes(c.basis)))) ||
+              (agent ? rate.taxAmountMinor + rate.feeAmountMinor > rate.sellAmountMinor : !internalRateOk(rate, hotel, room, expectedTenantId))) throw Error('rate')
           offerIds.add(rate.offerId)
-          return {
-            offerId: rate.offerId, tenantId: rate.tenantId, providerId: rate.providerId,
-            hotelId: rate.hotelId, canonicalHotelId: rate.canonicalHotelId,
-            roomTypeId: rate.roomTypeId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
+          const buyer = agentRate(rate)
+          if (agent) return buyer
+          return { ...buyer, tenantId: rate.tenantId, providerId: rate.providerId,
+            canonicalHotelId: rate.canonicalHotelId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
             supplierId: rate.supplierId, supplierRoomId: rate.supplierRoomId,
-            ratePlanId: rate.ratePlanId, ratePlanName: rate.ratePlanName,
-            boardBasisId: rate.boardBasisId, boardBasisName: rate.boardBasisName,
-            supplierRateId: rate.supplierRateId,
-            ...(rate.offerToken === undefined ? {} : { offerToken: rate.offerToken }),
-            expiresAt: rate.expiresAt,
-            occupancy: { rooms: rate.occupancy.rooms, adults: rate.occupancy.adults,
-              children: rate.occupancy.children, childAges: [...rate.occupancy.childAges] },
-            availability: rate.availability, available: rate.available,
-            cancellation: { refundable: rate.cancellation.refundable, summary: rate.cancellation.summary,
-              ...(rate.cancellation.deadline === undefined ? {} : { deadline: rate.cancellation.deadline }) },
-            total: { amountMinor: rate.total.amountMinor, currency: rate.total.currency },
-            netAmountMinor: rate.netAmountMinor, taxAmountMinor: rate.taxAmountMinor,
-            feeAmountMinor: rate.feeAmountMinor, totalAmountMinor: rate.totalAmountMinor,
-            markupAmountMinor: rate.markupAmountMinor, sellAmountMinor: rate.sellAmountMinor,
-            paymentType: rate.paymentType, source: rate.source,
-          }
+            ...(rate.contractId === undefined ? {} : { contractId: rate.contractId }),
+            supplierRateId: rate.supplierRateId, ...(rate.offerToken === undefined ? {} : { offerToken: rate.offerToken }),
+            netAmountMinor: rate.netAmountMinor, totalAmountMinor: rate.totalAmountMinor, markupAmountMinor: rate.markupAmountMinor,
+            source: rate.source }
         })
-        return { roomTypeId: room.roomTypeId, name: room.name, supplierRoomId: room.supplierRoomId, rates }
+        return { roomTypeId: room.roomTypeId, name: room.name, ...(agent ? {} : { supplierRoomId: room.supplierRoomId }), rates }
       })
       return { hotelId: hotel.hotelId, name: hotel.name, destination: hotel.destination, starRating: hotel.starRating,
-        supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId, rooms }
+        ...(hotel.propertyType === undefined ? {} : { propertyType: hotel.propertyType }),
+        ...(hotel.brand === undefined ? {} : { brand: hotel.brand }),
+        ...(hotel.address === undefined ? {} : { address: hotel.address }),
+        ...(hotel.latitude === undefined ? {} : { latitude: hotel.latitude, longitude: hotel.longitude }),
+        ...(hotel.timeZone === undefined ? {} : { timeZone: hotel.timeZone }),
+        ...(hotel.primaryImage === undefined ? {} : { primaryImage: { imageId: hotel.primaryImage.imageId, altText: hotel.primaryImage.altText, width: hotel.primaryImage.width, height: hotel.primaryImage.height } }),
+        ...(agent ? {} : { supplierId: hotel.supplierId, supplierHotelId: hotel.supplierHotelId }), rooms }
     })
     const requestedHotelIds = criteria.canonicalHotelIds === undefined ? undefined : new Set(criteria.canonicalHotelIds)
     const destination = criteria.destination.trim().toLocaleLowerCase('en-US')
+    const cityExact = criteria.destinationRef?.type === 'city'
     const filtered = hotels.flatMap((hotel) => {
-      if (requestedHotelIds ? !requestedHotelIds.has(hotel.hotelId) : !hotel.destination.toLocaleLowerCase('en-US').includes(destination)) return []
+      if (requestedHotelIds) {
+        if (!requestedHotelIds.has(hotel.hotelId)) return []
+      } else if (cityExact) {
+        if (hotel.destination.toLocaleLowerCase('en-US') !== destination) return []
+      } else if (!hotel.destination.toLocaleLowerCase('en-US').includes(destination)) return []
       if (criteria.filters?.starRatings !== undefined && !criteria.filters.starRatings.includes(hotel.starRating)) return []
+      if (criteria.filters?.propertyTypes !== undefined && (!hotel.propertyType || !criteria.filters.propertyTypes.includes(hotel.propertyType))) return []
+      if (criteria.filters?.brands !== undefined && (!hotel.brand || !criteria.filters.brands.includes(hotel.brand))) return []
       const rooms = hotel.rooms.flatMap((room) => {
-        const rates = room.rates.filter((rate) => rate.available &&
+        const rates = room.rates.filter((rate) => (rate.available || rate.availability === 'on_request') &&
           (criteria.filters?.boardBasisIds === undefined || criteria.filters.boardBasisIds.includes(rate.boardBasisId)) &&
           (!criteria.filters?.refundableOnly || rate.cancellation.refundable) &&
           (criteria.filters?.minPriceMinor === undefined || rate.sellAmountMinor >= criteria.filters.minPriceMinor) &&
@@ -133,8 +284,16 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
         return rates.length === 0 ? [] : [{ ...room, rates }]
       })
       return rooms.length === 0 ? [] : [{ ...hotel, rooms }]
-    }).slice(0, criteria.limit ?? 50)
-    return { ok: true, hotels: filtered }
+    })
+    const sort = criteria.sort ?? 'default'
+    const leadPrice = (hotel) => hotel.rooms.reduce((min, room) => room.rates.reduce((roomMin, rate) => Math.min(roomMin, rate.sellAmountMinor), min), Number.MAX_SAFE_INTEGER)
+    if (sort === 'price') filtered.sort((left, right) => leadPrice(left) - leadPrice(right) || left.name.localeCompare(right.name) || left.hotelId.localeCompare(right.hotelId))
+    else if (sort === 'stars') filtered.sort((left, right) => right.starRating - left.starRating || left.name.localeCompare(right.name) || left.hotelId.localeCompare(right.hotelId))
+    else if (sort === 'name') filtered.sort((left, right) => left.name.localeCompare(right.name) || left.hotelId.localeCompare(right.hotelId))
+    const { limit, offset } = pageWindow(criteria)
+    if (!paginate && filtered.length > limit) throw Error('page')
+    const page = paginate ? filtered.slice(offset, offset + limit) : filtered
+    return { ok: true, hotels: page, matchedTotal: paginate ? filtered.length : page.length }
   } catch {
     return { ok: false, reason: 'mapping_unavailable' }
   }
@@ -149,16 +308,27 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
       !natural(value.providerSummary.queried, 0) || !natural(value.providerSummary.succeeded, 0) || !natural(value.providerSummary.failed, 0) ||
       value.providerSummary.succeeded + value.providerSummary.failed > value.providerSummary.queried)
     return { ok: false, reason: 'mapping_unavailable' }
-  const result = validateSearchHotels(value.hotels, criteria, now)
-  if (!result.ok || value.total !== result.hotels.length ||
+  const result = validateSearchHotels(value.hotels, criteria, now, undefined, false, 'agent')
+  const pagination = result.ok ? declaredPagination(value.pagination, criteria, result.hotels.length) : null
+  if (!result.ok || pagination === null || value.total !== result.hotels.length ||
       (!['available', 'partial'].includes(value.status) && result.hotels.length > 0) ||
       (['available', 'partial'].includes(value.status) && result.hotels.length === 0) ||
       (value.status === 'partial' && value.providerSummary.failed === 0))
     return { ok: false, reason: 'mapping_unavailable' }
+  const roomStays = criteria.roomStays?.map((stay) => ({ adults: stay.adults, children: stay.children.map((child) => ({ age: child.age })) }))
   return { ok: true, response: { version: 1, searchId: value.searchId, requestId: value.requestId,
-    generatedAt: value.generatedAt, status: value.status, request: { ...criteria, childAges: [...criteria.childAges] },
+    generatedAt: value.generatedAt, status: value.status, request: { ...criteria, childAges: [...criteria.childAges], ...(roomStays ? { roomStays } : {}) },
     hotels: result.hotels, total: result.hotels.length,
+    ...(pagination ? { pagination } : {}),
     providerSummary: { queried: value.providerSummary.queried, succeeded: value.providerSummary.succeeded, failed: value.providerSummary.failed } } }
 }
 
-module.exports = { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse }
+/** The API's agent-facing search hotels: validated internal offers reduced to the buyer's view. */
+function projectAgentHotels(hotels) {
+  return hotels.map((hotel) => {
+    const { supplierId: _supplierId, supplierHotelId: _supplierHotelId, ...shown } = hotel
+    return { ...shown, rooms: hotel.rooms.map((room) => ({ roomTypeId: room.roomTypeId, name: room.name, rates: room.rates.map(agentRate) })) }
+  })
+}
+
+module.exports = { validSearchCriteria, validateSearchHotels, validateAgentSearchResponse, projectAgentHotels, cityDestinationId }

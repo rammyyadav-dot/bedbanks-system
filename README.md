@@ -1,6 +1,6 @@
-# fBeds
+# fabBeds
 
-fBeds is a multi-tenant B2B hotel bedbank and travel-distribution platform. It connects contracted hotel supply with travel buyers through separate public, agent, operations and supplier experiences, governed by a NestJS API and PostgreSQL.
+fabBeds is a multi-tenant B2B hotel bedbank and travel-distribution platform. It connects contracted hotel supply with travel buyers through separate public, agent, operations and supplier experiences, governed by a NestJS API and PostgreSQL.
 
 > **Product status:** the repository contains production-oriented foundations and planned application surfaces. A screen or schema is not, by itself, a live supplier, booking, payment or fulfilment capability.
 

@@ -1,5 +1,5 @@
-import { CapabilityUnavailable } from '@/components/common/CapabilityUnavailable'
+import { FeatureUnavailable } from '@/components/common/FeatureUnavailable'
 
-export default function ReportsPage() {
-  return <CapabilityUnavailable eyebrow="REPORTS" title="Reports" description="Sales, booking, revenue and performance reports." />
+export default function Page() {
+  return <FeatureUnavailable eyebrow="REPORTS" title="Reports" reason="Reporting is not enabled for the Dubai MVP." />
 }

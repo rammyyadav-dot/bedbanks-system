@@ -1,3 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
-export default function ReportsPage() { return <OperationalModule config={moduleConfigs.reports} /> }
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Reports"
+      description="Operational reports are not available."
+    />
+  )
+}

@@ -1,60 +1,63 @@
 import type { LucideIcon } from 'lucide-react';
+import { departments, sidebarGroups, type DepartmentPermission, type OperationsPermission, type SupplyPermission } from '@bedbanks/contracts';
 import {
-  LayoutDashboard, Building2, Users, ShieldCheck, ScrollText, Hotel, BedDouble,
-  Truck, Radar, Tags, CalendarRange, Wallet, Bell, BarChart3, Settings,
+  Building2, LayoutDashboard, Hotel, Truck, Tags, CalendarRange, ShieldCheck, ScrollText, Settings, FileSignature, ClipboardCheck, Link2,
+  BookOpen, Lock, Wrench, Globe, Activity, UserCheck, Percent, Users, LifeBuoy, EyeOff, Landmark, Receipt, BanknoteArrowDown, Hourglass, History, Cable, Gauge, Undo2, TriangleAlert, BadgeCheck,
+  ListChecks, FileLock2, Scale, ArrowLeftRight, BadgePercent, PartyPopper,
 } from 'lucide-react';
 
-/** `live: false` marks routes that have no production API yet and render an unavailable state. */
-export interface NavItem { href: string; label: string; icon: LucideIcon; live: boolean; }
+export interface NavItem { href: string; label: string; icon: LucideIcon; /** Hide the item when the caller lacks this permission (UX hint only). */ requires?: SupplyPermission | OperationsPermission | DepartmentPermission; }
 export interface NavSection { label?: string; items: NavItem[]; }
 
-export const navSections: NavSection[] = [
-  { items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, live: true }] },
-  {
-    label: 'Business',
-    items: [
-      { href: '/tenants', label: 'Tenants', icon: Building2, live: true },
-      { href: '/users', label: 'Users', icon: Users, live: false },
-      { href: '/access', label: 'Roles & Permissions', icon: ShieldCheck, live: true },
-      { href: '/audit', label: 'Audit', icon: ScrollText, live: false },
-    ],
-  },
-  {
-    label: 'Hotel Supply',
-    items: [
-      { href: '/hotels', label: 'Hotels', icon: Hotel, live: true },
-      { href: '/rooms', label: 'Rooms', icon: BedDouble, live: true },
-    ],
-  },
-  {
-    label: 'Suppliers',
-    items: [
-      { href: '/suppliers', label: 'Suppliers', icon: Truck, live: true },
-      { href: '/mappings', label: 'Mappings', icon: ShieldCheck, live: true },
-      { href: '/contracts', label: 'Contracts', icon: ScrollText, live: true },
-      { href: '/board-basis', label: 'Board Basis', icon: Tags, live: true },
-    ],
-  },
-  {
-    label: 'Distribution',
-    items: [
-      { href: '/distribution', label: 'Search Monitor', icon: Radar, live: false },
-      { href: '/inventory', label: 'Inventory', icon: CalendarRange, live: true },
-      { href: '/rates', label: 'Rates', icon: Tags, live: true },
-    ],
-  },
-  { label: 'Pricing', items: [{ href: '/pricing', label: 'Pricing', icon: Tags, live: false }] },
-  {
-    label: 'Bookings',
-    items: [
-      { href: '/bookings', label: 'All Bookings', icon: CalendarRange, live: false },
-      { href: '/cancellations', label: 'Cancellations', icon: CalendarRange, live: true },
-    ],
-  },
-  { label: 'Finance', items: [{ href: '/finance/ledger', label: 'Ledger Adjustments', icon: Wallet, live: true }] },
-  { label: 'Communications', items: [{ href: '/notifications', label: 'Notifications', icon: Bell, live: true }] },
-  { label: 'Reports', items: [{ href: '/reports', label: 'Reports', icon: BarChart3, live: false }] },
-  { label: 'Settings', items: [{ href: '/settings', label: 'Settings', icon: Settings, live: true }] },
+const icons: Record<string, LucideIcon> = {
+  '/tenants': Building2,
+  '/dashboard': LayoutDashboard, '/exceptions': TriangleAlert, '/contracts': FileSignature, '/room-events': PartyPopper, '/hotels': Hotel, '/mappings': Link2,
+  '/suppliers': Truck, '/connectors': Cable, '/board-basis': Tags, '/rates/plans': ScrollText, '/rates': CalendarRange,
+  '/sellability': ClipboardCheck, '/rate-certification': BadgeCheck, '/operations': Gauge, '/bookings': BookOpen, '/bookings/queue': ListChecks, '/holds': Lock, '/cancellations': Undo2,
+  '/reconciliation': Wrench, '/finance/wallets': Landmark, '/finance/ledger': Receipt, '/finance/funding': BanknoteArrowDown, '/finance/receivables': Hourglass, '/finance/payables': Truck, '/finance/refunds': Undo2, '/finance/credit-notes': Receipt, '/finance/ledger-adjustments': Scale, '/finance/periods': Hourglass, '/finance/chart': Landmark, '/finance/reconciliation': Scale, '/finance/booking-postings': ListChecks, '/finance/booking-revenue': Gauge, '/finance/supplier-settlements': BadgeCheck, '/commercial/markups': Percent, '/commercial/promotions': BadgePercent, '/commercial/fx-rates': ArrowLeftRight, '/clients/agencies': Users, '/service/cases': LifeBuoy, '/distribution/restrictions': EyeOff, '/distribution/search-monitor': Activity, '/markets': Globe, '/reliability': Activity, '/access-review': UserCheck, '/compliance': FileLock2, '/access': ShieldCheck, '/settings': Settings, '/audit': History,
+};
+
+/**
+ * Enterprise department navigation (ADR 0015), derived from the department catalogue in `@bedbanks/contracts`.
+ * Only `live` modules render: a planned module has no route, no API and no sidebar entry, so nothing here
+ * presents a placeholder as a capability. A department with no live module does not appear at all.
+ * `requires` hides an item the caller cannot use; it is a UX hint, the API is the authorizer.
+ */
+const departmentNav: NavSection[] = sidebarGroups
+  .map((group) => ({
+    label: group.label,
+    items: group.departments
+      .flatMap((id) => departments.find((d) => d.id === id)?.modules ?? [])
+      .filter((m): m is typeof m & { href: string } => m.readiness === 'live' && !!m.href)
+      .map((m): NavItem => ({ href: m.href, label: m.label, icon: icons[m.href]!, requires: m.requires as NavItem['requires'] })),
+  }))
+  .filter((section) => section.items.length > 0);
+
+export const navSections: NavSection[] = departmentNav;
+
+/** Routes that stay reachable (and breadcrumbed) without a sidebar entry. */
+const hiddenRoutes: NavItem[] = [
+  { href: '/rooms', label: 'Rooms', icon: Hotel, requires: 'supply.rooms.read' },
+  { href: '/inventory', label: 'Rates & Inventory', icon: CalendarRange },
+  { href: '/market-groups', label: 'Source Market Groups', icon: Globe, requires: 'supply.contracts.read' },
 ];
 
-export const flatNav = navSections.flatMap((s) => s.items);
+export const flatNav = [...navSections.flatMap((s) => s.items), ...hiddenRoutes];
+
+/** True when `href` is the best (longest) sidebar match for `pathname`, so /rates does not also light up under /rates/plans. */
+export function isActiveRoute(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  const matches = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  if (!matches(href)) return false;
+  return !flatNav.some((other) => other.href.length > href.length && other.href.startsWith(href) && matches(other.href));
+}
+
+/** Breadcrumb for a path: the longest matching navigation entry, plus the remaining segment only when the path goes deeper than that entry. */
+export function breadcrumbTrail(pathname: string | null): { label: string; detail: string | null } {
+  const path = pathname ?? '/dashboard';
+  const match = flatNav
+    .filter((item) => path === item.href || path.startsWith(`${item.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const rest = match ? path.slice(match.href.length).split('/').filter(Boolean) : [];
+  return { label: match?.label ?? 'Dashboard', detail: rest.length ? rest[rest.length - 1]! : null };
+}

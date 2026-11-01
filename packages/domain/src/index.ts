@@ -1,24 +1,56 @@
 import type { Money } from '@bedbanks/money'
 
 export interface CanonicalHotel { id: string; name: string; destinationId: string; providerRefs: Record<string, string> }
+
+/** Canonical destination. There is no area entity in the hotel master, so area is not a resolution type. */
+export type DestinationRef =
+  | { type: 'city'; id: string; countryCode: string }
+  | { type: 'hotel'; id: string }
+
+export type DestinationResolution =
+  | { type: 'city'; id: string; name: string; countryCode: string }
+  | { type: 'hotel'; id: string; name: string; cityId: string; cityName: string; countryCode: string }
+
+/** One room's occupancy. Child ages are mandatory for every child in the room. */
+export interface SearchRoomStay {
+  adults: number
+  children: { age: number }[]
+}
+
+export type SearchSort = 'default' | 'price' | 'stars' | 'name'
+
 export interface SearchCriteria {
   destination: string
+  /** When present, the server resolves this id and overwrites destination. Free text is not a destination. */
+  destinationRef?: DestinationRef
   canonicalHotelIds?: string[]
   checkIn: string
   checkOut: string
+  /** Room count. With roomStays, this is the number of room stays. */
   rooms: number
+  /**
+   * Per-room adults when every room stay matches, otherwise the sum of room-stay adults.
+   * Contracted inventory prices only the uniform per-room case.
+   */
   adults: number
   children: number
   childAges: number[]
+  roomStays?: SearchRoomStay[]
   nationality: string
   currency: string
   limit?: number
+  /** Zero-based index into the stable sellable-hotel order. Omitted means the first page. */
+  offset?: number
+  /** Omitted means the supplier's stable order. Price, stars and name are applied before pagination. */
+  sort?: SearchSort
   filters?: {
     starRatings?: number[]
     boardBasisIds?: string[]
     refundableOnly?: boolean
     minPriceMinor?: number
     maxPriceMinor?: number
+    propertyTypes?: string[]
+    brands?: string[]
   }
 }
 export interface CanonicalRate { id: string; hotelId: string; currency: string; totalMinor: number; refundable: boolean }
@@ -36,6 +68,7 @@ export interface SearchRateOffer {
   supplierId: string
   supplierRoomId: string
   ratePlanId: string
+  contractId?: string
   ratePlanName: string
   boardBasisId: string
   boardBasisName: string
@@ -43,7 +76,9 @@ export interface SearchRateOffer {
   offerToken?: string
   expiresAt: string
   occupancy: SearchOccupancy
-  availability: 'available' | 'limited' | 'sold_out'
+  /** `on_request` is priced but not confirmed inventory: `available` is false and it can never be held or booked instantly. */
+  availability: 'available' | 'limited' | 'sold_out' | 'on_request'
+  /** True only for instantly sellable inventory (`available` or `limited`). */
   available: boolean
   cancellation: SearchCancellationPolicy
   /** Authoritative total for the complete stay and submitted occupancy. */
@@ -54,8 +89,29 @@ export interface SearchRateOffer {
   totalAmountMinor: number
   markupAmountMinor: number
   sellAmountMinor: number
-  paymentType: 'prepaid' | 'pay_at_hotel' | 'credit'
+  /** `unspecified` means the contracted plan has no recorded payment type. It is never defaulted to prepaid (ADR 0057). */
+  paymentType: 'prepaid' | 'pay_at_hotel' | 'credit' | 'unspecified'
+  /** What the contracted price includes, as the rate plan records it (ADR 0067, F-04). Absent for a provider that does not say. */
+  priceIncludes?: { taxes: boolean; fees: boolean }
+  /** Charges the guest pays the hotel directly, NOT included in the total (ADR 0067, F-04), each with an estimate for this stay and party. */
+  payAtHotel?: PayAtHotelCharge[]
+  /** The hotel promotion already included in the price (ADR 0058). Informational: the total is final, nothing is deducted again. */
+  /** ADR 0089: a hotel deal adds PERCENT_OFF, FLASH_SALE, SUBSEQUENT_NIGHTS, EVERY_NTH_FREE and FIXED_OFF; STAY_X_PAY_Y prices as FREE_NIGHTS. */
+  promotion?: { name: string; kind: 'EARLY_BIRD' | 'LAST_MINUTE' | 'LONG_STAY' | 'FREE_NIGHTS' | 'PERCENT_OFF' | 'FLASH_SALE' | 'SUBSEQUENT_NIGHTS' | 'EVERY_NTH_FREE' | 'FIXED_OFF' }
+  /** Board and compulsory supplements already included in the total (ADR 0067), each for all rooms of the stay. Informational. */
+  supplements?: Array<{ name: string; kind: 'BOARD' | 'COMPULSORY'; amountMinor: number }>
+  /** Event/exhibition supplements already included in the total (ADR 0089), each for all rooms of the stay. Informational. */
+  eventSupplements?: Array<{ roomEventId: string; roomEventName: string; amountMinor: number }>
   source: 'hotel_direct' | 'dmc' | 'bedbank' | 'channel_manager' | 'gds'
+}
+/** A local charge paid at the hotel (Tourism Dirham, city tax, resort fee). Integer minor units; `estimatedTotalMinor` is for the stay searched. */
+export interface PayAtHotelCharge {
+  kind: string
+  label: string
+  amountMinor: number
+  currency: string
+  basis: 'PER_ROOM_PER_NIGHT' | 'PER_PERSON_PER_NIGHT' | 'PER_ROOM_PER_STAY' | 'PER_PERSON_PER_STAY'
+  estimatedTotalMinor: number
 }
 export interface SearchRoomOffer {
   roomTypeId: string
@@ -63,14 +119,43 @@ export interface SearchRoomOffer {
   supplierRoomId: string
   rates: SearchRateOffer[]
 }
+/** Primary image of a published hotel (ADR 0027). No URL: the transport layer builds one from the hotel and image ids. */
+export interface SearchHotelImage { imageId: string; altText: string; width: number; height: number }
 export interface SearchHotelOffer {
   hotelId: string
   name: string
   destination: string
   starRating: number
+  /** Stored hotel master fields. Omitted when the catalogue has no value. */
+  propertyType?: string
+  /** Hotel profile brand name (ADR 0021), e.g. "JW Marriott". Omitted when the hotel has no profile or no brand recorded. */
+  brand?: string
+  address?: string
+  latitude?: string
+  longitude?: string
+  timeZone?: string
+  /** Omitted when the hotel has no image; never a placeholder. */
+  primaryImage?: SearchHotelImage
   supplierId: string
   supplierHotelId: string
   rooms: SearchRoomOffer[]
+}
+/**
+ * The buyer's view of an offer (ADR 0075), the only shape `POST /agent/search` returns. Net cost, markup, supplier cost, supplier,
+ * provider, contract and tenant identifiers stay on the server; recheck and hold resolve them from the stored offer.
+ */
+export type AgentRateOffer = Pick<SearchRateOffer, 'offerId' | 'hotelId' | 'roomTypeId' | 'ratePlanId' | 'ratePlanName' | 'boardBasisId' | 'boardBasisName' |
+  'expiresAt' | 'occupancy' | 'availability' | 'available' | 'cancellation' | 'total' | 'taxAmountMinor' | 'feeAmountMinor' | 'sellAmountMinor' |
+  'paymentType' | 'priceIncludes' | 'payAtHotel' | 'promotion' | 'supplements'>
+export interface AgentRoomOffer { roomTypeId: string; name: string; rates: AgentRateOffer[] }
+export type AgentHotelOffer = Omit<SearchHotelOffer, 'supplierId' | 'supplierHotelId' | 'rooms'> & { rooms: AgentRoomOffer[] }
+export interface SearchPagination {
+  limit: number
+  offset: number
+  /** Sellable hotels matching the criteria before the page window. */
+  total: number
+  hasMore: boolean
+  nextOffset?: number
 }
 export interface AgentSearchResponse {
   version: 1
@@ -79,8 +164,10 @@ export interface AgentSearchResponse {
   generatedAt: string
   status: 'available' | 'partial' | 'no_availability' | 'provider_unavailable' | 'mapping_unavailable'
   request: SearchCriteria
-  hotels: SearchHotelOffer[]
+  hotels: AgentHotelOffer[]
+  /** Hotels in this page. The matched count lives on `pagination.total`. */
   total: number
+  pagination?: SearchPagination
   providerSummary: { queried: number; succeeded: number; failed: number }
 }
 
@@ -153,12 +240,17 @@ export interface BookingTransactionCommand {
     firstName: string
     lastName: string
   }
+  /** Non-commercial checkout notes (ADR 0066). They do not change price, occupancy, or idempotency equality. */
+  agencyReference?: string
+  specialRequests?: { codes: string[]; note?: string; arrivalTime?: string }
+  /** Every guest by room, validated against the held occupancy; the lead guest is room 1's first adult. */
+  guests?: { roomNumber: number; type: 'ADULT' | 'CHILD'; title: string | null; firstName: string; lastName: string; age: number | null; isLead: boolean }[]
 }
 
 /**
- * Internal orchestration states. These deliberately do not replace Prisma BookingStatus:
- * InventoryHold remains the temporary inventory authority and supplier confirmation is
- * not enabled by this contract.
+ * Internal orchestration states. These deliberately do not replace Prisma BookingStatus.
+ * InventoryHold remains the temporary inventory authority. UNKNOWN means the supplier
+ * mutation outcome was not observed; it is not a failure and it is not a confirmation.
  */
 export type BookingTransactionState =
   | 'RECHECKED'
@@ -168,3 +260,5 @@ export type BookingTransactionState =
   | 'BOOKING_PENDING'
   | 'CONFIRMED'
   | 'FAILED'
+  | 'UNKNOWN'
+export * from './smart-search'

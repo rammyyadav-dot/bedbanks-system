@@ -1,0 +1,144 @@
+name: Staging release
+
+# Continuous delivery to AWS staging (ADR 0090). When CI succeeds on main this builds the images for that exact commit, then rolls staging to them and
+# smoke-tests it. It is INERT until the owner sets the repository variable STAGING_PIPELINE_ENABLED=true, which they do only after the AWS foundation
+# exists (docs/runbooks/aws-ecs-deployment.md). Production is never touched by this workflow.
+#
+# Migrations are never run from CI: the deploy role has no ecs:RunTask and no iam:PassRole for the migrate role, by design (ADR 0040/0055). So the plan job
+# compares the commit with the last SUCCESSFUL staging deployment and, when apps/api/prisma/migrations changed (or there has been no deployment yet),
+# builds the images but does not deploy. The owner runs scripts/ecs-migrate.sh staging <sha>, then dispatches this workflow with migrations_applied=true.
+# A failed deploy leaves the previous task definition serving (circuit breaker) and the run red; roll back with the AWS rollback workflow.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA on main (empty = the tip of main)
+        required: false
+        type: string
+        default: ''
+      migrations_applied:
+        description: I ran scripts/ecs-migrate.sh staging <sha> and it succeeded (skips the pending-migration stop)
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+  checks: read
+  deployments: read
+
+# Never two staging releases at once, never cancel a roll half way: the next commit queues behind the running one.
+concurrency:
+  group: staging-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: >-
+      vars.STAGING_PIPELINE_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      migrations_pending: ${{ steps.p.outputs.migrations_pending }}
+    steps:
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.sha }}
+          APPLIED: ${{ inputs.migrations_applied }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_run ]; then sha="$RUN_SHA"
+          elif [ -n "$INPUT_SHA" ]; then sha="$INPUT_SHA"
+          else sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"; fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
+          rel=$(gh api "repos/$REPO/compare/main...$sha" --jq .status)
+          case "$rel" in identical|behind) ;; *) echo "$sha is not on main (compare: $rel)" >&2; exit 1 ;; esac
+          # Skip superseded commits: a newer main tip will have its own run, and rolling staging back to an older build helps nobody.
+          tip=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$EVENT" = workflow_run ] && [ "$sha" != "$tip" ]; then
+            echo "$sha is no longer the tip of main ($tip); the newer commit has its own run" >> "$GITHUB_STEP_SUMMARY"
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"; echo "migrations_pending=superseded" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # The last commit that was successfully deployed to staging (GitHub records a deployment per environment-gated job).
+          prev=""
+          for id in $(gh api "repos/$REPO/deployments?environment=staging&per_page=50" --jq '.[].id'); do
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // "none"')
+            if [ "$state" = success ]; then prev=$(gh api "repos/$REPO/deployments/$id" --jq .sha); break; fi
+          done
+          pending=true; changed="unknown (no earlier successful staging deployment)"
+          if [ -n "$prev" ]; then
+            changed=$(gh api --paginate "repos/$REPO/compare/$prev...$sha" --jq '[.files[].filename | select(startswith("apps/api/prisma/migrations/"))] | length' | awk '{s+=$1} END {print s+0}')
+            [ "$changed" -gt 0 ] || pending=false
+          fi
+          if [ "$pending" = true ] && [ "$APPLIED" = true ]; then pending=false; changed="$changed (owner confirmed applied)"; fi
+          {
+            echo "### Staging release plan"
+            echo "- commit: \`$sha\`"
+            echo "- last deployed to staging: \`${prev:-none}\`"
+            echo "- migration files changed: $changed"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$pending" = true ]; then
+            {
+              echo "- **Deploy is held.** Images are still built. Next steps (owner credentials, RDS snapshot first):"
+              echo '```'
+              echo "scripts/ecs-migrate.sh staging $sha"
+              echo "gh workflow run staging-release.yml -f sha=$sha -f migrations_applied=true"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"; echo "migrations_pending=$pending" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build images
+    needs: plan
+    if: needs.plan.outputs.migrations_pending != 'superseded'
+    uses: ./.github/workflows/aws-images.yml
+    with:
+      environment: staging
+      apps: api admin agent supplier website
+      sha: ${{ needs.plan.outputs.sha }}
+
+  deploy:
+    name: Deploy to staging
+    needs: [plan, images]
+    if: needs.plan.outputs.migrations_pending == 'false'
+    uses: ./.github/workflows/aws-deploy.yml
+    with:
+      environment: staging
+      sha: ${{ needs.plan.outputs.sha }}
+      services: api admin agent supplier website
+
+  # Readiness of the deployed API through the staging edge. Shown as skipped (not green) until STAGING_SMOKE_URL is configured, e.g.
+  # https://admin.staging.<domain>/api/v1/health/ready (the Admin proxy reaches the API; docs/runbooks/aws-ecs-deployment.md step 6).
+  smoke:
+    name: Smoke test staging
+    needs: deploy
+    if: vars.STAGING_SMOKE_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: API readiness through the staging edge
+        env:
+          URL: ${{ vars.STAGING_SMOKE_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$URL" == https://* ]] || { echo "STAGING_SMOKE_URL must be https" >&2; exit 1; }
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)
+            [ "$code" = 200 ] && { echo "ready after $attempt attempt(s)" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+            echo "attempt $attempt: HTTP $code"; sleep 15
+          done
+          echo "staging did not become ready; consider the AWS rollback workflow" >&2; exit 1

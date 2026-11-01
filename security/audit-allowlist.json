@@ -1,0 +1,11 @@
+{
+  "_comment": "Accepted production-dependency advisories. Every entry needs a reason and an expiry (YYYY-MM-DD); an expired entry fails tools/dependency-audit-check.mjs. Prefer fixing or overriding in package.json pnpm.overrides.",
+  "accepted": [
+    {
+      "advisory": "GHSA-ggr8-5vv4-36mx",
+      "module": "deepmerge-ts",
+      "reason": "Reached only through the Prisma CLI config loader (@prisma/config), which merges our own committed prisma config at build/migrate time, never request data. Fix needs deepmerge-ts 8, a major bump inside Prisma's own dependency tree.",
+      "expires": "2026-12-31"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "measuredAs": {
+    "role": "fbeds_api_login",
+    "superuser": false,
+    "bypassRls": false,
+    "restrictedRuntime": true
+  },
+  "hotels": 1,
+  "ratePlans": 3,
+  "search": {
+    "runs": 15,
+    "p50Ms": 23.3,
+    "p95Ms": 60.1,
+    "maxMs": 60.1,
+    "plansExpected": {
+      "available": 3,
+      "on_request": 0,
+      "absent": 0
+    },
+    "mismatches": 0,
+    "mismatchDetail": [],
+    "overstatedAvailability": 0,
+    "offersReturned": 3
+  },
+  "recheck": {
+    "samples": 3,
+    "p50Ms": 18.5,
+    "p95Ms": 21,
+    "wrongOutcomes": 0
+  },
+  "adminSummary": {
+    "runs": 15,
+    "p50Ms": 11.9,
+    "p95Ms": 18.2,
+    "firstPoolNightRemaining": 5
+  },
+  "concurrency": {
+    "poolsTested": 1,
+    "attemptsPerPool": 12,
+    "totalAttempts": 12,
+    "totalHeld": 5,
+    "poolsWithWrongCount": 0,
+    "ms": 132
+  }
+}

@@ -44,3 +44,34 @@ role, store `HOLD_EXPIRY_DATABASE_URL` as a secret reference, verify, then enabl
 
 ## Rollback
 Set `HOLD_EXPIRY_SWEEP_ENABLED=false` and restart. No schema change is involved.
+
+## Addendum: PROCESSING claim (2026-10-02)
+
+A booking attempt now claims its hold before any wallet reservation or supplier call:
+`InventoryHoldService.beginProcessing` performs one conditional `UPDATE … SET status='PROCESSING'
+WHERE status='HELD' AND expires_at > now()`. The sweeper only expires `HELD` rows, so a claimed hold can no
+longer be released mid-checkout, and an already-expired hold can never be claimed. Compensation
+(`release`) accepts `HELD` or `PROCESSING`; expiry still accepts only `HELD`.
+
+Order in `SupplierPrebookOrchestrationService`: persist PENDING booking → claim hold → authorize wallet
+(inventory-only release if this fails) → supplier prebook (full compensation if this fails).
+
+A process crash after the claim leaves a `PROCESSING` hold and possibly a wallet HOLD ledger entry. This is
+resolved by `BookingReconciliationService` (`POST /agent/bookings/reconcile-stale`, permission
+`booking.reconcile`, `dryRun` supported, stale after >= 5 minutes, default 30, 50 holds per call):
+
+- Stale `PROCESSING` hold + `PENDING` booking with **no** `booking.prebook.succeeded` audit marker -> release the
+  wallet reservation (if any), release the inventory, mark the booking `FAILED`, audit `booking.reconciled`.
+- Marker present (supplier prebook succeeded) -> left alone (`prebooked_awaiting_confirmation`); confirmation or
+  cancellation owns it. Booking not `PENDING` -> left alone. Claimed hold with no booking -> inventory released.
+- Every step is idempotent; a failed item is audited (`booking.reconciliation.failed`) and retried by re-running.
+- Compensation failures are now logged (error name only) and audited (`booking.compensation.failed`,
+  `booking.compensation.reconciliation_required`) instead of swallowed.
+
+Why an operator action and not a timer: the ordinary HTTP database role cannot write SYSTEM audit events, and the
+restricted hold-expiry role deliberately has no ledger access. Running unattended would need a second governed
+role with ledger privileges; that is a separate security decision and is intentionally not made here.
+Residual risk: a crash in the instant between a successful supplier prebook and its audit marker is reconciled as
+a failure; the supplier prebook uses the deterministic key `booking:<id>:prebook` and expires on its own.
+Migration `202610020001_inventory_hold_processing_state` is additive; PostgreSQL cannot drop enum values, so
+rollback means resolving all `PROCESSING` holds and leaving the unused value in place.

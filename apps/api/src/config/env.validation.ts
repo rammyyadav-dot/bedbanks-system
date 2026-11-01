@@ -1,4 +1,6 @@
 import { plainToInstance } from 'class-transformer';
+import { parseOriginList } from './trusted-origins';
+import { checkRuntimeUrl, runtimeGuardMode } from '../database/runtime-db-identity';
 import {
   IsEnum,
   IsIn,
@@ -54,6 +56,11 @@ class EnvironmentVariables {
   @IsOptional()
   AUTH_SESSION_TTL_SECONDS: number = 28800; // 8 hours
 
+  @IsInt()
+  @Min(60, { message: 'AUTH_REMEMBER_TTL_SECONDS should be at least 60 seconds' })
+  @IsOptional()
+  AUTH_REMEMBER_TTL_SECONDS: number = 1296000; // 15 days; clamped to 30 days at runtime (ADR 0091)
+
   @IsString()
   @IsOptional()
   @Matches(/^[A-Za-z0-9_-]+$/)
@@ -74,6 +81,17 @@ class EnvironmentVariables {
   @IsUrl({ require_tld: false }, { message: 'ADMIN_ORIGIN must be a valid URL, e.g. http://localhost:3001' })
   @IsOptional()
   ADMIN_ORIGIN: string = 'http://localhost:3001';
+
+  // Comma-separated exact origins of the other portals (Agent, Supplier) whose
+  // same-origin proxies forward cookie-authenticated mutations to this API.
+  @IsString()
+  @IsOptional()
+  TRUSTED_ORIGINS?: string;
+
+  /** Exact portal origins that host /reset-password (ADR 0091). Unset leaves password reset off. */
+  @IsString()
+  @IsOptional()
+  PASSWORD_RESET_ORIGINS?: string;
 }
 
 /**
@@ -83,10 +101,20 @@ class EnvironmentVariables {
  * `undefined` config values. Covers process/API config (P0-B),
  * DATABASE_URL (P0-C), and session/cookie/CORS config (P0-D).
  */
+function integerEnv(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isInteger(parsed) ? parsed : Number.NaN
+}
+
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
   const normalizedConfig = {
     ...config,
     API_PORT: Number.isInteger(Number(config.API_PORT)) && Number(config.API_PORT) > 0 ? Number(config.API_PORT) : 3002,
+    // Environment values are strings. tsx does not emit design:type metadata, so
+    // class-transformer cannot turn this one into a number on its own.
+    AUTH_SESSION_TTL_SECONDS: integerEnv(config.AUTH_SESSION_TTL_SECONDS, 28800),
+    AUTH_REMEMBER_TTL_SECONDS: integerEnv(config.AUTH_REMEMBER_TTL_SECONDS, 1296000),
   }
   const validatedConfig = plainToInstance(EnvironmentVariables, normalizedConfig, {
     enableImplicitConversion: true,
@@ -115,12 +143,47 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     );
   }
 
+  // P0-01 (ADR 0040): the identity guard may only be switched off by the test harness; any other combination is a startup error, never a silent downgrade.
+  runtimeGuardMode({ ...(config as Record<string, string | undefined>), NODE_ENV: validatedConfig.NODE_ENV });
+  const runtimeUrl = checkRuntimeUrl(validatedConfig.DATABASE_URL);
+  if (!runtimeUrl.ok && runtimeUrl.reason?.includes('known owner') && validatedConfig.NODE_ENV === Environment.Production) {
+    throw new Error(`Refusing to start: DATABASE_URL must be the restricted runtime login (${runtimeUrl.reason}). Use MIGRATION_DATABASE_URL only for migrations.`);
+  }
+
   const origin = new URL(validatedConfig.ADMIN_ORIGIN);
   if (origin.origin !== validatedConfig.ADMIN_ORIGIN || !['http:', 'https:'].includes(origin.protocol)) {
     throw new Error('ADMIN_ORIGIN must be an exact HTTP(S) origin without a path');
   }
   if ([Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV) && origin.protocol !== 'https:') {
     throw new Error('Staging and production require an HTTPS ADMIN_ORIGIN');
+  }
+
+  for (const origin of parseOriginList(validatedConfig.PASSWORD_RESET_ORIGINS)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins');
+    }
+    if (parsed.origin !== origin || (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && validatedConfig.NODE_ENV !== Environment.Production && validatedConfig.NODE_ENV !== Environment.Staging))) {
+      throw new Error('PASSWORD_RESET_ORIGINS must be a comma-separated list of exact HTTPS origins without paths');
+    }
+  }
+
+  const production = [Environment.Production, Environment.Staging].includes(validatedConfig.NODE_ENV);
+  for (const trusted of parseOriginList(validatedConfig.TRUSTED_ORIGINS)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(trusted);
+    } catch {
+      throw new Error('TRUSTED_ORIGINS must be a comma-separated list of exact HTTP(S) origins');
+    }
+    if (parsed.origin !== trusted || !['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('TRUSTED_ORIGINS must be a comma-separated list of exact HTTP(S) origins without paths');
+    }
+    if (production && parsed.protocol !== 'https:') {
+      throw new Error('Staging and production require HTTPS TRUSTED_ORIGINS');
+    }
   }
   return validatedConfig;
 }

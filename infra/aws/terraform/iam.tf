@@ -1,0 +1,178 @@
+data "aws_iam_policy_document" "ecs_tasks_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+# Execution role: pull images, write logs, read ONLY this environment's runtime secrets.
+resource "aws_iam_role" "execution" {
+  name               = "${local.name}-ecs-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+resource "aws_iam_role_policy_attachment" "execution" {
+  role       = aws_iam_role.execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+data "aws_iam_policy_document" "execution_secrets" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.api_database_url.arn, aws_secretsmanager_secret.booking_ops_database_url.arn, aws_secretsmanager_secret.redis_url.arn]
+  }
+  statement {
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.data.arn]
+  }
+}
+resource "aws_iam_role_policy" "execution_secrets" {
+  role   = aws_iam_role.execution.id
+  policy = data.aws_iam_policy_document.execution_secrets.json
+}
+
+# Task roles carry no AWS permissions except the API role's ses:SendEmail on one verified identity (below, only when ses_identity_arn is set). Separate roles so a grant can be added per service.
+resource "aws_iam_role" "task" {
+  for_each           = local.services
+  name               = "${local.name}-${each.key}-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+
+# ADR 0091: the API sends password-reset email through SES. One action, one identity, nothing else.
+data "aws_iam_policy_document" "api_ses" {
+  count = var.ses_identity_arn == "" ? 0 : 1
+  statement {
+    actions   = ["ses:SendEmail"]
+    resources = [var.ses_identity_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "api_ses" {
+  count  = var.ses_identity_arn == "" ? 0 : 1
+  name   = "ses-send-email"
+  role   = aws_iam_role.task["api"].id
+  policy = data.aws_iam_policy_document.api_ses[0].json
+}
+
+# ADR 0093: each ADOT sidecar runs under its service's task role and may only write traces and read X-Ray sampling rules. No read of trace data.
+data "aws_iam_policy_document" "xray" {
+  count = var.tracing_enabled ? 1 : 0
+  statement {
+    actions   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets", "xray:GetSamplingStatisticSummaries"]
+    resources = ["*"] # X-Ray write actions do not support resource-level permissions
+  }
+}
+
+resource "aws_iam_role_policy" "xray" {
+  for_each = local.traced_services
+  name     = "xray-write-traces"
+  role     = aws_iam_role.task[each.key].id
+  policy   = data.aws_iam_policy_document.xray[0].json
+}
+
+# One-off migration task: the only principal that may read the database OWNER secret.
+resource "aws_iam_role" "migrate_execution" {
+  name               = "${local.name}-migrate-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
+}
+resource "aws_iam_role_policy_attachment" "migrate_execution" {
+  role       = aws_iam_role.migrate_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+data "aws_iam_policy_document" "migrate_secrets" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_db_instance.this.master_user_secret[0].secret_arn]
+  }
+  statement {
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.data.arn]
+  }
+}
+resource "aws_iam_role_policy" "migrate_secrets" {
+  role   = aws_iam_role.migrate_execution.id
+  policy = data.aws_iam_policy_document.migrate_secrets.json
+}
+
+# ---- GitHub Actions: OIDC, no long-lived keys. Build role may push images; deploy role may update only these services. ----
+resource "aws_iam_openid_connect_provider" "github" {
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+}
+data "aws_iam_policy_document" "github_trust" {
+  for_each = {
+    build  = "repo:${var.github_repository}:ref:refs/heads/main"
+    deploy = "repo:${var.github_repository}:environment:${var.environment}"
+  }
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = [each.value]
+    }
+  }
+}
+resource "aws_iam_role" "github_build" {
+  name               = "${local.name}-github-build"
+  assume_role_policy = data.aws_iam_policy_document.github_trust["build"].json
+}
+data "aws_iam_policy_document" "github_build" {
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    actions   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload", "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart", "ecr:DescribeImages"]
+    resources = [for r in aws_ecr_repository.this : r.arn]
+  }
+}
+resource "aws_iam_role_policy" "github_build" {
+  role   = aws_iam_role.github_build.id
+  policy = data.aws_iam_policy_document.github_build.json
+}
+resource "aws_iam_role" "github_deploy" {
+  name               = "${local.name}-github-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_trust["deploy"].json
+}
+data "aws_iam_policy_document" "github_deploy" {
+  statement {
+    actions   = ["ecs:DescribeServices", "ecs:DescribeTaskDefinition", "ecs:RegisterTaskDefinition", "ecs:ListTasks", "ecs:DescribeTasks"]
+    resources = ["*"]
+  }
+  statement {
+    actions   = ["ecs:UpdateService"]
+    resources = [for s in aws_ecs_service.this : s.id]
+  }
+  # Read-only image lookup so a deploy fails early (and can pin the digest) when a commit was never built. No push, no registry login.
+  statement {
+    actions   = ["ecr:DescribeImages"]
+    resources = [for r in aws_ecr_repository.this : r.arn]
+  }
+  # No ecs:RunTask and no PassRole for the migrate role: migrations use the owner database credential and are an owner action,
+  # never reachable from the CI deploy role (ADR 0040, ADR 0055). The compliance (compliance.tf) and search reindex (search-reindex.tf) task roles, when enabled, are included
+  # so the deploy can register a task revision with each API image; it still cannot run one (no ecs:RunTask), only each task's own scheduler can.
+  statement {
+    actions   = ["iam:PassRole"]
+    resources = concat([aws_iam_role.execution.arn], [for r in aws_iam_role.task : r.arn], [for r in aws_iam_role.compliance_execution : r.arn], [for r in aws_iam_role.compliance_task : r.arn], [for r in aws_iam_role.search_reindex_execution : r.arn], [for r in aws_iam_role.search_reindex_task : r.arn])
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+resource "aws_iam_role_policy" "github_deploy" {
+  role   = aws_iam_role.github_deploy.id
+  policy = data.aws_iam_policy_document.github_deploy.json
+}

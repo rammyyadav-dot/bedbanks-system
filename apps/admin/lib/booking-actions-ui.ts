@@ -1,0 +1,161 @@
+// Pure helpers for the booking action dialogs and the manual entry form (ADR 0039, Phase 2). No React, no network.
+import { BOOKING_REASON_MAX, BOOKING_REF_MAX, type BookingActionField, type BookingAvailableAction, type BookingActionRequest, type BookingStatus, type ManualBookingRequest } from '@bedbanks/contracts'
+import { ApiResponseError } from './api/errors'
+import { buildRules, type RuleForm } from './booking-finance-ui'
+import { parseMajorToMinor } from './minor-units'
+
+export const newIdempotencyKey = (): string => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `k-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+
+export interface ActionFormState { reason: string; supplierRef: string; hotelConfirmationNo: string; supplierCancellationRef: string; confirmNonRefundable: boolean }
+export const emptyActionForm = (): ActionFormState => ({ reason: '', supplierRef: '', hotelConfirmationNo: '', supplierCancellationRef: '', confirmNonRefundable: false })
+
+export const FIELD_LABEL: Record<BookingActionField, string> = {
+  reason: 'Reason', supplierRef: 'Supplier reference', hotelConfirmationNo: 'Hotel confirmation number', supplierCancellationRef: 'Supplier cancellation reference', confirmNonRefundable: 'Second confirmation',
+}
+
+/** Builds the request body, or lists what is still missing. Trims; never sends empty strings. */
+export function buildActionRequest(action: BookingAvailableAction, expectedStatus: BookingStatus, form: ActionFormState): { request: BookingActionRequest } | { missing: BookingActionField[] } {
+  const value = (v: string) => v.trim()
+  const missing: BookingActionField[] = []
+  for (const field of action.required) {
+    if (field === 'confirmNonRefundable') continue
+    if (!value(form[field])) missing.push(field)
+  }
+  if (action.needsSecondConfirmation && !form.confirmNonRefundable) missing.push('confirmNonRefundable')
+  if (missing.length) return { missing }
+  const request: BookingActionRequest = { action: action.action, expectedStatus }
+  if (value(form.reason)) request.reason = value(form.reason)
+  if (action.required.includes('supplierRef') || value(form.supplierRef)) { if (value(form.supplierRef)) request.supplierRef = value(form.supplierRef) }
+  if (action.required.includes('hotelConfirmationNo') || value(form.hotelConfirmationNo)) { if (value(form.hotelConfirmationNo)) request.hotelConfirmationNo = value(form.hotelConfirmationNo) }
+  if (value(form.supplierCancellationRef)) request.supplierCancellationRef = value(form.supplierCancellationRef)
+  if (action.needsSecondConfirmation) request.confirmNonRefundable = true
+  return { request }
+}
+
+/** Fields an action may collect, beyond the required ones (optional ones are shown but not demanded). */
+export function visibleFields(action: BookingAvailableAction): BookingActionField[] {
+  const fields = new Set<BookingActionField>(action.required)
+  if (action.action === 'recordConfirmed') fields.add('hotelConfirmationNo')
+  if (action.action === 'approveAmendment') fields.add('reason')
+  if (action.action === 'recordOnRequest') fields.add('reason')
+  return (['supplierRef', 'hotelConfirmationNo', 'supplierCancellationRef', 'reason'] as const).filter((f) => fields.has(f))
+}
+export const isOptional = (action: BookingAvailableAction, field: BookingActionField) => !action.required.includes(field)
+
+export const MAX_LENGTH: Record<BookingActionField, number> = { reason: BOOKING_REASON_MAX, supplierRef: BOOKING_REF_MAX, hotelConfirmationNo: BOOKING_REF_MAX, supplierCancellationRef: BOOKING_REF_MAX, confirmNonRefundable: 0 }
+
+const COPY: Record<string, string> = {
+  BOOKING_BULK_EMPTY: 'Select at least one booking.',
+  BOOKING_BULK_TOO_MANY: 'You can act on at most 100 bookings at once. Nothing was applied.',
+  BOOKING_BULK_DUPLICATE_IDS: 'The same booking was selected twice. Nothing was applied.',
+  BOOKING_BULK_UNSUPPORTED_ACTION: 'That bulk action is not available. Nothing was applied.',
+  BOOKING_BULK_INVALID: 'The bulk request was not valid. Nothing was applied.',
+  BOOKING_BULK_FORBIDDEN: 'You do not have permission to run this bulk action. Nothing was applied.',
+  STALE_STATUS: 'This booking changed while you were working. Close this and reload to see its current status.',
+  ILLEGAL_TRANSITION: 'That move is not allowed from the booking’s current status.',
+  BOOKING_CLOSED: 'This booking is closed and locked for edits.',
+  MISSING_FIELDS: 'Some required fields are missing.',
+  CONFIRMATION_REQUIRED: 'This booking is not known to be refundable. Tick the second confirmation to continue.',
+  NO_SHOW_WINDOW: 'A no-show can only be marked within 7 days of check-in.',
+  IDEMPOTENCY_CONFLICT: 'This request was already used with different details. Close the dialog and start again.',
+  PERMISSION_DENIED: 'You do not have permission to do this on this booking.',
+  FORBIDDEN: 'You do not have permission to do this.',
+  BOOKING_NOT_FOUND: 'This booking could not be found.',
+  NOT_FOUND: 'This booking could not be found.',
+  FIELD_TOO_LONG: 'One of the fields is too long.',
+  NO_CHANGE: 'Nothing changed: those references are already recorded.',
+  AMENDMENT_INVALID: 'The amendment is not valid.',
+  AMENDMENT_NO_CHANGE: 'Nothing would change: the dates and the people are the same as now. To ask for something else, describe it in the note without changing the fields.',
+  AMENDMENT_APPROVAL_REQUIRED: 'Record the price the supplier confirmed for the new dates and occupancy.',
+  AMENDMENT_APPROVAL_INVALID: 'The price you entered is not valid.',
+  AMENDMENT_APPROVAL_NOT_EXPECTED: 'This request has no structured change, so it is approved without a price.',
+  AMENDMENT_STALE: 'The booking changed after this amendment was requested. Reject it and ask again.',
+  AMENDMENT_LEDGER_ADJUSTMENT_REQUIRED: 'This booking was charged on the agency ledger, and a price change needs a ledger adjustment that is not built yet. Nothing was changed. Reject this amendment and agree the change with Finance, or approve it only if the price stays the same.',
+  AMENDMENT_LEDGER_UNVERIFIABLE: 'Could not check whether this booking was charged on the agency ledger, so a price change is not allowed. Nothing was changed. Try again, or ask Finance.',
+  MANUAL_BOOKING_DISABLED: 'Manual booking entry is switched off in this environment.',
+  HOTEL_NOT_FOUND: 'That hotel was not found for this operator.',
+  AGENCY_NOT_FOUND: 'That agency was not found for this operator.',
+  AGENCY_NOT_ACTIVE: 'New bookings are blocked for an agency that is not active.',
+  CURRENCY_NOT_ENABLED: 'That currency is not enabled for this deployment.',
+  OPERATIONS_READ_DENIED: 'The booking service is not available to this environment right now. Nothing was changed.',
+  SUPPLIER_NOT_CONFIGURED: 'No supplier connection is set up for this booking’s supplier, so nothing can be sent. Record the supplier’s answer by hand instead.',
+  SUPPLIER_JOB_ACTIVE: 'A supplier job is already queued or running for this booking.',
+  SUPPLIER_STATE_UNKNOWN: 'The supplier’s answer is not known. Sync with the supplier first: sending again could create a duplicate booking.',
+  ILLEGAL_SUPPLIER_OPERATION: 'That supplier operation is not available for this booking now.',
+  SUPPLIER_JOBS_DISABLED: 'The supplier queue is switched off in this environment.',
+  SAVED_VIEW_NAME_TAKEN: 'You already have a view with that name. Choose another.',
+  SAVED_VIEW_LIMIT: 'You can keep at most 50 saved views. Delete one first.',
+  SAVED_VIEW_STALE: 'This view was changed somewhere else. Reload the list and try again.',
+  SAVED_VIEW_FORBIDDEN: 'You cannot save a view that uses a filter you are not allowed to use.',
+  SAVED_VIEW_NOT_FOUND: 'That view no longer exists.',
+  SAVED_VIEW_INVALID: 'The view could not be saved.',
+  BOOKING_QUERY_INVALID: 'One of the filters is not valid.',
+  NETWORK_ERROR: 'The server could not be reached. Nothing was confirmed; you can retry safely, the same request will not be applied twice.',
+  API_TIMEOUT: 'The server did not answer in time. The change may or may not have been applied: reload the booking before trying again. Retrying this dialog is safe.',
+}
+/** Plain words for an API failure, plus the server's own message for validation errors, and the request id for support. */
+export function describeActionError(error: unknown): { message: string; requestId: string | null; reload: boolean } {
+  if (!(error instanceof ApiResponseError)) return { message: 'Something went wrong. Nothing was confirmed.', requestId: null, reload: false }
+  const base = COPY[error.code] ?? (error.status >= 500 ? 'The server could not complete the request. Nothing was confirmed.' : error.message || 'The request was refused.')
+  const detail = error.code === 'MISSING_FIELDS' || error.code === 'SAVED_VIEW_INVALID' || error.code === 'BOOKING_QUERY_INVALID' || error.code === 'VALIDATION_ERROR' || error.code === 'INVALID_MANUAL_BOOKING' || error.code === 'AMENDMENT_INVALID' || error.code === 'AMENDMENT_APPROVAL_INVALID' ? ` ${error.message}` : ''
+  return { message: `${base}${detail}`.trim(), requestId: error.requestId, reload: error.code === 'STALE_STATUS' || error.code === 'ILLEGAL_TRANSITION' || error.code === 'BOOKING_CLOSED' || error.code === 'API_TIMEOUT' }
+}
+
+// ---- manual entry ------------------------------------------------------------------------------------------------------
+export interface ManualRoomForm { roomName: string; boardCode: string; adults: string; children: string; childAges: string }
+export interface ManualGuestForm { title: string; firstName: string; lastName: string; isLead: boolean }
+export interface ManualForm {
+  sendToSupplier: boolean
+  ratePlanId?: string
+  agencyId: string; hotelId: string; supplier: string; checkIn: string; checkOut: string; currency: string; sell: string; net: string
+  paymentMode: '' | 'CREDIT' | 'PREPAID' | 'PAY_AT_HOTEL'; refundable: '' | 'yes' | 'no'; cancelDeadline: string; agentRef: string
+  rooms: ManualRoomForm[]; guests: ManualGuestForm[]
+  /** Cancellation terms frozen with the booking (Phase 5). Empty: a later cancellation's penalty is a person's decision. */
+  rules: RuleForm[]
+}
+export const emptyManualForm = (currency = 'AED'): ManualForm => ({
+  sendToSupplier: false, ratePlanId: '', agencyId: '', hotelId: '', supplier: '', checkIn: '', checkOut: '', currency, sell: '', net: '', paymentMode: '', refundable: '', cancelDeadline: '', agentRef: '',
+  rooms: [{ roomName: '', boardCode: '', adults: '2', children: '0', childAges: '' }], guests: [{ title: '', firstName: '', lastName: '', isLead: true }], rules: [],
+})
+
+const wholeNumber = (v: string): number | null => (/^\d{1,2}$/.test(v.trim()) ? Number(v.trim()) : null)
+
+/** Converts the form to the API request using integer minor units only, or returns field-keyed errors. The API validates again. */
+export function buildManualRequest(form: ManualForm): { request: ManualBookingRequest } | { errors: Record<string, string> } {
+  const errors: Record<string, string> = {}
+  const need = (key: string, value: string, label: string) => { if (!value.trim()) errors[key] = `${label} is required` }
+  need('agencyId', form.agencyId, 'Agency'); need('hotelId', form.hotelId, 'Hotel'); need('supplier', form.supplier, 'Supplier'); need('checkIn', form.checkIn, 'Check-in'); need('checkOut', form.checkOut, 'Check-out')
+  if (form.checkIn && form.checkOut && form.checkOut <= form.checkIn) errors.checkOut = 'Check-out must be after check-in'
+  const sellMinor = parseMajorToMinor(form.sell, form.currency)
+  if (sellMinor === null || BigInt(sellMinor) <= 0n) errors.sell = 'Enter the sell amount as a plain number with at most the currency’s decimals'
+  let netMinor: string | undefined
+  if (form.net.trim()) { const n = parseMajorToMinor(form.net, form.currency); if (n === null) errors.net = 'Enter the net amount as a plain number'; else netMinor = n }
+  const rooms = form.rooms.map((r, i) => {
+    const adults = wholeNumber(r.adults); const children = wholeNumber(r.children || '0')
+    const ages = r.childAges.split(',').map((a) => a.trim()).filter(Boolean).map((a) => wholeNumber(a))
+    if (!r.roomName.trim()) errors[`rooms.${i}.roomName`] = 'Room name is required'
+    if (adults === null || adults < 1) errors[`rooms.${i}.adults`] = 'Adults: 1 to 9'
+    if (children === null) errors[`rooms.${i}.children`] = 'Children: a whole number'
+    else if (ages.length !== children || ages.some((a) => a === null || a > 17)) errors[`rooms.${i}.childAges`] = 'Enter one age (0 to 17) per child, separated by commas'
+    return { roomName: r.roomName.trim(), ...(r.boardCode.trim() ? { boardCode: r.boardCode.trim() } : {}), adults: adults ?? 0, children: children ?? 0, childAges: ages.filter((a): a is number => a !== null) }
+  })
+  const guests = form.guests.map((g, i) => {
+    if (!g.firstName.trim()) errors[`guests.${i}.firstName`] = 'First name is required'
+    if (!g.lastName.trim()) errors[`guests.${i}.lastName`] = 'Last name is required'
+    return { ...(g.title.trim() ? { title: g.title.trim() } : {}), firstName: g.firstName.trim(), lastName: g.lastName.trim(), isLead: g.isLead }
+  })
+  if (guests.filter((g) => g.isLead).length !== 1) errors.guests = 'Choose exactly one lead guest'
+  let cancellationRules: ManualBookingRequest['cancellationRules']
+  if (form.rules.length) {
+    if (form.refundable === 'no') errors.rules = 'A non-refundable booking has no cancellation rules; the whole amount is the penalty'
+    const built = buildRules(form.rules, form.currency)
+    if ('errors' in built) Object.assign(errors, built.errors); else cancellationRules = built.rules
+  }
+  if (Object.keys(errors).length) return { errors }
+  const request: ManualBookingRequest = {
+    agencyId: form.agencyId, hotelId: form.hotelId, supplier: form.supplier.trim(), checkIn: form.checkIn, checkOut: form.checkOut, currency: form.currency, sellMinor: sellMinor as string, rooms, guests,
+    ...(form.sendToSupplier ? { sendToSupplier: true } : {}), ...(netMinor ? { netMinor } : {}), ...(form.paymentMode ? { paymentMode: form.paymentMode } : {}), ...(!form.ratePlanId && form.refundable ? { isRefundable: form.refundable === 'yes' } : {}),
+    ...(!form.ratePlanId && form.cancelDeadline ? { cancelDeadline: new Date(form.cancelDeadline).toISOString() } : {}), ...(form.agentRef.trim() ? { agentRef: form.agentRef.trim() } : {}), ...(!form.ratePlanId && cancellationRules ? { cancellationRules } : {}), ...(form.ratePlanId ? { ratePlanId: form.ratePlanId } : {}),
+  }
+  return { request }
+}

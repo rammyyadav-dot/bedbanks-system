@@ -2,18 +2,24 @@ name: Tenant isolation checks
 
 on:
   pull_request:
-    paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts']
+    paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts', 'tools/tenant-filter-check*', 'package.json']
+
+permissions:
+  contents: read
 
 jobs:
   tenant-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check:tenant-filter
+      - run: node --import tsx --test tools/tenant-filter-check.test.ts
       - run: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fbeds_ci pnpm --filter @bedbanks/api prisma:generate
       - run: pnpm --filter @bedbanks/api exec jest --runInBand src/agent/tenant-context.guard.spec.ts

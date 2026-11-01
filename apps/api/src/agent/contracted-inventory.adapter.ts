@@ -1,0 +1,613 @@
+import { completeHotelsInCity } from './hotel-candidates'
+import { payAtHotel } from '../supply/local-charges'
+import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
+import { Inject, Injectable, Logger } from '@nestjs/common'
+import { randomUUID } from 'crypto'
+import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbanks/domain'
+import type { SupplierType } from '@prisma/client'
+import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
+import { PrismaService } from '../database/prisma.service'
+import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
+import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { loadDealRules, withDealRules } from '../supply/deal-rules.loader'
+import { markupResolverFor, rulesNeedBuyer, type MarkupRuleRow } from '../supply/markup-rules'
+import { loadActiveFxRates } from '../supply/fx-rates.loader'
+import type { FxQuote } from '../supply/fx'
+import { loadActiveMarkupRules } from '../supply/markup-rules.loader'
+import { CommercialControlUnavailableError, logCommercialControlFailure } from '../supply/commercial-controls'
+import { isRestricted, loadDistributionRestrictions, type DistributionRestrictions } from '../supply/distribution-restrictions'
+import { loadBuyerAgency, loadBuyerMarket } from '../supply/buyer-market'
+import { normalizeCountry, parseMarketRules, type BuyerContext } from '../supply/market-rules'
+import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
+import { offerPaymentType } from './offer-payment-type'
+import { uniformRoomStays } from './room-stays'
+import { CancellationPolicyService, buyerRules, describePenalty, type CancellationRule } from './cancellation-policy.service'
+import { formatMinor } from './booking-document.render'
+import { SupplierProviderError, type PrebookRequest, type RecheckedOfferAuthority, type SupplierAdapter, type SupplierRecheckRequest, type SupplierRecheckResult, type SupplierRequestContext, type SupplierSearchContext, type SupplierSearchResult } from './supplier.port'
+
+export const CONTRACTED_OFFER_PREFIX = 'ci_'
+export const CONTRACTED_REFERENCE_PREFIX = 'contracted:'
+const DEFAULT_OFFER_TTL_MS = 900_000
+const MIN_OFFER_TTL_MS = 1_000
+const MAX_OFFER_TTL_MS = 3_600_000
+/** An elapsed offer stays in process memory this long so a late recheck still answers `offer_expired`; after it, the entry is swept. */
+const ELAPSED_OFFER_RETENTION_MS = MAX_OFFER_TTL_MS
+const OFFER_SWEEP_INTERVAL_MS = 60_000
+/**
+ * Candidate hotels per rate-plan read: bounded, with no global plan ceiling. Each read costs about a dozen relation queries, so the batch size sets
+ * the round trips for a search. Measured on 100 hotels (strict runtime role): 25 gave 50 queries and about 215 ms, 100 gave 17 queries and about 80 ms.
+ */
+const HOTEL_CANDIDATE_BATCH = (() => {
+  const parsed = Number(process.env.AGENT_SEARCH_HOTEL_BATCH ?? 100) // tests lower it to exercise the multi-batch path with few hotels
+  return Number.isSafeInteger(parsed) ? Math.min(200, Math.max(5, parsed)) : 100
+})()
+
+interface StoredOffer {
+  offerId: string
+  tenantId: string
+  supplierId: string
+  supplierHotelId: string
+  supplierRoomId: string
+  canonicalHotelId: string
+  canonicalRoomTypeId: string
+  ratePlanId: string
+  boardBasisId: string
+  contractId: string
+  checkIn: string
+  checkOut: string
+  rooms: number
+  adults: number
+  children: number
+  childAges: number[]
+  currency: string
+  /** ADR 0067 F-12: set when the offer was converted from the contract currency at a controlled rate; recheck and hold use it. */
+  contractCurrency?: string
+  /** Guest nationality of the search, so a recheck re-applies the same contract nationality rule (ADR 0035). Absent on offers stored before it existed. */
+  nationality?: string
+  expiresAt: string
+}
+
+function offerTtlMs(): number {
+  const parsed = Number(process.env.AGENT_OFFER_TTL_MS ?? DEFAULT_OFFER_TTL_MS)
+  if (!Number.isSafeInteger(parsed)) return DEFAULT_OFFER_TTL_MS
+  return Math.min(MAX_OFFER_TTL_MS, Math.max(MIN_OFFER_TTL_MS, parsed))
+}
+
+function sourceFor(type: SupplierType): SearchRateOffer['source'] {
+  if (type === 'HOTEL_DIRECT') return 'hotel_direct'
+  if (type === 'DMC') return 'dmc'
+  if (type === 'CHANNEL_MANAGER') return 'channel_manager'
+  if (type === 'GDS') return 'gds'
+  return 'bedbank'
+}
+
+function commercialKey(rate: SearchRateOffer): string {
+  return [rate.hotelId, rate.roomTypeId, rate.boardBasisId, rate.ratePlanId, rate.supplierId, rate.contractId ?? ''].join('|')
+}
+
+function decimalText(value: { toString(): string } | null | undefined): string | undefined {
+  if (value == null) return undefined
+  const text = value.toString()
+  return /^-?\d{1,3}(\.\d{1,6})?$/.test(text) ? text : undefined
+}
+
+function storedAddress(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.length > 240 || trimmed !== value.trim()) return undefined
+  return trimmed
+}
+
+/** The channel this adapter's prices are quoted on (ADR 0089). */
+const PRICING_CHANNEL = 'PORTAL'
+
+@Injectable()
+export class ContractedInventoryAdapter implements SupplierAdapter {
+  readonly name = 'contracted-inventory'
+  private readonly logger = new Logger(ContractedInventoryAdapter.name)
+  private readonly offers = new Map<string, StoredOffer>()
+  private lastSweepAt = 0
+  private readonly cancellation = new CancellationPolicyService()
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_PORT) private readonly cache: CachePort = new NoopCache(),
+  ) {}
+
+  async search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult> {
+    try {
+      const supplierCount = await this.prisma.withTenant(context.tenantId, (tx) => tx.supplier.count({ where: { tenantId: context.tenantId } }))
+      if (supplierCount === 0) throw new SupplierProviderError('unconfigured')
+      if (!uniformRoomStays(criteria)) return { offers: [], providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+      const nights = stayDates(criteria.checkIn, criteria.checkOut)
+      // ADR 0067 F-12: contracts in another currency are offered only through an ACTIVE controlled rate into the request currency.
+      const fx = await loadActiveFxRates(this.prisma, context.tenantId, criteria.currency)
+      const plans = await this.loadPlans(context.tenantId, criteria, nights, [criteria.currency, ...fx.keys()])
+      const restrictions = await this.restrictionsFor(context.tenantId, context.userId)
+      const rules = await this.markupRules(context.tenantId, plans)
+      const visible = plans.filter((plan) => !isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId }))
+      const buyer = await this.buyerFor(context.tenantId, context.userId, criteria.nationality, visible, rules)
+      const offers = this.toOffers(visible, criteria, context.tenantId, nights, rules, buyer, fx)
+      return { offers: await this.withPrimaryImages(context.tenantId, offers), providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+    } catch (error) {
+      if (error instanceof SupplierProviderError) throw error
+      if (error instanceof CommercialControlUnavailableError) {
+        logCommercialControlFailure(this.logger, error, context.requestId)
+        throw new SupplierProviderError('commercial_control_unavailable')
+      }
+      this.logger.warn(`Contracted inventory search failed requestId=${context.requestId}`)
+      throw new SupplierProviderError('transport')
+    }
+  }
+
+  async recheck(request: SupplierRecheckRequest, context: SupplierRequestContext): Promise<SupplierRecheckResult> {
+    try {
+      const stored = await this.readOffer(context.tenantId, request.offerId)
+      if (!stored) return { status: 'unavailable' }
+      if (Date.parse(stored.expiresAt) <= Date.now()) return { status: 'offer_expired' }
+      const decision = await this.reprice(context.tenantId, context.userId, stored, await this.restrictionsFor(context.tenantId, context.userId))
+      if (!decision) return { status: 'unavailable' }
+      const offer: RecheckedOfferAuthority = {
+        offerId: stored.offerId,
+        searchId: request.searchId,
+        supplierId: stored.supplierId,
+        supplierHotelId: stored.supplierHotelId,
+        supplierRoomId: stored.supplierRoomId,
+        canonicalHotelId: stored.canonicalHotelId,
+        canonicalRoomTypeId: stored.canonicalRoomTypeId,
+        ratePlanId: stored.ratePlanId,
+        boardBasisId: stored.boardBasisId,
+        checkIn: stored.checkIn,
+        checkOut: stored.checkOut,
+        rooms: stored.rooms,
+        adults: stored.adults,
+        children: stored.children,
+        childAges: [...stored.childAges],
+        currency: stored.currency,
+        ...(stored.contractCurrency ? { contractCurrency: stored.contractCurrency } : {}),
+        sellAmountMinor: decision,
+        expiresAt: stored.expiresAt,
+      }
+      return { status: 'available', offer }
+    } catch (error) {
+      if (error instanceof CommercialControlUnavailableError) {
+        logCommercialControlFailure(this.logger, error, context.requestId)
+        throw new SupplierProviderError('commercial_control_unavailable')
+      }
+      this.logger.warn(`Contracted inventory recheck failed requestId=${context.requestId}`)
+      throw new SupplierProviderError('transport')
+    }
+  }
+
+  /**
+   * In-house contracted inventory is already reserved by the caller's PROCESSING hold, so there is no external
+   * supplier to call. Prebook therefore proves the claim instead of re-pricing (re-pricing would count the caller's
+   * own hold against the last room): the stored offer must be unexpired and a PROCESSING hold for exactly this
+   * offer and search must exist in the tenant.
+   */
+  async prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string }> {
+    const stored = await this.readOffer(context.tenantId, request.offerId)
+    if (!stored || Date.parse(stored.expiresAt) <= Date.now()) throw new SupplierProviderError('malformed_response')
+    const hold = await this.prisma.withTenant(context.tenantId, tx => tx.inventoryHold.findFirst({
+      where: { tenantId: context.tenantId, offerId: request.offerId, searchId: request.searchId, status: 'PROCESSING' }, select: { id: true },
+    }))
+    if (!hold) throw new SupplierProviderError('malformed_response')
+    return { supplierReference: `${CONTRACTED_REFERENCE_PREFIX}${hold.id}` }
+  }
+
+  async cancel(): Promise<{ refundMinor: number }> {
+    throw new Error('Booking is unavailable until supplier, recheck and finance gates are certified.')
+  }
+
+  /** `currencies`: the request currency plus every base currency with an ACTIVE controlled rate into it (ADR 0067, F-12). */
+  private async loadPlans(tenantId: string, criteria: SearchCriteria, nights: string[], currencies: readonly string[] = [criteria.currency]) {
+    const occupancy = criteria.adults + criteria.children
+    const checkIn = new Date(`${criteria.checkIn}T00:00:00.000Z`)
+    const checkOut = new Date(`${criteria.checkOut}T00:00:00.000Z`)
+    const nightDates = nights.map((night) => new Date(`${night}T00:00:00.000Z`))
+    const destination = criteria.destination.trim()
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      // ADR 0074: a resolved city is an exact, indexed lookup; free text keeps the substring filter (no index can serve it under row-level security).
+      const hotels = destination && criteria.destinationRef?.type === 'city'
+        ? await tx.$queryRaw<Array<{ id: string }>>(completeHotelsInCity({ tenantId, city: destination, canonicalHotelIds: criteria.canonicalHotelIds, propertyTypes: criteria.filters?.propertyTypes, brands: criteria.filters?.brands }))
+        : await tx.hotel.findMany({
+          where: {
+            tenantId,
+            contentStatus: 'COMPLETE',
+            ...(criteria.canonicalHotelIds?.length ? { id: { in: criteria.canonicalHotelIds } } : {}),
+            ...(criteria.filters?.propertyTypes?.length ? { propertyType: { in: criteria.filters.propertyTypes } } : {}),
+            ...(criteria.filters?.brands?.length ? { profile: { brandName: { in: criteria.filters.brands } } } : {}),
+            ...(destination ? { city: { contains: destination, mode: 'insensitive' as const } } : {}),
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        })
+      const plans: Awaited<ReturnType<ContractedInventoryAdapter['findPlanBatch']>> = []
+      for (let offset = 0; offset < hotels.length; offset += HOTEL_CANDIDATE_BATCH) {
+        const hotelIds = hotels.slice(offset, offset + HOTEL_CANDIDATE_BATCH).map((hotel) => hotel.id)
+        plans.push(...await this.findPlanBatch(tx, tenantId, criteria, occupancy, checkIn, checkOut, nightDates, hotelIds, currencies))
+      }
+      return plans
+    })
+  }
+
+  private async findPlanBatch(
+    tx: Parameters<Parameters<PrismaService['withTenant']>[1]>[0],
+    tenantId: string,
+    criteria: SearchCriteria,
+    occupancy: number,
+    checkIn: Date,
+    checkOut: Date,
+    nightDates: Date[],
+    hotelIds: string[],
+    currencies: readonly string[],
+  ) {
+    const lastNight = new Date(checkOut.getTime() - 86_400_000)
+    const plans = await tx.ratePlan.findMany({
+      where: {
+        tenantId,
+        status: 'ACTIVE',
+        currency: { in: [...currencies] },
+        // ADR 0057, S6 and ADR 0067, F-03: a flat plan sells to exactly the searched party size; a plan priced by guest lines, its own or inherited from
+        // its contract's child policy, is for a base party that children may complete, so it is a candidate whenever its base occupancy is within the
+        // whole party. This is only a pre-filter: the evaluator decides, per adult count and child age.
+        OR: [
+          { occupancy },
+          { occupancy: { lte: occupancy }, guestPrices: { some: {} } },
+          { occupancy: { lte: occupancy }, contract: { childPolicies: { some: {} } } },
+        ],
+        boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
+        roomType: {
+          isActive: true,
+          maxAdults: { gte: criteria.adults },
+          maxChildren: { gte: criteria.children },
+          maxOccupancy: { gte: occupancy },
+          hotelId: { in: hotelIds },
+          hotel: { tenantId },
+        },
+        contract: {
+          tenantId,
+          status: 'ACTIVE',
+          settlementCurrency: { in: [...currencies] },
+          validFrom: { lte: checkIn },
+          // ADR 0067 F-06: validTo is the last stay night.
+          validTo: { gte: lastNight },
+          supplier: { tenantId, status: 'ACTIVE' },
+          supplierHotelMapping: { is: { tenantId, status: 'MAPPED', hotelId: { in: hotelIds } } },
+        },
+      },
+      include: {
+        boardBasis: true,
+        // ADR 0067 F-04 / ADR 0021: structured local charges and the catalogue brand name are read from the profile; contacts stay private.
+        roomType: { include: { hotel: { include: { profile: { select: { localCharges: true, brandName: true } } } } } },
+        contract: {
+          include: {
+            supplier: true,
+            cancellationPolicies: true,
+            leadTimeRules: { select: { minLeadHours: true, maxLeadDays: true } },
+            supplements: true,
+            // ADR 0089: only approved, active, eligible event supplements are ever loaded for pricing.
+            eventSupplements: { where: { status: 'ACTIVE', roomEvent: { status: 'APPROVED' }, validFrom: { lte: lastNight }, validTo: { gte: checkIn } }, include: { roomEvent: { select: { name: true } } } },
+            childPolicies: { select: { minAge: true, maxAge: true, supplementMinor: true, currency: true } },
+            supplierHotelMapping: { include: { roomMappings: { where: { tenantId, status: 'MAPPED' } } } },
+          },
+        },
+        dailyRates: { where: { tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } } },
+        guestPrices: true,
+        promotions: true,
+        // ADR 0058, S10b: a derived plan is priced from its parent's rates in the same window; `withDerivedRates` turns them into the plan's own rows.
+        derivedFrom: { select: derivedParentSelect({ tenantId, occupancy: { lte: occupancy }, stayDate: { in: nightDates } }) },
+        // The departure date row is read only for closedToDeparture; its stock is never counted.
+        availability: { where: { tenantId, stayDate: { in: [...nightDates, checkOut] } } },
+        inventoryPool: { include: { days: { where: { tenantId, stayDate: { in: nightDates } } } } },
+      },
+      orderBy: { id: 'asc' },
+    })
+    // ADR 0089: ACTIVE hotel deals of these plans, read through the one loader every pricing surface uses. A failed read throws (ADR 0031); it never sells a plan at full price on a guess.
+    return withDealRules(plans.map(withDerivedRates), await loadDealRules(this.prisma, tenantId, plans.map((plan) => plan.id)))
+  }
+
+  /**
+   * ACTIVE markup rules, read only when a NET rate is in play (a SELL rate needs no markup). A tenant with no ACTIVE rule gets an empty list
+   * and its NET rates stay unsellable (ADR 0018). An unreadable or malformed rule set throws CommercialControlUnavailableError (ADR 0031).
+   */
+  private async markupRules(tenantId: string, plans: Array<{ dailyRates: Array<{ amountBasis: string | null }> }>): Promise<MarkupRuleRow[]> {
+    if (!plans.some((plan) => plan.dailyRates.some((rate) => rate.amountBasis === 'NET'))) return []
+    return loadActiveMarkupRules(this.prisma, tenantId)
+  }
+
+  /**
+   * Who is buying, for contract sales-market and nationality rules (ADR 0035). The agency country is read only when a candidate contract restricts
+   * sales markets, so a tenant with no market rule pays no extra read; an unreadable agency throws CommercialControlUnavailableError.
+   */
+  private async buyerFor(tenantId: string, userId: string | undefined, nationality: string | undefined, plans: Array<{ salesMarkets?: unknown; contract: { salesMarkets?: unknown } }>, rules: readonly MarkupRuleRow[] = []): Promise<BuyerContext> {
+    // ADR 0067 F-11: client and market markup tiers need the buying agency as well; read once for both when any rule depends on the buyer.
+    // ADR 0089: a deal limited to markets or agencies needs the buying agency too.
+    const dealsNeedBuyer = plans.some((plan) => (plan as { dealRules?: Array<{ deal?: { sourceMarkets: readonly string[]; agencyIds: readonly string[] } }> }).dealRules?.some((rule) => (rule.deal?.sourceMarkets.length ?? 0) > 0 || (rule.deal?.agencyIds.length ?? 0) > 0))
+    if (rulesNeedBuyer(rules) || dealsNeedBuyer) { const agency = await loadBuyerAgency(this.prisma, tenantId, userId); return { nationality: normalizeCountry(nationality), market: agency.market, agencyId: agency.agencyId } }
+    const needsMarket = plans.some((plan) => (parseMarketRules(plan.contract).salesMarkets ?? ['?']).length > 0 || (parseMarketRules(plan).salesMarkets ?? ['?']).length > 0)
+    return { nationality: normalizeCountry(nationality), market: needsMarket ? await loadBuyerMarket(this.prisma, tenantId, userId) : null }
+  }
+
+  /** Distribution restrictions of the searching user's agency. No agency or no restriction means none; an unreadable table throws (ADR 0031). */
+  private restrictionsFor(tenantId: string, userId: string | undefined): Promise<DistributionRestrictions> {
+    return loadDistributionRestrictions(this.prisma, tenantId, userId)
+  }
+
+  /**
+   * Adds each hotel's primary image reference (ADR 0027). Search only returns published hotels, so an image is never attached to a draft.
+   * If images cannot be read (for example the runtime role has no grant yet) the hotels are returned without images and a warning is
+   * logged: leaving an image out is never misleading, unlike leaving a price out.
+   */
+  private async withPrimaryImages(tenantId: string, offers: SearchHotelOffer[]): Promise<SearchHotelOffer[]> {
+    if (offers.length === 0) return offers
+    try {
+      const rows = await this.prisma.withTenant(tenantId, (tx) => tx.hotelImage.findMany({
+        where: { tenantId, isPrimary: true, hotelId: { in: offers.map((o) => o.hotelId) } },
+        select: { id: true, hotelId: true, altText: true, width: true, height: true },
+      }))
+      const byHotel = new Map(rows.map((r) => [r.hotelId, r]))
+      return offers.map((o) => { const r = byHotel.get(o.hotelId); return r ? { ...o, primaryImage: { imageId: r.id, altText: r.altText, width: r.width, height: r.height } } : o })
+    } catch (error) {
+      this.logger.warn(`Hotel images unreadable; search returned without images (${(error as { code?: string }).code ?? 'unknown'})`)
+      return offers
+    }
+  }
+
+  private toOffers(plans: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>, criteria: SearchCriteria, tenantId: string, nights: string[], rules: readonly MarkupRuleRow[], buyer: BuyerContext, fx: ReadonlyMap<string, FxQuote> = new Map()): SearchHotelOffer[] {
+    const expiresAt = new Date(Date.now() + offerTtlMs()).toISOString()
+    const now = new Date()
+    const seen = new Set<string>()
+    const priced = plans.flatMap((plan) => {
+      const built = this.pricePlan(plan, criteria, tenantId, nights, now, expiresAt, rules, buyer, true, fx)
+      if (!built || seen.has(commercialKey(built.rate))) return []
+      seen.add(commercialKey(built.rate))
+      return [built]
+    })
+    const byHotel = new Map<string, typeof priced>()
+    for (const item of priced) {
+      const rows = byHotel.get(item.hotel.hotelId) ?? []
+      rows.push(item)
+      byHotel.set(item.hotel.hotelId, rows)
+    }
+    const hotels = [...byHotel.entries()]
+      .sort((left, right) => left[1][0].hotel.name.localeCompare(right[1][0].hotel.name) || left[0].localeCompare(right[0]))
+      .map(([, items]) => this.hotelOffer(items))
+    // The domain validator applies offset and limit once, after this stable order.
+    return hotels
+  }
+
+  private hotelOffer(items: Array<{ hotel: SearchHotelOffer; rate: SearchRateOffer }>): SearchHotelOffer {
+    const bySupplier = new Map<string, typeof items>()
+    for (const item of items) {
+      const rows = bySupplier.get(item.hotel.supplierId) ?? []
+      rows.push(item)
+      bySupplier.set(item.hotel.supplierId, rows)
+    }
+    const [supplierId, chosen] = [...bySupplier.entries()].sort((left, right) => {
+      const leftPrice = Math.min(...left[1].map((item) => item.rate.sellAmountMinor))
+      const rightPrice = Math.min(...right[1].map((item) => item.rate.sellAmountMinor))
+      return leftPrice - rightPrice || left[0].localeCompare(right[0])
+    })[0]
+    const rooms = new Map<string, SearchHotelOffer['rooms'][number]>()
+    const ordered = [...chosen].sort((left, right) => (
+      left.hotel.rooms[0].name.localeCompare(right.hotel.rooms[0].name)
+      || left.rate.sellAmountMinor - right.rate.sellAmountMinor
+      || left.rate.ratePlanId.localeCompare(right.rate.ratePlanId)
+    ))
+    for (const item of ordered) {
+      const room = item.hotel.rooms[0]
+      const current = rooms.get(room.roomTypeId)
+      if (!current) rooms.set(room.roomTypeId, { ...room, rates: [...room.rates] })
+      else current.rates.push(room.rates[0])
+    }
+    for (const room of rooms.values()) {
+      room.rates.sort((left, right) => left.sellAmountMinor - right.sellAmountMinor || left.ratePlanId.localeCompare(right.ratePlanId))
+    }
+    const hotel = chosen[0].hotel
+    return {
+      hotelId: hotel.hotelId,
+      name: hotel.name,
+      destination: hotel.destination,
+      starRating: hotel.starRating,
+      ...(hotel.propertyType ? { propertyType: hotel.propertyType } : {}),
+      ...(hotel.brand ? { brand: hotel.brand } : {}),
+      ...(hotel.address ? { address: hotel.address } : {}),
+      ...(hotel.latitude && hotel.longitude ? { latitude: hotel.latitude, longitude: hotel.longitude } : {}),
+      ...(hotel.timeZone ? { timeZone: hotel.timeZone } : {}),
+      supplierId,
+      supplierHotelId: hotel.supplierHotelId,
+      rooms: [...rooms.values()].sort((left, right) => left.name.localeCompare(right.name) || left.roomTypeId.localeCompare(right.roomTypeId)),
+    }
+  }
+
+  private cancellationSummary(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], checkIn: string): SearchRateOffer['cancellation'] {
+    const resolved = rulesForPlan(plan, plan.contract.cancellationPolicies).rules
+    // ADR 0067 F-10: the buyer is sold the hotel's tiers moved earlier by the contract's client buffer; the no-show rule is disclosed, never a deadline.
+    const rules: CancellationRule[] = buyerRules(cancellationTiers(resolved).map((rule) => ({
+      daysBeforeCheckin: rule.daysBeforeCheckin,
+      ...(rule.penaltyPercent != null ? { penaltyPercent: rule.penaltyPercent } : {}),
+      ...(rule.penaltyMinor != null ? { penaltyMinor: rule.penaltyMinor } : {}),
+      ...(rule.penaltyNights != null ? { penaltyNights: rule.penaltyNights } : {}),
+      ...(rule.currency ? { currency: rule.currency } : {}),
+    })), plan.contract.clientBufferDays)
+    const noShow = noShowRule(resolved)
+    const noShowText = noShow ? `; no-show: ${describePenalty(noShow, (minor) => formatMinor(minor, noShow.currency ?? plan.currency))}` : ''
+    const summary = `${plan.refundable ? 'Refundable contracted rate' : 'Non-refundable contracted rate'}${noShowText}`
+    const deadline = this.cancellation.freeCancellationDeadline({ refundable: plan.refundable, checkIn, timeZone: plan.roomType.hotel.timeZone, rules })
+    return { refundable: plan.refundable, summary, ...(deadline ? { deadline } : {}) }
+  }
+
+  private pricePlan(plan: Awaited<ReturnType<ContractedInventoryAdapter['loadPlans']>>[number], criteria: SearchCriteria, tenantId: string, nights: string[], now: Date, expiresAt: string, rules: readonly MarkupRuleRow[], buyer: BuyerContext, persist = true, fx: ReadonlyMap<string, FxQuote> = new Map()): { hotel: SearchHotelOffer; rate: SearchRateOffer } | null {
+    const mapping = plan.contract.supplierHotelMapping
+    const roomMapping = mapping?.roomMappings.find((row) => row.tenantId === tenantId && row.roomTypeId === plan.roomTypeId && row.status === 'MAPPED')
+    if (!mapping || !roomMapping || mapping.hotelId !== plan.roomType.hotelId) return null
+    const starRating = plan.roomType.hotel.starRating
+    if (starRating === null || starRating < 1 || starRating > 5) return null
+    if (criteria.filters?.starRatings && !criteria.filters.starRatings.includes(starRating)) return null
+    if (criteria.filters?.refundableOnly && !plan.refundable) return null
+    const converted = plan.contract.settlementCurrency !== criteria.currency ? fx.get(plan.contract.settlementCurrency) ?? null : null
+    if (plan.contract.settlementCurrency !== criteria.currency && !converted) return null
+    const snapshot = { ...buildStaySnapshot(plan, mapping, roomMapping, nights, markupResolverFor(rules, plan.contract.supplierId, plan.roomType.hotelId, { agencyId: buyer.agencyId ?? null, market: buyer.market }), { adults: criteria.adults }), fx: converted }
+    const decision = evaluateContractedStay(snapshot, {
+      checkIn: criteria.checkIn,
+      checkOut: criteria.checkOut,
+      rooms: criteria.rooms,
+      adults: criteria.adults,
+      children: criteria.children,
+      childAges: criteria.childAges,
+      currency: criteria.currency,
+      now,
+      buyer,
+      // ADR 0089: this adapter prices for the Agent portal. A future distribution-API search must pass its own channel; it is never inferred.
+      channel: PRICING_CHANNEL,
+    })
+    const onRequest = decision.availabilityStatus === 'on_request'
+    if ((!decision.eligible && !onRequest) || decision.totalMinor === null) return null
+    const sellAmountMinor = Number(decision.totalMinor)
+    if (criteria.filters?.minPriceMinor !== undefined && sellAmountMinor < criteria.filters.minPriceMinor) return null
+    if (criteria.filters?.maxPriceMinor !== undefined && sellAmountMinor > criteria.filters.maxPriceMinor) return null
+    const offerId = `${CONTRACTED_OFFER_PREFIX}${randomUUID()}`
+    const stored: StoredOffer = {
+      offerId,
+      tenantId,
+      supplierId: plan.contract.supplierId,
+      supplierHotelId: mapping.supplierHotelId,
+      supplierRoomId: roomMapping.supplierRoomId,
+      canonicalHotelId: plan.roomType.hotelId,
+      canonicalRoomTypeId: plan.roomTypeId,
+      ratePlanId: plan.id,
+      boardBasisId: plan.boardBasisId,
+      contractId: plan.contractId,
+      checkIn: criteria.checkIn,
+      checkOut: criteria.checkOut,
+      rooms: criteria.rooms,
+      adults: criteria.adults,
+      children: criteria.children,
+      childAges: [...criteria.childAges],
+      currency: criteria.currency,
+      ...(converted ? { contractCurrency: converted.from } : {}),
+      ...(normalizeCountry(criteria.nationality) ? { nationality: normalizeCountry(criteria.nationality) as string } : {}),
+      expiresAt,
+    }
+    if (persist) this.remember(stored)
+    // Free-sale stays have no counted stock: they are plainly available, never "limited".
+    const remaining = decision.minRemaining
+    const rate: SearchRateOffer = {
+      offerId,
+      tenantId,
+      providerId: this.name,
+      hotelId: plan.roomType.hotelId,
+      canonicalHotelId: plan.roomType.hotelId,
+      roomTypeId: plan.roomTypeId,
+      canonicalRoomTypeId: plan.roomTypeId,
+      supplierId: plan.contract.supplierId,
+      supplierRoomId: roomMapping.supplierRoomId,
+      ratePlanId: plan.id,
+      contractId: plan.contractId,
+      ratePlanName: plan.code,
+      boardBasisId: plan.boardBasisId,
+      boardBasisName: plan.boardBasis.name,
+      supplierRateId: plan.id,
+      expiresAt,
+      occupancy: { rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: [...criteria.childAges] },
+      availability: onRequest ? 'on_request' : remaining !== null && remaining <= criteria.rooms ? 'limited' : 'available',
+      available: !onRequest,
+      cancellation: this.cancellationSummary(plan, criteria.checkIn),
+      total: { amountMinor: sellAmountMinor, currency: criteria.currency },
+      netAmountMinor: Number(decision.netMinor ?? decision.totalMinor),
+      taxAmountMinor: 0,
+      feeAmountMinor: 0,
+      totalAmountMinor: Number(decision.netMinor ?? decision.totalMinor), // supplier cost: net plus tax and fees; the offer contract adds markup to reach sell
+      markupAmountMinor: Number(decision.markupMinor ?? 0n),
+      sellAmountMinor,
+      paymentType: offerPaymentType(plan.paymentType),
+      // ADR 0067 F-04: what the price includes, as recorded on the plan, and the charges paid at the hotel with an estimate for this stay. Never added to the total.
+      priceIncludes: { taxes: plan.taxesIncluded, fees: plan.feesIncluded },
+      payAtHotel: payAtHotel(plan.roomType.hotel.profile?.localCharges, { nights: nights.length, rooms: criteria.rooms, guests: criteria.adults + criteria.children }),
+      ...(decision.promotion ? { promotion: { name: decision.promotion.name, kind: decision.promotion.kind } } : {}),
+      // ADR 0067: supplements are inside the total; the offer names them so the agent can tell the guest what is included.
+      ...(decision.supplements?.length ? { supplements: decision.supplements.map((item) => ({ name: item.name, kind: item.kind, amountMinor: Number(item.amountMinor) })) } : {}),
+      // ADR 0089: event supplements are inside the total; the offer names them so the agent can tell the guest what is included.
+      ...(decision.eventSupplements?.length ? { eventSupplements: decision.eventSupplements.map((item) => ({ roomEventId: item.roomEventId, roomEventName: item.roomEventName, amountMinor: Number(item.amountMinor) })) } : {}),
+      source: sourceFor(plan.contract.supplier.type),
+    }
+    const latitude = decimalText(plan.roomType.hotel.latitude)
+    const longitude = decimalText(plan.roomType.hotel.longitude)
+    const address = storedAddress(plan.roomType.hotel.address)
+    const hotel: SearchHotelOffer = {
+      hotelId: plan.roomType.hotelId,
+      name: plan.roomType.hotel.name,
+      destination: plan.roomType.hotel.city,
+      starRating,
+      ...(plan.roomType.hotel.propertyType ? { propertyType: plan.roomType.hotel.propertyType } : {}),
+      ...(plan.roomType.hotel.profile?.brandName ? { brand: plan.roomType.hotel.profile.brandName } : {}),
+      ...(address ? { address } : {}),
+      ...(latitude && longitude ? { latitude, longitude } : {}),
+      ...(plan.roomType.hotel.timeZone ? { timeZone: plan.roomType.hotel.timeZone } : {}),
+      supplierId: plan.contract.supplierId,
+      supplierHotelId: mapping.supplierHotelId,
+      rooms: [{ roomTypeId: plan.roomTypeId, name: plan.roomType.name, supplierRoomId: roomMapping.supplierRoomId, rates: [rate] }],
+    }
+    return { hotel, rate }
+  }
+
+  private async reprice(tenantId: string, userId: string | undefined, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<number | null> {
+    const criteria: SearchCriteria = {
+      destination: '',
+      canonicalHotelIds: [stored.canonicalHotelId],
+      checkIn: stored.checkIn,
+      checkOut: stored.checkOut,
+      rooms: stored.rooms,
+      adults: stored.adults,
+      children: stored.children,
+      childAges: [...stored.childAges],
+      nationality: stored.nationality ?? '',
+      currency: stored.currency,
+    }
+    const nights = stayDates(stored.checkIn, stored.checkOut)
+    // A converted offer is repriced at the rate ACTIVE now: a changed or retired rate is price_changed or unavailable, never the old figure.
+    const fx = stored.contractCurrency ? await loadActiveFxRates(this.prisma, tenantId, stored.currency) : new Map<string, FxQuote>()
+    const plans = await this.loadPlans(tenantId, criteria, nights, stored.contractCurrency ? [stored.currency, stored.contractCurrency] : [stored.currency])
+    const rules = await this.markupRules(tenantId, plans)
+    const plan = plans.find((candidate) => candidate.id === stored.ratePlanId && candidate.contractId === stored.contractId)
+    if (!plan || isRestricted(restrictions, { hotelId: plan.roomType.hotelId, supplierId: plan.contract.supplierId })) return null
+    const buyer = await this.buyerFor(tenantId, userId, stored.nationality, [plan], rules)
+    const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false, fx)
+    // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
+    if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
+    return priced.rate.sellAmountMinor
+  }
+
+  private remember(offer: StoredOffer): void {
+    this.sweepElapsedOffers()
+    this.offers.set(this.offerKey(offer.tenantId, offer.offerId), offer)
+    const ttlMs = Math.max(MIN_OFFER_TTL_MS, Date.parse(offer.expiresAt) - Date.now())
+    void this.cache.set(tenantCacheKey(offer.tenantId, 'contracted-offer', offer.offerId), offer, { ttlMs }).catch(() => undefined)
+  }
+
+  /** Bounds process memory: the shared cache already expires offers by TTL, but this map would otherwise keep every offer ever quoted. At most once a minute. */
+  private sweepElapsedOffers(): void {
+    const now = Date.now()
+    if (now - this.lastSweepAt < OFFER_SWEEP_INTERVAL_MS) return
+    this.lastSweepAt = now
+    for (const [key, offer] of this.offers) {
+      if (now - Date.parse(offer.expiresAt) > ELAPSED_OFFER_RETENTION_MS) this.offers.delete(key)
+    }
+  }
+
+  private async readOffer(tenantId: string, offerId: string): Promise<StoredOffer | null> {
+    const key = this.offerKey(tenantId, offerId)
+    const local = this.offers.get(key)
+    if (local) return local
+    try {
+      return await this.cache.get<StoredOffer>(tenantCacheKey(tenantId, 'contracted-offer', offerId))
+    } catch {
+      return null
+    }
+  }
+
+  private offerKey(tenantId: string, offerId: string): string {
+    return `${tenantId}:${offerId}`
+  }
+}

@@ -7,6 +7,7 @@ import { StatCard } from '@/components/common/StatCard'
 import { StatusBadge } from '@/components/status/StatusBadge'
 import { ErrorState } from '@/components/common/ErrorState'
 import { LoadingState } from '@/components/common/LoadingState'
+import { SupplierForm } from '@/components/commercial/SupplierForm'
 import { getSupplier, type SupplySupplier } from '@/lib/data'
 import type { Status } from '@/lib/types/admin'
 
@@ -28,11 +29,12 @@ export default function SupplierDetailPage() {
         <StatCard label="Supplier Type" value={supplier.type.split('_').join(' ')} />
         <StatCard label="Status" value={supplier.status} />
       </div>
-      <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: '#4a6a73' }}>
+      <div className="workspace-panel" style={{ padding: 18, fontSize: 12, color: 'var(--c-6b6b6b)' }}>
         <strong>Authoritative supplier record</strong>
         <div style={{ marginTop: 10 }}>Created {new Date(supplier.createdAt).toLocaleString()}</div>
         <div>Updated {new Date(supplier.updatedAt).toLocaleString()}</div>
       </div>
+      <SupplierForm key={supplier.updatedAt} supplier={supplier} onSaved={setSupplier} />
     </div>
   )
 }

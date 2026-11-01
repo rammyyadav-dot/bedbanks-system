@@ -5,6 +5,9 @@
   "entryFile": "apps/api/src/main",
   "exec": "node --import tsx",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "webpack": true,
+    "webpackConfigPath": "webpack.config.js",
+    "tsConfigPath": "tsconfig.build.json"
   }
 }

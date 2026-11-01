@@ -1,0 +1,159 @@
+# ADR 0028: Wallet funding and credit model (ACCEPTED in part; slices 1 to 4 built)
+
+## Status
+**Accepted in part (owner, 2026-10-04).** Decisions 1 to 3 in section 9 are taken: one account per agency, one credit concept (the ADR 0024
+limit merges into the account's credit line in slice 3), and bank transfer only as the launch funding method. Decision 5 (approval threshold) and the slice-2 part of decision 8
+(cash and third-party payers) were taken for slice 2; decision 4's payment terms were taken for slice 3 (who approves a credit line stays the ADR 0024 maker-checker); decisions 6, 7 and the rest of 8 remain open. Finance and legal review of slices 2 onward still applies.
+
+**Slice 1 built (read-only):** migration `202610210001_agency_accounts` adds `Wallet.agency_id` (null = the tenant HOUSE account; every
+existing row became the house account with no data change), one house account per tenant and currency (partial unique index), one
+account per agency and currency, a same-tenant guard on the agency reference and a RESTRICT foreign key. The booking path, agent
+finance summary and funds check are pinned to the house account. Admin reads `GET /admin/operations/agencies/:agencyId/account`
+(`finance.read`) and the accounts list labels HOUSE and AGENCY. Nothing creates agency accounts or posts to them yet; `Wallet` and
+`LedgerEntry` stay finance-gated for the runtime role (ADR 0032).
+
+**Slice 2 built (manual funding, behind `FUNDING_ENABLED`):** owner decisions 2026-10-04: finance staff and agencies (agent portal) may
+declare; posting more than AED 10,000 needs a second approver (the poster differs from the verifier; currencies without a configured
+threshold always need one); cash deposits and third-party payers are allowed but need a compliance clearance, by someone other than the
+declarer, before posting. Migration `202610220001_agency_funding_receipts` adds `FundingReceipt` (DECLARED -> VERIFIED -> POSTED, or
+REJECTED), with the separation of duties, the compliance rule and per-status facts as CHECK constraints, one live receipt per bank
+reference + amount + currency (partial unique), forced RLS and same-tenant guards. Posting opens the agency account if needed and appends
+one CREDIT keyed `funding:<receipt id>` in one transaction under the receipt row lock and a per-account advisory lock. Permission
+`funding.manage` (S3, formal roles only, granted to nobody by the migration) gates every Admin step; agency users declare for their own
+agency only (`booking.prebook`). `Wallet` and `FundingReceipt` writes are privileged paths (ADR 0032). Holds and bookings still post to
+the house account until slice 3.
+
+**Slice 3 built (one credit concept):** owner decisions 2026-10-04: an agency with money and no credit line books up to its balance
+(prepaid); a user who belongs to no agency cannot book (`AGENCY_REQUIRED_FOR_BOOKING`; the house account is never charged for a booking);
+payment terms are an overdue notice at 7 days and refusal of new holds at 30 (`AGENCY_CREDIT_TERMS`, enforced in slice 4). Prebook charges
+the booker's agency account (opened if needed). An agency account's credit line is the agency's approved credit limit in the same currency
+(ADR 0024 maker-checker unchanged; another currency counts as zero); migration `202610230001_agency_account_credit_line` keeps
+`Wallet.credit_limit` at 0 on agency accounts. Hold time refuses when the amount exceeds balance + credit line - pending holds (an early
+check); the prebook financial authorization (balance + credit line, under the account row lock) stays the binding one. The agent finance
+summary and the Admin credit panel show that position.
+
+**Slice 4 built (overdue controls):** an agency account is aged FIFO over settled money only: DEBIT is a charge dated when posted;
+CREDIT (a posted payment) pays the oldest charges, leftover is prepaid; REFUND first pays its own booking's charge (same reference), then
+the oldest; HOLD and RELEASE are pending, not aged. From 7 whole days unpaid the agency is on NOTICE (Admin credit panel, Receivables,
+agent portal banner); from 30 days new holds and bookings are refused (`AGENCY_CREDIT_OVERDUE`, at hold time and at prebook) until a
+payment settles the oldest charges. No schema change. Admin Finance > Receivables lists every agency account with unpaid charges.
+Suspension stays the manual ADR 0024 maker-checker action; a 30-day refusal already stops new spending without suspending the agency.
+
+Original proposal status, kept for history: **Proposed.** A design for the owner to accept, change or reject. It changes how money is modelled, so it needs finance and legal review before any code. No migration, code or payment-provider integration exists for it, and booking stays disabled (`BOOKING_ENABLED`) until the go-live gates in `docs/bedbank-operating-model.md` are met.
+
+## 1. What exists today (facts from the code)
+- **`Wallet`** is one row per **tenant and currency** (`@@unique([tenantId, currency])`), with a `creditLimit` and a `cachedBalance`. It is not per agency.
+- **`LedgerEntry`** is append-only and signed, with types CREDIT, DEBIT, HOLD, RELEASE, REFUND, a currency, an `idempotencyKey` unique per wallet and a `reference`. A reused key with different intent is a 409.
+- **Balance** = the sum of entries. **Available credit** = `wallet.creditLimit + balance`. A booking authorisation locks the wallet row (`FOR UPDATE`), re-reads the balance and posts a negative `HOLD` only if available credit covers it ("Insufficient wallet credit" otherwise). Confirmation posts `RELEASE (+X)` then `DEBIT (-X)`; cancellation posts a `REFUND` for the refundable part.
+- **Funding:** nothing posts a `CREDIT`. There is no top-up, receipt, payment link or provider integration in the code.
+- **Supported settlement currencies (14):** AED, USD, EUR, INR, GBP, SAR, QAR, OMR, KWD, BHD, SGD, AUD, CAD, JPY. No conversion exists.
+- **A second, separate "credit" concept** exists since ADR 0024: a per-agency **credit limit** that caps the holds an agency can place. It does not touch the wallet.
+
+### The model gap this proposal resolves
+In a bedbank the money relationship is **between the bedbank and each agency**: each agency prepays or buys on credit terms. Today one wallet serves a whole tenant, so one agency can spend funds another agency paid, and "Insufficient tenant credit" is a tenant-wide message. There are also two unrelated credit numbers (`Wallet.creditLimit` and the agency limit). This ADR proposes one account per agency and one credit concept.
+
+## 2. Proposed model
+
+### 2.1 Agency account
+One **agency account** per agency and currency, extending `Wallet` with an `agencyId` (unique on tenant, agency, currency). The existing tenant-level rows (agency null) become the **house account** used for platform-level postings and migration; they are no longer spendable by agents.
+
+Each account has a **mode**:
+| Mode | Spendable amount | Typical agency |
+|---|---|---|
+| PREPAID | `balance` (cannot go below zero) | New or small agencies |
+| ON_ACCOUNT | `balance + creditLine` | Approved agencies on payment terms |
+
+`available = balance + creditLine` (creditLine is 0 for PREPAID). **Reserved** funds (open holds) are already inside `balance` as negative `HOLD` entries, so available is never double-spent.
+
+### 2.2 One credit concept
+Recommended: the per-agency **credit limit of ADR 0024 becomes the account's `creditLine`**, and the hold-ceiling check is replaced by the available-funds check (a hold is placed only if `available >= amount`). This removes the second number. Maker-checker for changing it stays. Alternative (not recommended): keep both, as an exposure ceiling for ON_ACCOUNT agencies and a separate wallet; this is more complex and lets the two disagree.
+
+### 2.3 Ledger rules (invariants)
+1. Append-only; entries never updated or deleted (database trigger, as for documents).
+2. Signed integer minor units; one currency per account; no FX.
+3. Balance is always the sum of entries; `cachedBalance` is a derived value verified by a nightly check, never authority.
+4. Every posting has an idempotency key and a business reference (receipt, booking, adjustment id).
+5. No posting may take a PREPAID account below zero or an ON_ACCOUNT account below `-creditLine`.
+6. Every posting writes an audit event with ids and amounts, never payer personal data or card data.
+
+### 2.4 Posting table
+| Event | Entry | Sign | Notes |
+|---|---|---|---|
+| Funds received and verified | CREDIT | + | reference = receipt id |
+| Hold or prebook | HOLD | - | reserves; fails if not available |
+| Hold released or expired | RELEASE | + | returns the reservation |
+| Booking confirmed | RELEASE (+X), DEBIT (-X) | net 0 | reservation becomes a charge |
+| Cancellation | REFUND | + | `cancellable - penalty`, from the contract policy |
+| Correction | ADJUSTMENT (new) | +/- | maker-checker, reason required |
+| Payment reversal or chargeback | REVERSAL (new) | - | links to the original receipt |
+
+## 3. Funding workflows
+
+### 3.1 Bank transfer (recommended first path; no provider needed)
+State: **DECLARED -> VERIFIED -> POSTED**, or REJECTED, or REVERSED.
+1. The agency (or finance on its behalf) declares a transfer: amount, currency, bank reference, date, payer name. A unique constraint on (tenant, bank reference, amount, currency) rejects duplicates.
+2. Finance **verifies** it against the bank statement (a second person from the one who declared it).
+3. **Posting** creates the CREDIT. Amounts above a **threshold** need a second approver (maker-checker, an approval-only key such as `funding.approve`).
+4. Only **POSTED** funds count. A declared but unverified transfer never increases available funds, so a booking cannot rely on money not yet received.
+Cash and third-party payers are flagged for compliance review (see section 7).
+
+### 3.2 Card or payment link (later, needs a provider)
+State: **CREATED -> AUTHORIZED -> CAPTURED -> POSTED**, or FAILED, CANCELLED, REFUNDED. Webhooks are idempotent and verified; the CREDIT is posted only on a verified capture; provider fees are a decision (absorb, or surcharge shown as a separate line). Card data never touches fBeds (hosted fields or redirect only).
+
+### 3.3 Credit terms (ON_ACCOUNT)
+- Set by an approved request (maker-checker): credit line, currency, **payment terms** (for example net 14 days), invoicing cycle (per booking, weekly or monthly) and an optional review date or expiry.
+- Charges accrue as DEBITs; the agency settles by funding the account. **Aging** buckets (current, 1-14, 15-30, 31+ days overdue) are computed from the oldest unpaid DEBIT.
+- **Overdue rules (proposed defaults):** at 1 day overdue send a notice; at 8 days new holds are refused with `AGENCY_CREDIT_OVERDUE`; at 30 days the agency is suspended through the existing suspension flow. Existing confirmed bookings are never cancelled by these rules.
+- **Temporary increase** with an expiry date; reverts automatically.
+
+## 4. Refunds
+Default: **back to the agency account** as a REFUND (instant, no payment-provider cost). Refund to the original source (bank or card) is a separate finance action with approval and is allowed only up to what was funded by that source. A refund is never larger than the amount debited for that booking.
+
+## 5. Visibility and reporting
+- Agent app: balance, credit line, available, reserved, recent entries, statement (PDF), outstanding invoices, a clear refusal reason when funds are short, and a low-balance warning at a set share (default 20 percent of the credit line or one average booking).
+- Admin: per-agency account, ledger, aging, receipts queue, daily cash position, unmatched receipts, reconciliation to bank, exports for accounting.
+- Statements are generated from the ledger only and carry the same figures as the screen.
+
+## 6. Edge cases and rules
+| Case | Rule |
+|---|---|
+| Partial payment | Posts what was verified; the rest stays outstanding |
+| Overpayment | Posts in full as balance; refund only on request with approval |
+| Duplicate bank reference | Rejected at declaration |
+| Wrong currency | Rejected; no conversion; finance contacts the agency |
+| Funds arrive after a hold expired | Credited as balance; the hold is not revived |
+| Suspended agency with a balance | Balance frozen for new spend, still refundable and still shown |
+| Agency closed | Balance refunded or transferred by finance with approval, then the account is closed |
+| Chargeback | REVERSAL; may push the account negative; triggers a review and can suspend |
+| Backdated entry | Not allowed; corrections are new ADJUSTMENT entries |
+| Concurrent bookings on the last funds | Row lock on the account; exactly one succeeds |
+
+## 7. Controls and compliance (decisions for finance and legal)
+- Segregation of duties: declarer, verifier and approver differ above the threshold; all enforced by the service and by approval records.
+- Limits: a maximum single receipt, a daily total per agency, and a hold on first-time large receipts.
+- AML and sanctions: payer name matching against the agency, third-party and cash handling, and screening policy are **owner and legal decisions**; this ADR does not set them.
+- Tax and invoicing (VAT, tax invoice numbering) are separate; this model only provides the amounts and references. Net rates are all-inclusive and the launch currency is AED (ADR 0029); how VAT on the margin and the invoice are presented is an accountant decision.
+- Retention of receipts and proof of transfer, and who may see payer details.
+
+## 8. Build plan (each slice small, reviewed, behind flags, no live money until the last)
+1. **Agency accounts, read-only:** schema for agency accounts and migration of the tenant wallet to the house account; statement and balance views; no posting change.
+2. **Manual funding:** receipt declaration, verification, posting with thresholds and maker-checker; unmatched and duplicate handling; full e2e.
+3. **One credit concept:** convert the agency credit limit into the credit line; available-funds check replaces the hold ceiling; payment terms and aging.
+4. **Overdue controls:** notices, hold refusal, suspension hooks.
+5. **Payment provider:** payment links, verified webhooks, fees.
+6. **Refund to source, reconciliation to bank, accounting export.**
+Each slice ships with tests for concurrency (one winner on the last funds), idempotency, tenant isolation, permissions and audit, and a browser check.
+
+## 9. Decisions needed from the owner
+1. **Account model: decided (2026-10-04), one account per agency.**
+2. **Credit concept: decided (2026-10-04), merge ADR 0024's limit into the account's credit line** (built in slice 3).
+3. **Funding methods for launch: decided (2026-10-04), bank transfer only.** Card or payment link and its provider are deferred to slice 5.
+4. **Credit terms:** payment terms offered, overdue day thresholds (7 and 30 proposed), who approves a credit line.
+5. **Approval threshold** for large receipts and adjustments (amount per currency).
+6. **Provider fees:** absorb or surcharge.
+7. **Refund default:** to the account (recommended) with refund-to-source by finance approval.
+8. **Compliance:** AML, sanctions, cash and third-party payer policy; retention.
+9. **Currencies at launch: decided, AED only** (ADR 0029). Net rates are all-inclusive of taxes (ADR 0029), so this model carries no tax lines.
+
+## 10. Consequences if accepted
+Two to four migrations over the slices (agency accounts, receipts, payment intents, adjustment and reversal ledger types), several approval-only permission keys, new Agent and Admin screens, and a change to the hold authorisation check. Nothing changes until slice 1 is built; no money moves until slice 2 and the go-live gates. Rollback per slice is a feature flag plus a forward migration; ledger rows are never deleted.

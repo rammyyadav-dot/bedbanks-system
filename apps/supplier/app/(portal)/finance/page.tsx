@@ -1,6 +1,11 @@
-import { OperationalModule } from '../../../components/modules/OperationalModule'
-import { moduleConfigs } from '../../../lib/module-data'
+import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
 
-export default function FinancePage() {
-  return <OperationalModule config={moduleConfigs.finance} />
+export default function Page() {
+  return (
+    <SupplyWorkflowUnavailable
+      eyebrow="Unavailable"
+      title="Finance"
+      description="Settlement figures are not available."
+    />
+  )
 }

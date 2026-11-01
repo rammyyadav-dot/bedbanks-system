@@ -1,5 +1,6 @@
-import { CapabilityUnavailable } from '@/components/common/CapabilityUnavailable'
+import Link from 'next/link'
+import { FeatureUnavailable } from '@/components/common/FeatureUnavailable'
 
-export default function UsersPage() {
-  return <CapabilityUnavailable eyebrow="BUSINESS · USERS" title="Users" description="Cross-tenant user directory." />
+export default function Page() {
+  return <FeatureUnavailable eyebrow="BUSINESS" title="Users" reason={<>View tenant members, roles and access flags in <Link href="/access-review">Access review</Link>. Manage role assignments in <Link href="/access">Roles &amp; Permissions</Link>.</>} />
 }

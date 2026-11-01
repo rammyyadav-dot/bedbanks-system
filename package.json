@@ -7,23 +7,54 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "dev": "node tools/dev.mjs",
+    "dev": "set -a; [ ! -f /vercel/share/.env.project ] || . /vercel/share/.env.project; set +a; (cd apps/api && env -u API_PORT -u ADMIN_ORIGIN API_PORT=3002 ADMIN_ORIGIN=http://localhost:3000 pnpm dev) & api_pid=$!; NEXT_PUBLIC_AGENT_API_URL=http://localhost:3002/api/v1 pnpm --dir apps/agent dev; agent_status=$?; kill $api_pid 2>/dev/null || true; wait $api_pid 2>/dev/null || true; exit $agent_status",
     "build": "turbo run build",
     "type-check": "turbo run type-check",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "check:contracts": "node --import tsx tools/contract-check.ts",
+    "check:app-boundaries": "node --import tsx tools/app-boundary-check.ts",
     "check:no-float": "node --import tsx tools/no-float-check.ts",
     "check:no-silent-fallback": "node --import tsx tools/no-silent-fallback-check.ts",
+    "check:ledger-single-writer": "node --import tsx tools/ledger-single-writer-check.ts",
+    "check:tenant-filter": "node --import tsx tools/tenant-filter-check.ts",
     "check:schema": "node --import tsx tools/no-divergent-schema-check.ts",
-    "check:architecture": "node --import tsx tools/contract-check.ts && node --import tsx tools/no-float-check.ts && node --import tsx tools/no-silent-fallback-check.ts"
+    "check:public-env": "node --import tsx tools/public-env-check.ts",
+    "check:runtime-db-role": "node --import tsx tools/runtime-db-role-check.ts",
+    "check:aws-governance": "node tools/aws-governance-check.mjs",
+    "golive:preflight": "node tools/aws-golive-preflight.mjs",
+    "check:architecture": "pnpm check:contracts && pnpm check:app-boundaries && pnpm check:no-float && pnpm check:no-silent-fallback && pnpm check:ledger-single-writer && pnpm check:tenant-filter && pnpm check:raw-sql && pnpm check:migration-safety && pnpm check:public-env && pnpm check:runtime-db-role && pnpm check:aws-governance && pnpm check:workflow-permissions && pnpm check:framework-peers && pnpm check:env-examples",
+    "check:workflow-permissions": "node tools/workflow-permissions-check.mjs",
+    "check:framework-peers": "node tools/framework-peer-check.mjs",
+    "check:dependencies": "node tools/dependency-audit-check.mjs",
+    "check:raw-sql": "node --import tsx tools/raw-sql-check.ts",
+    "check:migration-safety": "node tools/migration-safety-check.mjs",
+    "check:env-examples": "node tools/env-examples-check.mjs",
+    "hooks:install": "git config core.hooksPath .githooks"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@prisma/client": "^6.2.1",
-    "eslint": "^9.39.5",
+    "eslint": "^10.13.0",
     "prisma": "^6.2.1",
-    "tsx": "^4.20.6",
-    "turbo": "^2.10.13",
-    "typescript-eslint": "^8.70.0"
+    "tsx": "^4.23.15",
+    "turbo": "^2.11.10",
+    "typescript-eslint": "^8.72.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "multer": "^2.5.0",
+      "body-parser": "^2.4.0",
+      "lodash": "^4.18.1",
+      "js-yaml@^4": "^4.3.2",
+      "js-yaml@^5": "^5.4.1",
+      "sharp": "^0.35.5",
+      "source-map-js": "^1.2.2",
+      "proxy-addr": "^2.0.8"
+    }
   }
 }

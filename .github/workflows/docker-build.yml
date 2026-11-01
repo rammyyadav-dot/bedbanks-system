@@ -1,0 +1,114 @@
+name: Docker build
+
+# Proves the shipped images build and are free of fixable HIGH/CRITICAL vulnerabilities BEFORE merge. Until now a broken Dockerfile or a vulnerable base
+# image was only discovered by the manual "AWS images" run from main. Nothing is pushed and no credentials are used. Tools are downloaded from their
+# release pages and verified against pinned SHA-256 digests (same approach as gitleaks in security.yml); bump the version and digest together.
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.web'
+      - 'apps/api/Dockerfile'
+      - '.dockerignore'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'apps/api/prisma/**'
+      - 'tools/deployment/**'
+      - '.github/workflows/docker-build.yml'
+  push:
+    branches: [main]
+  schedule:
+    # New CVEs appear against unchanged images: re-scan the main branch recipes weekly.
+    - cron: '41 4 * * 2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HADOLINT_VERSION: 2.15.1
+  HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+  TRIVY_VERSION: 0.76.1
+  TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+
+jobs:
+  dockerfile-lint:
+    name: Dockerfile lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: hadolint (errors fail; style findings are tracked in review, not blocking)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o hadolint "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-x86_64"
+          echo "${HADOLINT_SHA256}  hadolint" | sha256sum --check -
+          chmod +x hadolint
+          ./hadolint --failure-threshold error Dockerfile.web apps/api/Dockerfile
+
+  build-scan:
+    name: Build and scan (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: api, file: apps/api/Dockerfile, target: runner }
+          - { name: api-migrator, file: apps/api/Dockerfile, target: migrator }
+          - { name: admin, file: Dockerfile.web, app: admin, package: '@bedbanks/admin-console' }
+          - { name: agent, file: Dockerfile.web, app: agent, package: '@bedbanks/agent-portal' }
+          - { name: supplier, file: Dockerfile.web, app: supplier, package: '@bedbanks/supplier-portal' }
+          - { name: website, file: Dockerfile.web, app: website, package: '@bedbanks/website' }
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (not pushed)
+        env:
+          FILE: ${{ matrix.file }}
+          TARGET: ${{ matrix.target }}
+          APP: ${{ matrix.app }}
+          PACKAGE: ${{ matrix.package }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          args=(--file "$FILE" --tag "fbeds-$NAME:ci" --load)
+          [ -z "$TARGET" ] || args+=(--target "$TARGET")
+          [ -z "$APP" ] || args+=(--build-arg "APP=$APP" --build-arg "PACKAGE=$PACKAGE")
+          docker buildx build "${args[@]}" .
+      - name: Image runs as a non-root user
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          user=$(docker image inspect "fbeds-$NAME:ci" --format '{{.Config.User}}')
+          case "$user" in ''|0|root|0:0|root:root) echo "fbeds-$NAME:ci runs as root ('$user')" >&2; exit 1 ;; esac
+          echo "fbeds-$NAME:ci runs as '$user'" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install Trivy (pinned and checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum --check -
+          tar -xzf trivy.tgz trivy
+      - name: Vulnerability scan (fixable HIGH and CRITICAL fail; accepted ones live in security/trivyignore with reason and expiry)
+        env:
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          ./trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --ignorefile security/trivyignore --no-progress "fbeds-$NAME:ci"
+      - name: SBOM (CycloneDX)
+        if: always()
+        env:
+          NAME: ${{ matrix.name }}
+        run: ./trivy image --format cyclonedx --output "sbom-$NAME.cdx.json" --no-progress "fbeds-$NAME:ci"
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          if-no-files-found: ignore
+          retention-days: 30

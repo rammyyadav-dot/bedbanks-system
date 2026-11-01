@@ -9,7 +9,8 @@ const command: any = {
 function setup() {
   const finance = { release: jest.fn().mockResolvedValue({ id: 'release-a' }) }
   const inventory = { release: jest.fn().mockResolvedValue(undefined) }
-  return { service: new PrebookCompensationRecoveryService(finance as any, inventory as any), finance, inventory }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  return { service: new PrebookCompensationRecoveryService(finance as any, inventory as any, audit as any), finance, inventory, audit }
 }
 
 describe('PrebookCompensationRecoveryService', () => {
@@ -53,5 +54,24 @@ describe('PrebookCompensationRecoveryService', () => {
     })
     expect(finance.release).toHaveBeenCalledTimes(2)
     expect(inventory.release).toHaveBeenCalledTimes(2)
+  })
+
+  it('logs and audits each failed leg without throwing, with no raw error text', async () => {
+    const { service, finance, inventory, audit } = setup()
+    finance.release.mockRejectedValue(Object.assign(new Error('secret ledger detail'), { name: 'LedgerDown' }))
+    inventory.release.mockRejectedValue(new Error('inventory unavailable'))
+    await expect(service.compensate(command)).resolves.toEqual({ status: 'reconciliation_required', financeReleased: false, inventoryReleased: false })
+    const calls = audit.record.mock.calls.map(([input]) => input)
+    expect(calls.map((input) => input.payload.leg)).toEqual(['finance_release', 'inventory_release', 'reconciliation_required'])
+    expect(calls.every((input) => input.userId === 'user-a' && input.tenantId === 'tenant-a' && input.entityId === 'booking-a')).toBe(true)
+    expect(JSON.stringify(calls)).not.toContain('secret ledger detail')
+    expect(calls[0].payload.errorName).toBe('LedgerDown')
+  })
+
+  it('still returns the compensation result when auditing itself fails', async () => {
+    const { service, finance, audit } = setup()
+    finance.release.mockRejectedValue(new Error('x'))
+    audit.record.mockRejectedValue(new Error('audit down'))
+    await expect(service.compensate(command)).resolves.toMatchObject({ status: 'reconciliation_required' })
   })
 })

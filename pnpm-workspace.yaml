@@ -2,6 +2,7 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'packages/connectors/*'
+  - 'e2e'
 
 allowBuilds:
   '@prisma/client': true

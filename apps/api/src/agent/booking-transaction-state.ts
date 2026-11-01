@@ -4,7 +4,10 @@ import type { BookingTransactionState } from '@bedbanks/domain'
 const ALLOWED_TRANSITIONS: Readonly<Record<BookingTransactionState, readonly BookingTransactionState[]>> = {
   RECHECKED: ['INVENTORY_HELD', 'FAILED'],
   INVENTORY_HELD: ['FINANCE_AUTHORIZED', 'FAILED'],
-  FINANCE_AUTHORIZED: ['PREBOOKED', 'FAILED'],
+  FINANCE_AUTHORIZED: ['PREBOOKED', 'UNKNOWN', 'FAILED'],
+  // UNKNOWN stays recoverable: a later proof may prebook, or a definitive rejection may fail.
+  // It cannot jump to CONFIRMED, and it is not itself a failure.
+  UNKNOWN: ['PREBOOKED', 'FAILED'],
   PREBOOKED: ['BOOKING_PENDING', 'FAILED'],
   BOOKING_PENDING: ['CONFIRMED', 'FAILED'],
   CONFIRMED: [],

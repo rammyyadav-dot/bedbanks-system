@@ -3,9 +3,12 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { inspectPoolConfig } from './pool-config';
+import { assertRuntimeDbIdentity, runtimeGuardMode } from './runtime-db-identity';
 
 /**
  * Thin wrapper around PrismaClient that plugs into Nest's lifecycle.
@@ -28,10 +31,39 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly poolUrl: string | undefined;
+
+  constructor(@Optional() options?: Prisma.PrismaClientOptions) {
+    super(options);
+    this.poolUrl = options?.datasourceUrl ?? process.env.DATABASE_URL;
+  }
 
   async onModuleInit(): Promise<void> {
     await this.$connect();
+    await this.assertRestrictedRuntimeRole('API');
     this.logger.log('Database connection established');
+  }
+
+  /**
+   * P0-01 (ADR 0040): fail closed unless this connection is a restricted login (not superuser, no BYPASSRLS, owns nothing, not the migration owner).
+   * The error names the invariant only; it never contains the connection string or password. Also used by every other runtime client.
+   */
+  async assertRestrictedRuntimeRole(label: string): Promise<void> {
+    this.warnOnPoolConfig(label);
+    if (runtimeGuardMode() === 'off') return;
+    try {
+      const identity = await assertRuntimeDbIdentity(this, label);
+      this.logger.log(`${label} database role verified: user=${identity.currentUser} (not superuser, no BYPASSRLS, owns nothing)`);
+    } catch (error) {
+      await this.$disconnect().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** ADR 0067: surface pools that are missing the settings the connection budget relies on. Logs findings only, never the URL. */
+  private warnOnPoolConfig(label: string): void {
+    const report = inspectPoolConfig(this.poolUrl);
+    for (const warning of report.warnings) this.logger.warn(`${label} database pool: ${warning}`);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -48,10 +80,8 @@ export class PrismaService
     try {
       await this.$queryRaw`SELECT 1`;
       return true;
-    } catch (error) {
-      this.logger.warn(
-        `Database health check failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    } catch {
+      this.logger.warn('Database health check failed');
       return false;
     }
   }
@@ -65,13 +95,33 @@ export class PrismaService
    * this method; this method deliberately accepts a server-derived tenant ID,
    * never a raw client header.
    */
-  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeoutMs?: number }): Promise<T> {
     if (!tenantId || tenantId.trim() !== tenantId) {
       throw new Error('A normalized tenant context is required');
     }
 
     return this.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+      return work(tx);
+    }, options && { isolationLevel: options.isolationLevel, timeout: options.timeoutMs });
+  }
+
+  /**
+   * Tenant plus supplier-organization context for extranet reads and draft notes.
+   * Both identifiers must already have been resolved from the authenticated session.
+   * The supplier setting is transaction-local and is not applied to admin supply queries.
+   */
+  async withSupplier<T>(tenantId: string, supplierId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    if (!tenantId || tenantId.trim() !== tenantId) {
+      throw new Error('A normalized tenant context is required');
+    }
+    if (!supplierId || supplierId.trim() !== supplierId) {
+      throw new Error('A normalized supplier organization is required');
+    }
+
+    return this.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+      await tx.$executeRaw`SELECT set_config('app.current_supplier_id', ${supplierId}, true)`;
       return work(tx);
     });
   }

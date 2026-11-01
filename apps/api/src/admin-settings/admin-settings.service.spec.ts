@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common'
 import { AdminSettingsService } from './admin-settings.service'
-import type { PrismaService } from '../database/prisma.service'
+import type { TenantControlDatabase } from '../platform-admin/tenant-control.database'
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface'
 import type { UpdateTenantSettingsDto } from './dto/update-tenant-settings.dto'
 
 const identity = {
   user: { id: 'user-a', email: 'a@example.test', name: null, status: 'ACTIVE' },
-  memberships: [{ tenantId: 'tenant-member', tenantName: 'Member', role: 'member' }, { tenantId: 'tenant-a', tenantName: 'A', role: 'owner' }],
+  memberships: [{ tenantId: 'tenant-a', tenantName: 'A', role: 'owner' }],
 } as unknown as AuthenticatedUser
 
 const body: UpdateTenantSettingsDto = {
@@ -21,16 +21,17 @@ function fixture(overrides: Partial<{ lastIdempotencyKey: string | null; lastMut
     updatedAt: new Date('2026-10-01T00:00:00Z'), tenant: { id: 'tenant-a', name: 'Old', slug: 'acme', status: 'ACTIVE' }, ...overrides,
   }
   const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'tenant-a' }]),
     tenant: { update: jest.fn(async ({ data }: { data: { name: string } }) => { row = { ...row, tenant: { ...row.tenant, name: data.name } }; return row.tenant }) },
     tenantSettings: {
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       findUniqueOrThrow: jest.fn(async () => row),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => { row = { ...row, ...data }; return row }),
     },
-    auditEvent: { create: jest.fn().mockResolvedValue(undefined) },
+    auditEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue(undefined) },
   }
   const withTenant = jest.fn(async (_tenantId: string, work: (client: typeof tx) => Promise<unknown>) => work(tx))
-  const service = new AdminSettingsService({ withTenant } as unknown as PrismaService)
+  const service = new AdminSettingsService({ withTenant } as unknown as TenantControlDatabase)
   return { service, tx, withTenant }
 }
 

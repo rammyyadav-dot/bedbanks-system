@@ -1,0 +1,82 @@
+name: AWS rollback
+
+# Manual, environment-gated (same required reviewers as AWS deploy). Points one ECS service back at a task definition revision that already exists:
+# by default the revision before the one currently running. Application code only: it never touches the database (migrations are forward-only; follow
+# docs/runbooks/rollback.md for schema questions). The service stays on the commit-pinned image digest recorded in that revision.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        required: true
+        type: choice
+        options: [staging, production]
+      service:
+        description: Service to roll back
+        required: true
+        type: choice
+        options: [api, admin, agent, supplier, website]
+      revision:
+        description: Task definition revision number to restore (empty = the revision immediately before the running one)
+        required: false
+        type: string
+        default: ''
+      reason:
+        description: Why (recorded in the run summary and the audit trail)
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Roll back and wait for stability
+        env:
+          CLUSTER: fbeds-${{ inputs.environment }}
+          SERVICE: ${{ inputs.service }}
+          REVISION: ${{ inputs.revision }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          [[ -z "$REVISION" || "$REVISION" =~ ^[0-9]+$ ]] || { echo "revision must be a number" >&2; exit 1; }
+          family="$CLUSTER-$SERVICE"
+          current=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
+          [[ "$current" == arn:aws:ecs:*:task-definition/"$family":* ]] || { echo "unexpected running task definition '$current'" >&2; exit 1; }
+          cur_rev=${current##*:}
+          if [ -z "$REVISION" ]; then
+            # Newest ACTIVE revision strictly below the running one.
+            REVISION=$(aws ecs list-task-definitions --family-prefix "$family" --status ACTIVE --sort DESC --query 'taskDefinitionArns' --output text | tr '\t' '\n' \
+              | awk -F: -v cur="$cur_rev" -v fam="$family" '{ if ($NF + 0 < cur + 0 && $(NF-1) == "task-definition/" fam) { print $NF; exit } }')
+            [ -n "$REVISION" ] || { echo "no earlier ACTIVE revision of $family below $cur_rev" >&2; exit 1; }
+          fi
+          [ "$REVISION" != "$cur_rev" ] || { echo "$family:$REVISION is already running" >&2; exit 1; }
+          target=$(aws ecs describe-task-definition --task-definition "$family:$REVISION" --query 'taskDefinition.[taskDefinitionArn,status,containerDefinitions[?name==`'"$SERVICE"'`].image|[0]]' --output text)
+          read -r arn status image <<<"$target"
+          [ "$status" = ACTIVE ] || { echo "$family:$REVISION is $status" >&2; exit 1; }
+          [[ "$image" == *@sha256:* ]] || { echo "$family:$REVISION is not pinned to a digest ($image); refusing" >&2; exit 1; }
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$arn" >/dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          now=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].taskDefinition' --output text)
+          [ "$now" = "$arn" ] || { echo "$SERVICE did not settle on $arn (now $now)" >&2; exit 1; }
+          read -r running desired deployments < <(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --query 'services[0].[runningCount,desiredCount,length(deployments)]' --output text)
+          { [ "$running" = "$desired" ] && [ "$deployments" = 1 ]; } || { echo "$SERVICE not fully rolled: running=$running desired=$desired deployments=$deployments" >&2; exit 1; }
+          {
+            echo "### Rolled back $SERVICE in $CLUSTER"
+            echo "- from revision $cur_rev to $REVISION ($image)"
+            echo "- requested by $ACTOR"
+            echo "- reason: $REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
