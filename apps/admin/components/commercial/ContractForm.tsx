@@ -11,6 +11,7 @@ import { ContractPolicies } from './ContractPolicies'
 import { ContractSupplements } from './ContractSupplements'
 import { ContractLifecyclePanel } from './ContractLifecyclePanel'
 import { ContractPolicyAmendment } from './ContractPolicyAmendment'
+import { ContractMarketValidity } from './ContractMarketValidity'
 import { CONTRACT_ALLOTMENT_TYPES, CONTRACT_MIN_STAY_MODES, CONTRACT_RATE_TYPES, type ContractHeaderTerms, type ContractLifecycleView } from '@bedbanks/contracts'
 import { bpToPercent, describeChanges, headerAmendment, headerTermsOf, newContractRequestId, percentToBp } from '@/lib/contract-lifecycle-ui'
 import { describeApiError } from '@/lib/api/describe-error'
@@ -180,6 +181,7 @@ export function ContractForm({ contractId }: { contractId?: string }) {
             {canManage && status !== 'EXPIRED' ? <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>{saving ? 'Saving…' : amending ? 'Request amendment' : editing ? 'Save contract' : 'Create contract'}</button> : <p role="status" style={{ fontSize: 12 }}>You have read-only access to contracts.</p>}
           </form>
           {editing && lifecycle ? <ContractLifecyclePanel view={lifecycle} canManage={canManage} onChanged={() => void reload()} /> : null}
+          {editing && detail ? <ContractMarketValidity contractId={detail.id} contractCode={detail.code} contractStatus={detail.status} canManage={canManage} initialRules={detail.marketValidityRules} onChanged={() => void reload()} /> : null}
           {editing && detail ? <ContractPolicies contract={detail} canManage={canManage} editable={lifecycle?.termsEditable ?? false} onChanged={() => void reload()} /> : null}
           {editing && detail ? <ContractSupplements contract={detail} canManage={canManage} editable={lifecycle?.termsEditable ?? false} onChanged={() => void reload()} /> : null}
           {editing && detail && lifecycle && amending && canManage && !lifecycle.openRequest ? <ContractPolicyAmendment key={lifecycle.fingerprint} contract={detail} fingerprint={lifecycle.fingerprint} onFiled={() => void reload()} /> : null}

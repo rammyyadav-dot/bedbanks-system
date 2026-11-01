@@ -42,7 +42,7 @@ describe('Supply controllers authorization wiring', () => {
         const declared = needs(h.fn)
         if (declared === undefined) continue
         const keys = ([] as string[]).concat(declared)
-        const read = Reflect.getMetadata('method', h.fn) === 0 || ['previewCalendarImport', 'sellability'].includes(h.name)
+        const read = Reflect.getMetadata('method', h.fn) === 0 || ['previewCalendarImport', 'sellability', 'validateRatePlanMarket'].includes(h.name)
         for (const key of keys) expect(`${c.name}.${h.name}:${key.endsWith(read ? '.read' : '.manage')}`).toBe(`${c.name}.${h.name}:true`)
       }
     }

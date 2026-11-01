@@ -26,17 +26,9 @@ import { markupResolverFor } from './markup-rules'
 import { loadActiveMarkupRulesInTx } from './markup-rules.loader'
 import {
   HOTEL_STAR_RATING_MISSING,
-  MARKET_INCLUSIONS,
-  MARKET_MATCH_TYPES,
   PRICE_GUARDRAIL,
   type CancellationVoucherChannel,
   type ConnectorFormatType,
-  type ContractMarketValidityProfileRead,
-  type MarketInclusion,
-  type MarketMatchType,
-  type MarketValidityRuleRead,
-  type MarketValidityRuleWrite,
-  type SourceMarketGroupRead,
 } from '@bedbanks/contracts'
 import { codesOutsideContract, parseMarketList, parseMarketRules } from './market-rules'
 import { RatePlanOpsDatabase } from './rate-plan-ops-database'
@@ -120,18 +112,13 @@ export class SupplyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AgentAuditService,
+    @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase,
+    @Optional() private readonly ratePlanClone?: RatePlanCloneDatabase,
+    @Optional() private readonly marketValidity: MarketValidityService = new MarketValidityService(),
     @Optional() private readonly cancellationPolicy?: CancellationPolicyService,
     @Optional() private readonly ledger?: LedgerService,
     @Optional() private readonly notifications?: CancellationNotificationService,
-    @Optional() private readonly ratePlanOps?: RatePlanOpsDatabase,
-    @Optional() private readonly ratePlanClone?: RatePlanCloneDatabase,
-    @Optional() private readonly marketValidity?: MarketValidityService,
   ) { void this.audit }
-  private async permittedAny(tenantId: string, userId: string, permissions: readonly string[]) {
-    const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
-    const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
-    if (!permissions.some((permission) => keys.includes(permission))) throw new ForbiddenException('Insufficient permission')
-  }
   private async permitted(tenantId: string, userId: string, permission: string) {
     const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
     const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
@@ -466,7 +453,7 @@ export class SupplyService {
       return { items, page, pageSize, total }
     })
   }
-  async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true, supplements: { orderBy: { createdAt: 'asc' } } } })); if (!value) throw new NotFoundException('Contract not found'); return { ...value, supplements: value.supplements.map((p) => ({ ...p, amountMinor: p.amountMinor.toString() })) } }
+  async contract(tenantId: string, userId: string, contractId: string) { await this.check(tenantId, userId, 'supply.contracts.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.contract.findFirst({ where: { id: contractId, tenantId }, include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: { select: { id: true, hotelId: true, status: true } }, cancellationPolicies: { orderBy: { daysBeforeCheckin: 'desc' } }, childPolicies: { orderBy: { minAge: 'asc' } }, leadTimeRules: true, supplements: { orderBy: { createdAt: 'asc' } }, marketValidityRules: { where: { tenantId }, include: { marketGroup: true }, orderBy: { createdAt: 'asc' } } } })); if (!value) throw new NotFoundException('Contract not found'); return { ...value, supplements: value.supplements.map((p) => ({ ...p, amountMinor: p.amountMinor.toString() })) } }
   async createContract(tenantId: string, userId: string, input: any, requestId?: string) { if (input?.status !== undefined && input.status !== 'DRAFT') throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'A contract is created in DRAFT. Activation needs a second approver (ADR 0067).' }); const from = date(input.validFrom); const to = date(input.validTo); if (to < from) throw new BadRequestException('Invalid contract validity'); return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.created', 'contract', requestId, async tx => { const supplier = await tx.supplier.findFirst({ where: { id: input.supplierId, tenantId } }); if (!supplier) throw new BadRequestException('Supplier does not belong to tenant'); if (input.supplierHotelMappingId) { const mapping = await tx.supplierHotelMapping.findFirst({ where: { id: input.supplierHotelMappingId, tenantId, supplierId: input.supplierId, status: 'MAPPED' } }); if (!mapping) throw new BadRequestException('Invalid supplier hotel mapping') } const value = await tx.contract.create({ data: { ...this.contractHeaderData(input, EMPTY_HEADER), ...(await this.contractGovernanceData(tx, tenantId, input)), tenantId, supplierId: input.supplierId, supplierHotelMappingId: input.supplierHotelMappingId ?? null, code: clean(input.code), validFrom: from, validTo: to, settlementCurrency: enabledCurrency(input.settlementCurrency), salesMarkets: marketList('salesMarkets', input.salesMarkets), nationalities: marketList('nationalities', input.nationalities) } }); return { id: value.id, value } }) }
   async updateContract(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
     // ADR 0067: status moves only through the lifecycle routes (activation needs a second approver); terms of an ACTIVE contract change only by amendment.
@@ -1722,279 +1709,219 @@ export class SupplyService {
     })
   }
 
-  // ---- Market Validity, Source Market Profiling & Grouping (ADR 0104) ----------------------------------------------------
-  private serializeMarketGroup(row: { id: string; tenantId: string; code: string; name: string; countryCodes: string[]; isActive: boolean; createdAt: Date; updatedAt: Date }): SourceMarketGroupRead {
-    return {
-      id: row.id,
-      tenantId: row.tenantId,
-      code: row.code,
-      name: row.name,
-      countryCodes: row.countryCodes,
-      isActive: row.isActive,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-    }
+  private async permittedAny(tenantId: string, userId: string, permissions: readonly string[]) {
+    const result: any[] = await this.prisma.withTenant(tenantId, tx => tx.userRole.findMany({ where: { tenantId, userId, role: { tenantId } }, include: { role: { include: { permissions: { include: { permission: true } } } } } })) as any[]
+    const keys = result.flatMap((role: any) => role.role.permissions.map((item: any) => item.permission.key))
+    if (!permissions.some((p) => keys.includes(p))) throw new ForbiddenException('Insufficient permission')
   }
 
-  private serializeMarketValidityRule(row: {
-    id: string
-    tenantId: string
-    contractId: string
-    ratePlanId: string | null
-    inclusionType: MarketInclusion
-    matchType: MarketMatchType
-    countryCodes: string[]
-    marketGroupId: string | null
-    createdAt: Date
-    updatedAt: Date
-    marketGroup?: { id: string; tenantId: string; code: string; name: string; countryCodes: string[]; isActive: boolean; createdAt: Date; updatedAt: Date } | null
-    ratePlan?: { id: string; code: string } | null
-  }): MarketValidityRuleRead {
-    return {
-      id: row.id,
-      tenantId: row.tenantId,
-      contractId: row.contractId,
-      ratePlanId: row.ratePlanId,
-      ratePlanCode: row.ratePlan?.code ?? null,
-      inclusionType: row.inclusionType,
-      matchType: row.matchType,
-      countryCodes: row.countryCodes,
-      marketGroupId: row.marketGroupId,
-      marketGroup: row.marketGroup ? this.serializeMarketGroup(row.marketGroup) : null,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-    }
-  }
-
-  private validateSourceMarketGroupInput(input: any, partial = false) {
-    const out: { code?: string; name?: string; countryCodes?: string[]; isActive?: boolean } = {}
-    if (!partial || input?.code !== undefined) {
-      const code = clean(input?.code).toUpperCase()
-      if (!/^[A-Z0-9][A-Z0-9_-]{0,79}$/.test(code)) {
-        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'code must be 1 to 80 uppercase alphanumeric characters, dashes or underscores.' })
-      }
-      out.code = code
-    }
-    if (!partial || input?.name !== undefined) {
-      const name = clean(input?.name)
-      if (name.length < 1 || name.length > 160) {
-        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'name must be 1 to 160 characters.' })
-      }
-      out.name = name
-    }
-    if (!partial || input?.countryCodes !== undefined) {
-      const parsed = parseMarketList(input?.countryCodes)
-      if (!parsed || parsed.length === 0) {
-        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'countryCodes must be a non-empty list of two-letter ISO-3166 alpha-2 country codes.' })
-      }
-      out.countryCodes = parsed
-    }
-    if (input?.isActive !== undefined) {
-      if (typeof input.isActive !== 'boolean') {
-        throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'isActive must be a boolean.' })
-      }
-      out.isActive = input.isActive
-    } else if (!partial) {
-      out.isActive = true
-    }
-    return out
-  }
-
-  async sourceMarketGroups(tenantId: string, userId: string): Promise<SourceMarketGroupRead[]> {
-    await this.permittedAny(tenantId, userId, ['supply.contracts.read', 'supply.rates.read'])
-    return this.prisma.withTenant(tenantId, async (tx) => {
-      const rows = await tx.sourceMarketGroup.findMany({
+  /** ADR 0107: list source market groups for the active tenant. */
+  async sourceMarketGroups(tenantId: string, userId: string) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    return this.prisma.withTenant(tenantId, tx =>
+      tx.sourceMarketGroup.findMany({
         where: { tenantId },
         orderBy: [{ code: 'asc' }, { id: 'asc' }],
       })
-      return rows.map((row) => this.serializeMarketGroup(row))
-    })
+    )
   }
 
-  async createSourceMarketGroup(tenantId: string, userId: string, input: any, requestId?: string): Promise<SourceMarketGroupRead> {
-    const data = this.validateSourceMarketGroupInput(input, false)
-    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.created', 'source_market_group', requestId, async (tx) => {
-      const duplicate = await tx.sourceMarketGroup.findFirst({ where: { tenantId, code: data.code! } })
-      if (duplicate) throw new ConflictException({ code: 'SOURCE_MARKET_GROUP_CODE_EXISTS', message: `Source market group "${data.code}" already exists in this tenant.` })
-      const created = await tx.sourceMarketGroup.create({
-        data: {
-          tenantId,
-          code: data.code!,
-          name: data.name!,
-          countryCodes: data.countryCodes!,
-          isActive: data.isActive ?? true,
-        },
+  /** ADR 0107: create or update a source market group by code or id. */
+  async upsertSourceMarketGroup(tenantId: string, userId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid source market group payload')
+    const code = clean(input.code).toUpperCase()
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(code)) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_CODE_INVALID', message: 'Group code must be 2 to 40 uppercase letters, digits, underscores or hyphens.' })
+    const name = clean(input.name)
+    if (name.length < 2 || name.length > 120) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_NAME_INVALID', message: 'Group name must be 2 to 120 characters.' })
+    const countryCodes = parseMarketList(input.countryCodes)
+    if (countryCodes === null || countryCodes.length === 0) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_COUNTRIES_INVALID', message: 'countryCodes must be a non-empty list of two-letter ISO country codes.' })
+    const isActive = input.isActive === undefined ? true : Boolean(input.isActive)
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.upserted', 'source_market_group', requestId, async tx => {
+      const value = await tx.sourceMarketGroup.upsert({
+        where: { tenantId_code: { tenantId, code } },
+        create: { tenantId, code, name, countryCodes, isActive },
+        update: { name, countryCodes, isActive },
       })
-      return { id: created.id, value: this.serializeMarketGroup(created) }
+      return { id: value.id, value }
     })
   }
 
-  async updateSourceMarketGroup(tenantId: string, userId: string, groupId: string, input: any, requestId?: string): Promise<SourceMarketGroupRead> {
-    const data = this.validateSourceMarketGroupInput(input, true)
-    if (Object.keys(data).length === 0) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_INVALID', message: 'Provide at least one field to update.' })
-    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.updated', 'source_market_group', requestId, async (tx) => {
-      const current = await tx.sourceMarketGroup.findFirst({ where: { id: groupId, tenantId } })
-      if (!current) throw new NotFoundException('Source market group not found')
-      if (data.code && data.code !== current.code) {
-        const duplicate = await tx.sourceMarketGroup.findFirst({ where: { tenantId, code: data.code } })
-        if (duplicate) throw new ConflictException({ code: 'SOURCE_MARKET_GROUP_CODE_EXISTS', message: `Source market group "${data.code}" already exists in this tenant.` })
+  async updateSourceMarketGroup(tenantId: string, userId: string, groupId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid source market group payload')
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.updated', 'source_market_group', requestId, async tx => {
+      const existing = await tx.sourceMarketGroup.findFirst({ where: { id: groupId, tenantId } })
+      if (!existing) throw new NotFoundException('Source market group not found')
+      const code = input.code === undefined ? existing.code : clean(input.code).toUpperCase()
+      if (!/^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(code)) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_CODE_INVALID', message: 'Group code must be 2 to 40 uppercase letters, digits, underscores or hyphens.' })
+      const name = input.name === undefined ? existing.name : clean(input.name)
+      if (name.length < 2 || name.length > 120) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_NAME_INVALID', message: 'Group name must be 2 to 120 characters.' })
+      const countryCodes = input.countryCodes === undefined ? existing.countryCodes : parseMarketList(input.countryCodes)
+      if (countryCodes === null || countryCodes.length === 0) throw new BadRequestException({ code: 'SOURCE_MARKET_GROUP_COUNTRIES_INVALID', message: 'countryCodes must be a non-empty list of two-letter ISO country codes.' })
+      const isActive = input.isActive === undefined ? existing.isActive : Boolean(input.isActive)
+      if (code !== existing.code) {
+        const collision = await tx.sourceMarketGroup.findFirst({ where: { tenantId, code, id: { not: groupId } }, select: { id: true } })
+        if (collision) throw new ConflictException({ code: 'SOURCE_MARKET_GROUP_CODE_EXISTS', message: `A source market group with code "${code}" already exists.` })
       }
-      const updated = await tx.sourceMarketGroup.update({
+      const value = await tx.sourceMarketGroup.update({
         where: { id: groupId, tenantId },
-        data,
+        data: { code, name, countryCodes, isActive },
       })
-      return { id: updated.id, value: this.serializeMarketGroup(updated) }
+      return { id: value.id, value }
     })
   }
 
-  private async loadContractMarketValidityProfileInTx(tx: Prisma.TransactionClient, tenantId: string, contractId: string): Promise<ContractMarketValidityProfileRead> {
-    const contract = await tx.contract.findFirst({
-      where: { id: contractId, tenantId },
-      include: {
-        ratePlans: {
-          orderBy: [{ code: 'asc' }, { id: 'asc' }],
-          select: { id: true, code: true, status: true, validFrom: true, validTo: true, salesMarkets: true, nationalities: true },
-        },
-        marketValidityRules: {
-          include: {
-            marketGroup: true,
-            ratePlan: { select: { id: true, code: true } },
-          },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        },
-      },
+  async deleteSourceMarketGroup(tenantId: string, userId: string, groupId: string, requestId?: string) {
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.source_market_group.deleted', 'source_market_group', requestId, async tx => {
+      const existing = await tx.sourceMarketGroup.findFirst({ where: { id: groupId, tenantId } })
+      if (!existing) throw new NotFoundException('Source market group not found')
+      await tx.sourceMarketGroup.delete({ where: { id: groupId, tenantId } })
+      return { id: groupId, value: { id: groupId, deleted: true } }
     })
-    if (!contract) throw new NotFoundException('Contract not found')
-    const parsedContractMarkets = parseMarketRules(contract)
-    return {
-      contractId: contract.id,
-      contractCode: contract.code,
-      validFrom: dayOf(contract.validFrom)!,
-      validTo: dayOf(contract.validTo)!,
-      salesMarkets: parsedContractMarkets.salesMarkets ?? [],
-      nationalities: parsedContractMarkets.nationalities ?? [],
-      rules: contract.marketValidityRules.map((rule) => this.serializeMarketValidityRule(rule)),
-      ratePlans: contract.ratePlans.map((plan) => {
-        const pm = parseMarketRules(plan)
-        return {
-          id: plan.id,
-          code: plan.code,
-          status: plan.status,
-          validFrom: dayOf(plan.validFrom),
-          validTo: dayOf(plan.validTo),
-          salesMarkets: pm.salesMarkets ?? [],
-          nationalities: pm.nationalities ?? [],
-        }
-      }),
-    }
   }
 
-  async contractMarketValidity(tenantId: string, userId: string, contractId: string): Promise<ContractMarketValidityProfileRead> {
-    await this.permittedAny(tenantId, userId, ['supply.contracts.read', 'supply.rates.read'])
-    return this.prisma.withTenant(tenantId, (tx) => this.loadContractMarketValidityProfileInTx(tx, tenantId, contractId))
-  }
-
-  private normalizeMarketValidityRuleWrite(raw: any, indexLabel: string): Required<MarketValidityRuleWrite> {
-    const inclusionType = raw?.inclusionType
-    const matchType = raw?.matchType
-    if (!(MARKET_INCLUSIONS as readonly string[]).includes(inclusionType)) {
-      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: inclusionType must be INCLUDE or EXCLUDE.` })
+  private async normalizeMarketValidityRule(tx: Prisma.TransactionClient, tenantId: string, contractId: string, raw: any) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'Invalid market validity rule.' })
+    const inclusionType = raw.inclusionType === undefined ? 'INCLUDE' : raw.inclusionType
+    if (inclusionType !== 'INCLUDE' && inclusionType !== 'EXCLUDE') {
+      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'inclusionType must be INCLUDE or EXCLUDE.' })
     }
-    if (!(MARKET_MATCH_TYPES as readonly string[]).includes(matchType)) {
-      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: matchType must be COUNTRY_CODE, MARKET_GROUP or WORLDWIDE.` })
+    const matchType = raw.matchType === undefined ? 'COUNTRY_CODE' : raw.matchType
+    if (matchType !== 'COUNTRY_CODE' && matchType !== 'MARKET_GROUP' && matchType !== 'WORLDWIDE') {
+      throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'matchType must be COUNTRY_CODE, MARKET_GROUP or WORLDWIDE.' })
     }
-    const ratePlanId = raw?.ratePlanId === undefined || raw?.ratePlanId === null || raw?.ratePlanId === '' ? null : clean(raw.ratePlanId)
+    const ratePlanId = raw.ratePlanId === undefined || raw.ratePlanId === null || raw.ratePlanId === '' ? null : String(raw.ratePlanId)
+    if (ratePlanId !== null) {
+      const plan = await tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId, contractId }, select: { id: true } })
+      if (!plan) throw new BadRequestException({ code: 'MARKET_VALIDITY_RATE_PLAN_INVALID', message: 'ratePlanId must belong to this contract and tenant.' })
+    }
     let countryCodes: string[] = []
     let marketGroupId: string | null = null
     if (matchType === 'COUNTRY_CODE') {
-      const parsed = parseMarketList(raw?.countryCodes)
-      if (!parsed || parsed.length === 0) {
-        throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: countryCodes must be a non-empty list of two-letter ISO-3166 alpha-2 country codes when matchType is COUNTRY_CODE.` })
+      const parsed = parseMarketList(raw.countryCodes)
+      if (parsed === null || parsed.length === 0) {
+        throw new BadRequestException({ code: 'MARKET_VALIDITY_COUNTRIES_INVALID', message: 'COUNTRY_CODE rule requires a non-empty list of two-letter ISO country codes.' })
       }
       countryCodes = parsed
     } else if (matchType === 'MARKET_GROUP') {
-      marketGroupId = clean(raw?.marketGroupId)
-      if (!marketGroupId) {
-        throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: `${indexLabel}: marketGroupId is required when matchType is MARKET_GROUP.` })
-      }
+      const gid = typeof raw.marketGroupId === 'string' ? raw.marketGroupId.trim() : ''
+      if (!gid) throw new BadRequestException({ code: 'MARKET_VALIDITY_GROUP_REQUIRED', message: 'MARKET_GROUP rule requires a marketGroupId.' })
+      const group = await tx.sourceMarketGroup.findFirst({ where: { id: gid, tenantId }, select: { id: true } })
+      if (!group) throw new BadRequestException({ code: 'MARKET_VALIDITY_GROUP_NOT_FOUND', message: 'Source market group not found in this tenant.' })
+      marketGroupId = group.id
     }
-    return {
-      ratePlanId,
-      inclusionType: inclusionType as MarketInclusion,
-      matchType: matchType as MarketMatchType,
-      countryCodes,
-      marketGroupId,
-    }
+    const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined
+    return { id, ratePlanId, inclusionType: inclusionType as 'INCLUDE' | 'EXCLUDE', matchType: matchType as 'COUNTRY_CODE' | 'MARKET_GROUP' | 'WORLDWIDE', countryCodes, marketGroupId }
   }
 
-  async upsertContractMarketValidity(tenantId: string, userId: string, contractId: string, input: any, requestId?: string): Promise<ContractMarketValidityProfileRead> {
-    const isBatchReplace = Array.isArray(input?.rules)
-    const rulesToWrite: Array<Required<MarketValidityRuleWrite>> = isBatchReplace
-      ? input.rules.map((item: unknown, idx: number) => this.normalizeMarketValidityRuleWrite(item, `rules[${idx}]`))
-      : [this.normalizeMarketValidityRuleWrite(input, 'rule')]
+  /** ADR 0107: list market validity rules for a contract. */
+  async contractMarketValidity(tenantId: string, userId: string, contractId: string) {
+    await this.check(tenantId, userId, 'supply.contracts.read')
+    return this.prisma.withTenant(tenantId, async tx => {
+      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true } })
+      if (!contract) throw new NotFoundException('Contract not found')
+      return tx.marketValidityRule.findMany({
+        where: { tenantId, contractId },
+        include: { marketGroup: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+    })
+  }
 
-    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.updated', 'contract', requestId, async (tx) => {
-      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId } })
+  /**
+   * ADR 0107: create or update market validity rules on a contract.
+   * Accepts either `{ rules: [...] }` (atomic replacement for the contract) or a single rule object (create or update by `id`).
+   */
+  async upsertContractMarketValidity(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid market validity payload')
+    return this.write<any>(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.updated', 'contract', requestId, async tx => {
+      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, status: true } })
       if (!contract) throw new NotFoundException('Contract not found')
       if (contract.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
 
-      const planIds = [...new Set(rulesToWrite.map((r) => r.ratePlanId).filter((id): id is string => Boolean(id)))]
-      if (planIds.length > 0) {
-        const plans = await tx.ratePlan.findMany({ where: { tenantId, contractId, id: { in: planIds } }, select: { id: true } })
-        if (plans.length !== planIds.length) {
-          throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'One or more ratePlanId values do not belong to this contract.' })
+      if (Array.isArray(input.rules)) {
+        if (input.rules.length > 200) throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_LIMIT', message: 'A contract holds at most 200 market validity rules.' })
+        const normalized = []
+        for (const raw of input.rules) {
+          normalized.push(await this.normalizeMarketValidityRule(tx, tenantId, contractId, raw))
         }
-      }
-
-      const groupIds = [...new Set(rulesToWrite.map((r) => r.marketGroupId).filter((id): id is string => Boolean(id)))]
-      if (groupIds.length > 0) {
-        const groups = await tx.sourceMarketGroup.findMany({ where: { tenantId, id: { in: groupIds } }, select: { id: true } })
-        if (groups.length !== groupIds.length) {
-          throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_INVALID', message: 'One or more marketGroupId values do not belong to this tenant.' })
+        await tx.marketValidityRule.deleteMany({ where: { tenantId, contractId } })
+        for (const item of normalized) {
+          await tx.marketValidityRule.create({
+            data: {
+              tenantId,
+              contractId,
+              ratePlanId: item.ratePlanId,
+              inclusionType: item.inclusionType,
+              matchType: item.matchType,
+              countryCodes: item.countryCodes,
+              marketGroupId: item.marketGroupId,
+            },
+          })
         }
-      }
-
-      if (isBatchReplace) {
-        const scopedPlanId = input?.ratePlanId === undefined ? undefined : input.ratePlanId === null || input.ratePlanId === '' ? null : clean(input.ratePlanId)
-        if (scopedPlanId === undefined) {
-          await tx.marketValidityRule.deleteMany({ where: { tenantId, contractId } })
-        } else {
-          await tx.marketValidityRule.deleteMany({ where: { tenantId, contractId, ratePlanId: scopedPlanId } })
-        }
-      }
-
-      for (const rule of rulesToWrite) {
-        await tx.marketValidityRule.create({
-          data: {
-            tenantId,
-            contractId,
-            ratePlanId: rule.ratePlanId,
-            inclusionType: rule.inclusionType,
-            matchType: rule.matchType,
-            countryCodes: rule.countryCodes,
-            marketGroupId: rule.marketGroupId,
-          },
+        const rules = await tx.marketValidityRule.findMany({
+          where: { tenantId, contractId },
+          include: { marketGroup: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         })
+        return { id: contractId, value: rules }
       }
 
-      const value = await this.loadContractMarketValidityProfileInTx(tx, tenantId, contractId)
-      return { id: contractId, value }
+      const item = await this.normalizeMarketValidityRule(tx, tenantId, contractId, input)
+      if (item.id) {
+        const existing = await tx.marketValidityRule.findFirst({ where: { id: item.id, tenantId, contractId } })
+        if (!existing) throw new NotFoundException('Market validity rule not found')
+        const updated = await tx.marketValidityRule.update({
+          where: { id: existing.id, tenantId },
+          data: {
+            ratePlanId: item.ratePlanId,
+            inclusionType: item.inclusionType,
+            matchType: item.matchType,
+            countryCodes: item.countryCodes,
+            marketGroupId: item.marketGroupId,
+          },
+          include: { marketGroup: true },
+        })
+        return { id: updated.id, value: updated }
+      }
+
+      if ((await tx.marketValidityRule.count({ where: { tenantId, contractId } })) >= 200) {
+        throw new ConflictException({ code: 'MARKET_VALIDITY_RULE_LIMIT', message: 'A contract holds at most 200 market validity rules.' })
+      }
+      const created = await tx.marketValidityRule.create({
+        data: {
+          tenantId,
+          contractId,
+          ratePlanId: item.ratePlanId,
+          inclusionType: item.inclusionType,
+          matchType: item.matchType,
+          countryCodes: item.countryCodes,
+          marketGroupId: item.marketGroupId,
+        },
+        include: { marketGroup: true },
+      })
+      return { id: created.id, value: created }
     })
   }
 
   async deleteContractMarketValidityRule(tenantId: string, userId: string, contractId: string, ruleId: string, requestId?: string) {
-    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.deleted', 'market_validity_rule', requestId, async (tx) => {
-      const rule = await tx.marketValidityRule.findFirst({ where: { id: ruleId, contractId, tenantId } })
-      if (!rule) throw new NotFoundException('Market validity rule not found')
-      await tx.marketValidityRule.delete({ where: { id: rule.id, tenantId } })
-      return { id: rule.id, value: { id: rule.id, deleted: true } }
+    return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.deleted', 'market_validity_rule', requestId, async tx => {
+      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, status: true } })
+      if (!contract) throw new NotFoundException('Contract not found')
+      if (contract.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
+      const existing = await tx.marketValidityRule.findFirst({ where: { id: ruleId, tenantId, contractId } })
+      if (!existing) throw new NotFoundException('Market validity rule not found')
+      await tx.marketValidityRule.delete({ where: { id: existing.id, tenantId } })
+      return { id: existing.id, value: { id: existing.id, deleted: true } }
     })
   }
 
+  /** ADR 0107: test a source market ISO country code against a rate plan's rules. */
   async validateRatePlanMarket(tenantId: string, userId: string, ratePlanId: string, input: any) {
-    await this.permittedAny(tenantId, userId, ['supply.rates.read', 'supply.contracts.read'])
-    const countryCode = typeof input?.sourceMarketCountryCode === 'string' ? input.sourceMarketCountryCode : ''
-    const evaluator = this.marketValidity ?? new MarketValidityService()
-    return evaluator.evaluateRatePlanValidity(this.prisma, tenantId, ratePlanId, countryCode)
+    await this.permittedAny(tenantId, userId, ['supply.contracts.read', 'supply.rates.read'])
+    const country = typeof input?.sourceMarketCountryCode === 'string' ? input.sourceMarketCountryCode.trim().toUpperCase() : ''
+    if (!/^[A-Z]{2}$/.test(country)) {
+      throw new BadRequestException({ code: 'SOURCE_MARKET_COUNTRY_INVALID', message: 'sourceMarketCountryCode must be a two-letter ISO 3166-1 alpha-2 country code.' })
+    }
+    return this.marketValidity.evaluateRatePlanValidity(this.prisma, tenantId, ratePlanId, country)
   }
 }

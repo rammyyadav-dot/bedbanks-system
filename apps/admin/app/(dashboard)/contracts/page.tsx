@@ -4,8 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { CancellationPolicySimulationResult, ContractPoliciesRead } from '@bedbanks/contracts'
 import { OpsListPage } from '@/components/ops/OpsListPage'
-import { DetailDrawer, DrawerField } from '@/components/dialogs/DetailDrawer'
-import { ContractMarketValidityMatrix } from '@/components/commercial/ContractMarketValidityMatrix'
+import { DetailDrawer } from '@/components/dialogs/DetailDrawer'
+import { ContractMarketValidity } from '@/components/commercial/ContractMarketValidity'
 import { useCan } from '@/lib/auth/capabilities'
 import {
   getContractPortfolio,
@@ -22,7 +22,8 @@ const STATUSES = ['DRAFT', 'REVIEW', 'ACTIVE', 'SUSPENDED', 'EXPIRED'].map((valu
 /** Search, status filter, sort and pagination all run on the API, plus a quick-inspect Market Validity, Cancellation Policy & Simulator drawer. */
 export default function ContractsPage() {
   const can = useCan()
-  const [selected, setSelected] = useState<AdminContract | null>(null)
+  const canManage = can('supply.contracts.manage')
+  const [selectedContract, setSelectedContract] = useState<AdminContract | null>(null)
   const [policies, setPolicies] = useState<ContractPoliciesRead | null>(null)
   const [policiesLoading, setPoliciesLoading] = useState(false)
   const [policyMessage, setPolicyMessage] = useState<string | null>(null)
@@ -45,7 +46,7 @@ export default function ContractsPage() {
   const [simError, setSimError] = useState<string | null>(null)
 
   const openContractDrawer = (contract: AdminContract) => {
-    setSelected(contract)
+    setSelectedContract(contract)
     setPolicies(null)
     setPolicyMessage(null)
     setSimResult(null)
@@ -61,16 +62,16 @@ export default function ContractsPage() {
   }
 
   const addCancellationWindow = async () => {
-    if (!selected) return
+    if (!selectedContract) return
     try {
       const payload = buildCancellationPolicyWrite({
         daysBeforeCheckinValue: daysBeforeCheckin,
         mode: penaltyMode,
         penaltyValue,
-        currency: selected.settlementCurrency,
+        currency: selectedContract.settlementCurrency,
       })
-      await createContractCancellationPolicy(selected.id, payload)
-      const refreshed = await getContractPolicies(selected.id)
+      await createContractCancellationPolicy(selectedContract.id, payload)
+      const refreshed = await getContractPolicies(selectedContract.id)
       setPolicies(refreshed)
       setPolicyMessage('Added cancellation policy window.')
     } catch (err) {
@@ -79,13 +80,13 @@ export default function ContractsPage() {
   }
 
   const runSimulation = async () => {
-    if (!selected) return
+    if (!selectedContract) return
     try {
       setSimError(null)
       const payload = buildCancellationSimulationPayload({
         checkIn: simCheckIn,
         requestedAt: simRequestedAt,
-        currency: selected.settlementCurrency,
+        currency: selectedContract.settlementCurrency,
         cancellableAmountMajor: simAmount,
         nightlyAmountsMajorCsv: simNightlyCsv,
         customerAmountPaidMajor: simPaidAmount,
@@ -96,7 +97,7 @@ export default function ContractsPage() {
         propertyTimeZone: simTimeZone,
         checkInLocalTime: simLocalTime,
       })
-      const result = await simulateContractCancellationPolicy(selected.id, payload)
+      const result = await simulateContractCancellationPolicy(selectedContract.id, payload)
       setSimResult(result)
     } catch (err) {
       setSimResult(null)
@@ -111,10 +112,10 @@ export default function ContractsPage() {
         title="Contracts"
         description="Authoritative commercial terms, source market validity profiling, cancellation policy schedules and policy simulator per supplier relationship."
         actions={
-          <span style={{ display: 'inline-flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
             <Link href="/market-groups" className="admin-btn">Source market groups</Link>
-            {can('supply.contracts.manage') ? <Link href="/contracts/new" className="admin-btn admin-btn-primary">New contract</Link> : null}
-          </span>
+            {canManage ? <Link href="/contracts/new" className="admin-btn admin-btn-primary">New contract</Link> : null}
+          </div>
         }
         filters={[
           { key: 'search', label: 'Search', type: 'text', placeholder: 'Code or supplier…' },
@@ -133,27 +134,35 @@ export default function ContractsPage() {
           { key: 'status', header: 'Status', sortKey: 'status', render: (c) => c.status },
           {
             key: 'marketValidity',
-            header: 'Terms & Simulator',
+            header: 'Source markets',
             render: (c) => (
-              <button type="button" className="admin-btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => openContractDrawer(c)}>
-                Policies &amp; Matrix
+              <button
+                type="button"
+                className="admin-btn"
+                style={{ fontSize: 11, padding: '3px 8px' }}
+                onClick={() => openContractDrawer(c)}
+                data-testid={`open-market-validity-drawer-${c.code}`}
+              >
+                Market validity &amp; simulator
               </button>
             ),
           },
         ]}
       />
       <DetailDrawer
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        title={selected ? `Contract ${selected.code}` : ''}
-        subtitle={selected?.supplier.displayName}
+        open={selectedContract !== null}
+        onClose={() => setSelectedContract(null)}
+        title={selectedContract ? `Contract ${selectedContract.code} · Source Market Profiling` : 'Source Market Profiling'}
+        subtitle={selectedContract ? `${selectedContract.supplier.displayName} · ${selectedContract.validFrom.slice(0, 10)} → ${selectedContract.validTo.slice(0, 10)}` : undefined}
       >
-        {selected && (
+        {selectedContract ? (
           <>
-            <DrawerField label="Validity" value={`${selected.validFrom.slice(0, 10)} → ${selected.validTo.slice(0, 10)}`} />
-            <DrawerField label="Currency" value={selected.settlementCurrency} />
-            <DrawerField label="Status" value={<span>{selected.status}</span>} />
-            <ContractMarketValidityMatrix contractId={selected.id} compact />
+            <ContractMarketValidity
+              contractId={selectedContract.id}
+              contractCode={selectedContract.code}
+              contractStatus={selectedContract.status}
+              canManage={canManage}
+            />
 
             <div style={{ marginTop: 18, borderTop: '1px solid var(--c-e4e4e0)', paddingTop: 14, display: 'grid', gap: 12 }}>
               <h3 style={{ margin: 0, fontSize: 14 }}>Cancellation Policy Windows</h3>
@@ -166,7 +175,7 @@ export default function ContractsPage() {
                   <strong>{rule.daysBeforeCheckin}d before check-in:</strong>{' '}
                   {rule.penaltyPercent !== null
                     ? `${rule.penaltyPercent}% penalty`
-                    : formatMinorUnits(rule.penaltyMinor ?? '0', rule.currency ?? selected.settlementCurrency)}
+                    : formatMinorUnits(rule.penaltyMinor ?? '0', rule.currency ?? selectedContract.settlementCurrency)}
                 </div>
               ))}
 
@@ -179,11 +188,11 @@ export default function ContractsPage() {
                   Penalty type
                   <select aria-label="Penalty type" value={penaltyMode} onChange={(e) => setPenaltyMode(e.target.value as 'PERCENTAGE' | 'FIXED')} className="admin-filter-select" style={{ width: '100%' }}>
                     <option value="PERCENTAGE">PERCENTAGE (%)</option>
-                    <option value="FIXED">FIXED ({selected.settlementCurrency})</option>
+                    <option value="FIXED">FIXED ({selectedContract.settlementCurrency})</option>
                   </select>
                 </label>
                 <label style={{ fontSize: 12 }}>
-                  {penaltyMode === 'PERCENTAGE' ? 'Penalty percent (0–100)' : `Fixed amount (${selected.settlementCurrency})`}
+                  {penaltyMode === 'PERCENTAGE' ? 'Penalty percent (0–100)' : `Fixed amount (${selectedContract.settlementCurrency})`}
                   <input aria-label="Penalty value" value={penaltyValue} onChange={(e) => setPenaltyValue(e.target.value)} className="admin-filter-select" style={{ width: '100%' }} />
                 </label>
                 <button type="button" onClick={addCancellationWindow} className="admin-button-primary">Add Cancellation Window</button>
@@ -224,7 +233,7 @@ export default function ContractsPage() {
                 <input aria-label="Cancellation timestamp" value={simRequestedAt} onChange={(e) => setSimRequestedAt(e.target.value)} className="admin-filter-select" style={{ width: '100%' }} />
               </label>
               <label style={{ fontSize: 12 }}>
-                Stay amount ({selected.settlementCurrency})
+                Stay amount ({selectedContract.settlementCurrency})
                 <input aria-label="Stay amount" value={simAmount} onChange={(e) => setSimAmount(e.target.value)} className="admin-filter-select" style={{ width: '100%' }} />
               </label>
               <label style={{ fontSize: 12 }}>
@@ -232,7 +241,7 @@ export default function ContractsPage() {
                 <input aria-label="Nightly prices CSV" value={simNightlyCsv} onChange={(e) => setSimNightlyCsv(e.target.value)} className="admin-filter-select" style={{ width: '100%' }} />
               </label>
               <label style={{ fontSize: 12 }}>
-                Customer amount paid / Retained fees / Prior refunds ({selected.settlementCurrency})
+                Customer amount paid / Retained fees / Prior refunds ({selectedContract.settlementCurrency})
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
                   <input aria-label="Customer amount paid" placeholder="Paid" value={simPaidAmount} onChange={(e) => setSimPaidAmount(e.target.value)} className="admin-filter-select" />
                   <input aria-label="Retained fees" placeholder="Fees" value={simRetainedFees} onChange={(e) => setSimRetainedFees(e.target.value)} className="admin-filter-select" />
@@ -259,7 +268,7 @@ export default function ContractsPage() {
               )}
             </div>
           </>
-        )}
+        ) : null}
       </DetailDrawer>
     </>
   )
