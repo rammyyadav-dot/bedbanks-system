@@ -18,10 +18,11 @@ import { RoomEventsController } from './room-events.controller'
 import { RoomEventsService } from './room-events.service'
 import { EventSupplementsController } from './event-supplements.controller'
 import { EventSupplementsService } from './event-supplements.service'
+import { MarketValidityService } from '../agent/market-validity.service'
 
 @Module({
   imports: [AuthModule, ApprovalsModule],
   controllers: [SupplyController, MappingController, RatePlanApprovalController, ContractApprovalController, RoomEventsController, EventSupplementsController],
-  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService],
+  providers: [SupplyService, MappingService, RatePlanMappingService, AgentAuditService, RatePlanOpsDatabase, RatePlanCloneDatabase, RatePlanApprovalService, RatePlanExpirySweeper, ContractApprovalService, RoomEventsService, EventSupplementsService, MarketValidityService],
 })
 export class SupplyModule {}

@@ -29,6 +29,7 @@ import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
 import { SupplierMutationJournalService } from './supplier-mutation-journal.service'
+import { MarketValidityService } from './market-validity.service'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -61,6 +62,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     BookingDocumentService,
     BookingQueryService,
     SupplierMutationJournalService,
+    MarketValidityService,
     {
       provide: CACHE_PORT,
       useFactory: () => redisFromEnvironment() ?? new NoopCache(),
@@ -72,6 +74,6 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     ContractedInventoryAdapter,
     { provide: SUPPLIER_ADAPTER, useFactory: (contracted: ContractedInventoryAdapter) => supplierAdapterFromEnvironment(contracted), inject: [ContractedInventoryAdapter] },
   ],
-  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService, CancellationSettlementService],
+  exports: [AgentRbacGuard, TenantContextGuard, SUPPLIER_ADAPTER, BookingReconciliationService, CancellationSettlementService, MarketValidityService],
 })
 export class AgentModule {}

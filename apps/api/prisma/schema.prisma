@@ -928,6 +928,8 @@ model Tenant {
   supplierChangeSets SupplierChangeSet[]
   roomEvents RoomEvent[]
   eventSupplements EventSupplement[]
+  sourceMarketGroups SourceMarketGroup[]
+  marketValidityRules MarketValidityRule[]
 
   @@map("tenants")
 }
@@ -2576,6 +2578,7 @@ model Contract {
   versions              ContractVersion[]
   supplements           ContractSupplement[]
   eventSupplements      EventSupplement[]
+  marketValidityRules   MarketValidityRule[]
 
   @@unique([tenantId, code, version])
   @@index([tenantId, status, validFrom, validTo])
@@ -2663,6 +2666,7 @@ model RatePlan {
   promotions   RatePlanPromotion[]
   deals        HotelDealRatePlan[]
   supplierMappings SupplierRatePlanMapping[]
+  marketValidityRules MarketValidityRule[]
 
   @@unique([contractId, code])
   @@unique([tenantId, id])
@@ -3904,3 +3908,56 @@ model SupplierPromotionRun {
   @@unique([tenantId, supplierId, idempotencyKey])
   @@index([tenantId, status, createdAt])
 }
+
+/// Named geo-bundle of ISO 3166-1 alpha-2 country codes for source market profiling and grouping (ADR 0107).
+model SourceMarketGroup {
+  id            String               @id @default(cuid())
+  tenantId      String               @map("tenant_id")
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String
+  name          String
+  countryCodes  String[]             @map("country_codes")
+  isActive      Boolean              @default(true) @map("is_active")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  validityRules MarketValidityRule[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+/// Contract-level or rate-plan-specific source market validity rule (ADR 0107).
+model MarketValidityRule {
+  id            String             @id @default(cuid())
+  tenantId      String             @map("tenant_id")
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contractId    String             @map("contract_id")
+  contract      Contract           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  ratePlanId    String?            @map("rate_plan_id")
+  ratePlan      RatePlan?          @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  inclusionType MarketInclusion    @default(INCLUDE) @map("inclusion_type")
+  matchType     MarketMatchType    @default(COUNTRY_CODE) @map("match_type")
+  countryCodes  String[]           @map("country_codes")
+  marketGroupId String?            @map("market_group_id")
+  marketGroup   SourceMarketGroup? @relation(fields: [marketGroupId], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  @@index([tenantId, contractId])
+  @@index([contractId])
+  @@index([ratePlanId])
+  @@index([marketGroupId])
+}
+
+enum MarketInclusion {
+  INCLUDE
+  EXCLUDE
+}
+
+enum MarketMatchType {
+  COUNTRY_CODE
+  MARKET_GROUP
+  WORLDWIDE
+}
+

@@ -66,6 +66,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `InventoryHoldNight` | cols (5) | - | - | - | forced tenant | SELECT (tenant_id, hold_id, pool_day_id, counter_kind, quantity): per-plan pool consumption report only (ADR 0036): the recorded pool-night reference and quantity; no stay date or availability reference |
 | `InventoryPool` | yes | - | - | - | forced tenant | pool writes are a privileged path: a pool change also needs RatePlan and DailyAvailability writes |
 | `InventoryPoolDay` | yes | - | cols (2) | - | forced tenant | UPDATE (capacity, updated_at): PoolCapacityService.apply; POST /admin/hotels/:hotelId/inventory/pools/:poolId/capacity/apply; set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged |
+| `MarketValidityRule` | yes | - | - | - | forced tenant | contract and rate plan source market inclusion/exclusion rules (ADR 0107); authoring is a privileged supply path |
 | `memberships` | yes | - | - | - | forced tenant | also readable by the transaction-local app.current_user_id before a tenant is chosen (ADR 0008) |
 | `password_reset_tokens` | yes | yes | cols (1) | - | none (auth) | INSERT: AuthService.requestPasswordReset; POST /auth/password-reset/request; issue a single-use reset token (hash only) / UPDATE (used_at): AuthService.requestPasswordReset, AuthService.confirmPasswordReset; POST /auth/password-reset/request, POST /auth/password-reset/confirm; consume a token, or supersede earlier unused tokens, by stamping used_at |
 | `Permission` | yes | - | - | - | none (auth) | read only |
@@ -80,6 +81,7 @@ Generated from `apps/api/src/database/runtime-role-contract.ts`, the only place 
 | `ServiceCase` | yes | yes | yes | - | forced tenant | INSERT: ServiceCasesService.create; POST /admin/service/cases; open a case / UPDATE: ServiceCasesService.transition/assign; POST /admin/service/cases/:caseId/transition, POST /admin/service/cases/:caseId/assign; move or assign a case |
 | `ServiceCaseNote` | yes | yes | - | - | forced tenant | INSERT: ServiceCasesService.addNote/transition/assign; POST /admin/service/cases/:caseId/notes; append a note (notes are immutable) |
 | `sessions` | yes | yes | cols (2) | - | none (auth) | INSERT: AuthService.login; POST /auth/login; create the opaque session (ADR 0001) / UPDATE (last_seen_at, revoked_at): AuthService (session guard, logout); every authenticated route, POST /auth/logout; slide and revoke the session |
+| `SourceMarketGroup` | yes | - | - | - | forced tenant | named geo-bundles of ISO-3166 alpha-2 codes for source market profiling (ADR 0107); authoring is a privileged supply path |
 | `Supplier` | yes | - | - | - | forced tenant | read only |
 | `supplier_change_set_cells` | yes | yes | - | yes | forced tenant | INSERT: SupplierChangeSetsService.create, replace; POST /supplier/extranet/change-sets, PUT /supplier/extranet/change-sets/:changeSetId; store the validated cells of a draft / DELETE: SupplierChangeSetsService.replace; PUT /supplier/extranet/change-sets/:changeSetId; replace the cells of a draft |
 | `supplier_change_set_events` | yes | yes | - | - | forced tenant | INSERT: SupplierChangeSetsService; POST /supplier/extranet/change-sets, PUT /supplier/extranet/change-sets/:changeSetId, POST /supplier/extranet/change-sets/:changeSetId/submit, POST /supplier/extranet/change-sets/:changeSetId/withdraw; record every change-set transition |
@@ -147,6 +149,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `LedgerAdjustment`: finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)
 - `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
 - `LedgerEntry`: finance-gated
+- `MarketValidityRule`: supply authoring
 - `Membership`: dedicated tenant membership authoring role only
 - `PlatformRole`: platform administration
 - `PlatformRoleAssignment`: platform administration
@@ -160,6 +163,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SandboxContentLease`: operator-only sandbox synchronization fencing; no API runtime grant
 - `SandboxContentPage`: immutable operator-only sandbox content pages; no API runtime grant
 - `SandboxContentRun`: operator-only quarantined sandbox content; no API runtime grant
+- `SourceMarketGroup`: supply authoring
 - `Supplier`: supply authoring
 - `SupplierAllotmentObservation`: ingestion-gated: latest supplier stock statement per night, an observation that is never sellable by itself (ADR 0078)
 - `SupplierCancellationObservation`: ingestion-gated: latest supplier cancellation policy per rate plan, an observation that is never sellable by itself (ADR 0078)

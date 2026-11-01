@@ -52,13 +52,13 @@ export interface HotelMappingSuggestion { hotelId: string; name: string; city: s
 export interface HotelMappingSuggestions { indexReady: boolean; suggestions: HotelMappingSuggestion[] }
 
 export const supplyRoutes = {
-  ratePlanPortfolio: '/supply/rate-plan-portfolio', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanGuestPrices: '/supply/rate-plans/:ratePlanId/guest-prices', ratePlanPromotions: '/supply/rate-plans/:ratePlanId/promotions', hotelPromotionsBulkApply: '/supply/hotels/:hotelId/promotions/bulk-apply', ratePlanDerivation: '/supply/rate-plans/:ratePlanId/derivation', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
+  ratePlanPortfolio: '/supply/rate-plan-portfolio', ratePlanCapabilities: '/supply/rate-plans/capabilities', ratePlanReadiness: '/supply/rate-plans/:ratePlanId/readiness', ratePlanActivate: '/supply/rate-plans/:ratePlanId/activate', ratePlanSuspend: '/supply/rate-plans/:ratePlanId/suspend', ratePlanClone: '/supply/rate-plans/:ratePlanId/clone', ratePlanGuestPrices: '/supply/rate-plans/:ratePlanId/guest-prices', ratePlanPromotions: '/supply/rate-plans/:ratePlanId/promotions', hotelPromotionsBulkApply: '/supply/hotels/:hotelId/promotions/bulk-apply', ratePlanDerivation: '/supply/rate-plans/:ratePlanId/derivation', ratePlanValidateMarket: '/supply/rate-plans/:ratePlanId/validate-market', ratePlanActivationRequest: '/supply/rate-plans/:ratePlanId/activation-request', ratePlanActivationApproval: '/supply/rate-plans/:ratePlanId/activation-approval', ratePlanApprovalApprove: '/supply/rate-plan-approvals/:approvalId/approve', ratePlanApprovalReject: '/supply/rate-plan-approvals/:approvalId/reject', ratePlanApprovalCancel: '/supply/rate-plan-approvals/:approvalId/cancel', ratePlanApprovalExecute: '/supply/rate-plan-approvals/:approvalId/execute', calendarPreview: '/supply/calendar/preview', calendarImportPreview: '/supply/calendar/import/preview', calendarApply: '/supply/calendar/apply',
   hotelMappings: '/supply/mappings/hotels', hotelMapping: '/supply/mappings/hotels/:mappingId', roomMappings: '/supply/mappings/hotels/:mappingId/rooms', roomMapping: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId',
   mappingOptions: '/supply/mappings/options', mappingRoomOptions: '/supply/mappings/options/rooms/:mappingId', hotelMappingSuggestions: '/supply/mappings/hotels/suggestions',
   hotelMappingApprove: '/supply/mappings/hotels/:mappingId/approve', hotelMappingReject: '/supply/mappings/hotels/:mappingId/reject', hotelMappingReopen: '/supply/mappings/hotels/:mappingId/reopen',
   roomMappingApprove: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/approve', roomMappingReject: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reject', roomMappingReopen: '/supply/mappings/hotels/:mappingId/rooms/:roomMappingId/reopen',
   suppliers: '/supply/suppliers', supplier: '/supply/suppliers/:supplierId',
-  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', roomTypePortfolio: '/supply/room-type-portfolio', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', contractPortfolio: '/supply/contract-portfolio', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', ratePlans: '/supply/rate-plans', ratePlan: '/supply/rate-plans/:ratePlanId', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk', availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
+  hotels: '/supply/hotels', hotelRooms: '/supply/hotels/:hotelId/rooms', hotelRoom: '/supply/hotels/:hotelId/rooms/:roomId', roomTypes: '/supply/room-types', roomTypePortfolio: '/supply/room-type-portfolio', boardBases: '/supply/board-bases', boardBasesAdmin: '/supply/board-bases/admin', boardBasis: '/supply/board-bases/:boardBasisId', contracts: '/supply/contracts', contractPortfolio: '/supply/contract-portfolio', contract: '/supply/contracts/:contractId', contractPolicies: '/supply/contracts/:contractId/policies', cancellationPolicies: '/supply/contracts/:contractId/policies/cancellation', childPolicies: '/supply/contracts/:contractId/policies/child', leadTimeRules: '/supply/contracts/:contractId/policies/lead-time', contractMarketValidity: '/supply/contracts/:contractId/market-validity', contractMarketValidityRule: '/supply/contracts/:contractId/market-validity/:ruleId', sourceMarketGroups: '/supply/source-market-groups', sourceMarketGroup: '/supply/source-market-groups/:groupId', ratePlans: '/supply/rate-plans', ratePlan: '/supply/rate-plans/:ratePlanId', dailyRates: '/supply/daily-rates', dailyRatesBulk: '/supply/daily-rates/bulk', availability: '/supply/availability', availabilityBulk: '/supply/availability/bulk', sellability: '/supply/sellability', capabilities: '/supply/capabilities',
   // ADR 0089: Room Event Master and event/exhibition supplements.
   roomEvents: '/admin/room-events', roomEvent: '/admin/room-events/:roomEventId', roomEventSubmit: '/admin/room-events/:roomEventId/submit', roomEventCancel: '/admin/room-events/:roomEventId/cancel', roomEventArchive: '/admin/room-events/:roomEventId/archive',
   roomEventApprovalApprove: '/admin/room-event-approvals/:approvalId/approve', roomEventApprovalReject: '/admin/room-event-approvals/:approvalId/reject', roomEventApprovalCancel: '/admin/room-event-approvals/:approvalId/cancel',
@@ -120,6 +120,69 @@ export interface EventSupplementApprovalExecuteInput { reason: string }
 export interface EventSupplementPreviewRequest { ratePlanId: string; stayDates: SupplyDate[]; rooms: number; adults: number; children: number }
 export interface EventSupplementPreviewNight { date: SupplyDate; contractedBaseMinor: string; eventSupplementMinor: string; adjustedNetMinor: string }
 export interface EventSupplementPreviewResult { currency: string; nights: EventSupplementPreviewNight[]; eventSupplements: Array<{ roomEventId: string; roomEventName: string; amountMinor: string }> }
+
+// ADR 0107: Market Validity, Source Market Profiling & Grouping.
+export const MARKET_INCLUSION_TYPES = ['INCLUDE', 'EXCLUDE'] as const
+export type MarketInclusionType = (typeof MARKET_INCLUSION_TYPES)[number]
+export const MARKET_MATCH_TYPES = ['COUNTRY_CODE', 'MARKET_GROUP', 'WORLDWIDE'] as const
+export type MarketMatchType = (typeof MARKET_MATCH_TYPES)[number]
+
+export interface SourceMarketGroupRead {
+  id: string
+  tenantId: string
+  code: string
+  name: string
+  countryCodes: string[]
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SourceMarketGroupWrite {
+  code: string
+  name: string
+  countryCodes: string[]
+  isActive?: boolean
+}
+
+export interface SourceMarketGroupUpdate extends Partial<SourceMarketGroupWrite> {}
+
+export interface MarketValidityRuleRead {
+  id: string
+  tenantId: string
+  contractId: string
+  ratePlanId: string | null
+  inclusionType: MarketInclusionType
+  matchType: MarketMatchType
+  countryCodes: string[]
+  marketGroupId: string | null
+  marketGroup: SourceMarketGroupRead | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MarketValidityRuleWrite {
+  id?: string
+  ratePlanId?: string | null
+  inclusionType?: MarketInclusionType
+  matchType?: MarketMatchType
+  countryCodes?: string[]
+  marketGroupId?: string | null
+}
+
+export type ContractMarketValidityWrite =
+  | MarketValidityRuleWrite
+  | { rules: MarketValidityRuleWrite[] }
+
+export interface ValidateRatePlanMarketRequest {
+  sourceMarketCountryCode: string
+}
+
+export interface ValidateRatePlanMarketResult {
+  isValid: boolean
+  matchedRuleId: string | null
+  reason: string
+}
 
 export function serializeSupply<T>(value: T): T {
   return JSON.parse(JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item)) as T

@@ -1,6 +1,6 @@
 // Authoritative Admin API access. No mock or fallback data lives in this module.
 
-import { contractLifecycleRoutes, routes, supplyRoutes, type ContractActivationRequestInput, type ContractAmendmentRequestInput, type ContractApprovalExecuteResult, type ContractApprovalView, type ContractLifecycleView, type ContractTransitionInput, type TenantSettingsView, type UpdateTenantSettingsRequest, type SellabilityRequest, type SellabilityResult, type SupplyCapabilities } from '@bedbanks/contracts'
+import { contractLifecycleRoutes, routes, supplyRoutes, type ContractActivationRequestInput, type ContractAmendmentRequestInput, type ContractApprovalExecuteResult, type ContractApprovalView, type ContractLifecycleView, type ContractMarketValidityWrite, type ContractTransitionInput, type MarketValidityRuleRead, type SourceMarketGroupRead, type SourceMarketGroupUpdate, type SourceMarketGroupWrite, type TenantSettingsView, type UpdateTenantSettingsRequest, type SellabilityRequest, type SellabilityResult, type SupplyCapabilities, type ValidateRatePlanMarketResult } from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
 
@@ -50,7 +50,7 @@ export interface CancellationPolicyRecord { id: string; policySet?: string | nul
 export interface ChildPolicyRecord { id: string; minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor: string | null; currency: string | null }
 export interface LeadTimeRuleRecord { id: string; minLeadHours: number; maxLeadDays: number | null }
 export interface SupplementRecord extends Omit<import('@bedbanks/contracts').ContractSupplementTerm, 'stayFrom' | 'stayTo'> { id: string; stayFrom: string | null; stayTo: string | null }
-export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[] }
+export interface AdminContractDetail extends AdminContract { cancellationPolicies: CancellationPolicyRecord[]; childPolicies: ChildPolicyRecord[]; leadTimeRules: LeadTimeRuleRecord | LeadTimeRuleRecord[] | null; supplements?: SupplementRecord[]; marketValidityRules?: MarketValidityRuleRead[] }
 export type ContractInput = { supplierId: string; supplierHotelMappingId?: string | null; code: string; validFrom: string; validTo: string; settlementCurrency: string; salesMarkets?: string[]; nationalities?: string[]; ownerUserId?: string | null; renewalReminderDays?: number } & Partial<import('@bedbanks/contracts').ContractHeaderTerms>
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
 /** Server-paginated, server-filtered and server-sorted contract list (the unpaged getContracts stays for pickers only). */
@@ -80,6 +80,15 @@ export async function deleteChildPolicy(contractId: string, policyId: string) { 
 export async function createSupplement(contractId: string, input: import('@bedbanks/contracts').ContractSupplementTerm) { return apiRequest(withContract(cl.supplements, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
 export async function deleteSupplement(contractId: string, supplementId: string) { return apiRequest(withContract(cl.deleteSupplement, contractId).replace(':supplementId', encodeURIComponent(supplementId)), { method: 'DELETE' }) }
 export async function deleteLeadTimeRule(contractId: string) { return apiRequest(withContract(cl.deleteLeadTimeRule, contractId), { method: 'DELETE' }) }
+export type { SourceMarketGroupRead, SourceMarketGroupWrite, SourceMarketGroupUpdate, MarketValidityRuleRead, ContractMarketValidityWrite, ValidateRatePlanMarketResult } from '@bedbanks/contracts'
+export async function getSourceMarketGroups() { return apiRequest<SourceMarketGroupRead[]>(supplyRoutes.sourceMarketGroups) }
+export async function upsertSourceMarketGroup(input: SourceMarketGroupWrite) { return apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroups, { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function updateSourceMarketGroup(groupId: string, input: SourceMarketGroupUpdate) { return apiRequest<SourceMarketGroupRead>(supplyRoutes.sourceMarketGroup.replace(':groupId', encodeURIComponent(groupId)), { method: 'PATCH', headers: json, body: JSON.stringify(input) }) }
+export async function deleteSourceMarketGroup(groupId: string) { return apiRequest<{ id: string; deleted: boolean }>(supplyRoutes.sourceMarketGroup.replace(':groupId', encodeURIComponent(groupId)), { method: 'DELETE' }) }
+export async function getContractMarketValidity(contractId: string) { return apiRequest<MarketValidityRuleRead[]>(withContract(supplyRoutes.contractMarketValidity, contractId)) }
+export async function upsertContractMarketValidity(contractId: string, input: ContractMarketValidityWrite) { return apiRequest<MarketValidityRuleRead | MarketValidityRuleRead[]>(withContract(supplyRoutes.contractMarketValidity, contractId), { method: 'POST', headers: json, body: JSON.stringify(input) }) }
+export async function deleteContractMarketValidityRule(contractId: string, ruleId: string) { return apiRequest<{ id: string; deleted: boolean }>(withContract(supplyRoutes.contractMarketValidityRule, contractId).replace(':ruleId', encodeURIComponent(ruleId)), { method: 'DELETE' }) }
+export async function validateRatePlanMarket(ratePlanId: string, sourceMarketCountryCode: string) { return apiRequest<ValidateRatePlanMarketResult>(supplyRoutes.ratePlanValidateMarket.replace(':ratePlanId', encodeURIComponent(ratePlanId)), { method: 'POST', headers: json, body: JSON.stringify({ sourceMarketCountryCode }) }) }
 export interface HotelMappingRecord { id: string; supplierId: string; hotelId: string; supplierHotelId: string; status: string }
 export async function getHotelMappings() { return apiRequest<HotelMappingRecord[]>('/supply/mappings/hotels'); }
 export async function getBoardBases() { return apiRequest<BoardBasisRecord[]>('/supply/board-bases'); }
