@@ -38,6 +38,7 @@ export class SupplyController {
   @Patch('contracts/:contractId') updateContract(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.updateContract(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Get('contracts/:contractId/policies') contractPolicies(@Req() req: Request, @Param('contractId') contractId: string) { const c = this.context(req); return this.supply.contractPolicies(c.tenantId, c.userId, contractId) }
   @Post('contracts/:contractId/policies/cancellation') createCancellationPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createCancellationPolicy(c.tenantId, c.userId, contractId, body, c.requestId) }
+  @Post('contracts/:contractId/policies/cancellation/simulate') simulateCancellationPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.simulateCancellationPolicy(c.tenantId, c.userId, contractId, body) }
   @Post('contracts/:contractId/policies/child') createChildPolicy(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createChildPolicy(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Post('contracts/:contractId/policies/lead-time') createLeadTimeRule(@Req() req: Request, @Param('contractId') contractId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createLeadTimeRule(c.tenantId, c.userId, contractId, body, c.requestId) }
   @Get('rate-plans') ratePlans(@Req() req: Request) { const c = this.context(req); return this.supply.ratePlans(c.tenantId, c.userId) }
@@ -51,4 +52,16 @@ export class SupplyController {
   @Post('daily-rates') dailyRate(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertDailyRate(c.tenantId, c.userId, body, c.requestId) }
   @Post('availability') availability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.upsertAvailability(c.tenantId, c.userId, body, c.requestId) }
   @Post('sellability') sellability(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.sellability(c.tenantId, c.userId, body) }
+
+  @Get('connectors') connectors(@Req() req: Request) { const c = this.context(req); return this.supply.connectors(c.tenantId, c.userId) }
+  @Post('connectors') createConnector(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.createConnector(c.tenantId, c.userId, body, c.requestId) }
+  @Post('connectors/:connectorId/ingest-inventory') ingestConnectorInventory(@Req() req: Request, @Param('connectorId') connectorId: string, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.ingestConnectorInventory(c.tenantId, c.userId, connectorId, body, c.requestId) }
+
+  @Post('cancellations/execute') executeCancellation(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.executeSupplierCancellation(c.tenantId, c.userId, body, c.requestId) }
+
+  @Get('finance/ledger-adjustments') ledgerAdjustments(@Req() req: Request) { const c = this.context(req); return this.supply.listWalletLedgerSummaries(c.tenantId, c.userId) }
+  @Post('finance/ledger-adjustments') postLedgerAdjustment(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.postLedgerAdjustment(c.tenantId, c.userId, body, c.requestId) }
+
+  @Get('notifications/cancellation-vouchers') cancellationVouchers(@Req() req: Request, @Query('limit') limit?: string) { const c = this.context(req); return this.supply.listCancellationVouchers(c.tenantId, c.userId, limit ? Number(limit) : undefined) }
+  @Post('notifications/cancellation-vouchers') dispatchCancellationVoucher(@Req() req: Request, @Body() body: Record<string, unknown>) { const c = this.context(req); return this.supply.dispatchCancellationVoucher(c.tenantId, c.userId, body, c.requestId) }
 }

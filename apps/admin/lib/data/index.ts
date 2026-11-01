@@ -1,6 +1,26 @@
 // Browser-side access to authoritative /api/v1 endpoints. Server components use ./server.
 
-import { routes, type TenantSettingsView, type UpdateTenantSettingsRequest } from '@bedbanks/contracts'
+import {
+  routes,
+  type TenantSettingsView,
+  type UpdateTenantSettingsRequest,
+  type ContractPoliciesRead,
+  type CancellationPolicyRead,
+  type CancellationPolicyWrite,
+  type CancellationPolicySimulationRequest,
+  type CancellationPolicySimulationResult,
+  type ConnectorDefinitionRead,
+  type ConnectorDefinitionWrite,
+  type ConnectorInventoryIngestRequest,
+  type ConnectorInventoryIngestResult,
+  type ExecuteSupplierCancellationRequest,
+  type ExecuteSupplierCancellationResult,
+  type WalletLedgerSummaryRead,
+  type PostLedgerAdjustmentRequest,
+  type PostLedgerAdjustmentResult,
+  type DispatchCancellationVoucherRequest,
+  type CancellationVoucherDeliveryRead,
+} from '@bedbanks/contracts'
 import { apiRequest } from '../api/client'
 import type { AdminDashboardView, DashboardQuery } from '../types/dashboard'
 
@@ -37,6 +57,23 @@ export interface AdminContract {
   supplier: { id: string; displayName: string };
 }
 export async function getContracts() { return apiRequest<AdminContract[]>('/supply/contracts'); }
+export async function getContractPolicies(contractId: string) {
+  return apiRequest<ContractPoliciesRead>(`/supply/contracts/${encodeURIComponent(contractId)}/policies`)
+}
+export async function createContractCancellationPolicy(contractId: string, input: CancellationPolicyWrite) {
+  return apiRequest<CancellationPolicyRead>(`/supply/contracts/${encodeURIComponent(contractId)}/policies/cancellation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+export async function simulateContractCancellationPolicy(contractId: string, input: CancellationPolicySimulationRequest) {
+  return apiRequest<CancellationPolicySimulationResult>(`/supply/contracts/${encodeURIComponent(contractId)}/policies/cancellation/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
 export interface AdminDailyRate {
   id: string; tenantId: string; ratePlanId: string; stayDate: string; occupancy: number; amountMinor: string; amountBasis: 'NET' | 'SELL' | null; currency: string;
   ratePlan: { id: string; code: string; roomType: { id: string; name: string; hotel: { id: string; name: string } }; boardBasis: { id: string; code: string; name: string } };
@@ -64,3 +101,46 @@ export async function getRatePlans() { return apiRequest<AdminRatePlan[]>('/supp
 export async function getRatePlan(id: string) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`); }
 export async function updateRatePlan(id: string, input: Partial<Pick<AdminRatePlan, 'status' | 'occupancy' | 'currency' | 'refundable' | 'taxesIncluded' | 'feesIncluded' | 'minStay' | 'maxStay' | 'releaseDays'>>) { return apiRequest<AdminRatePlan>(`/supply/rate-plans/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); }
 export async function getRates() { return getRatePlans(); }
+
+export async function getConnectors() { return apiRequest<ConnectorDefinitionRead[]>('/supply/connectors'); }
+export async function createConnector(input: ConnectorDefinitionWrite) {
+  return apiRequest<ConnectorDefinitionRead>('/supply/connectors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function ingestConnectorInventory(connectorId: string, input: ConnectorInventoryIngestRequest) {
+  return apiRequest<ConnectorInventoryIngestResult>(`/supply/connectors/${encodeURIComponent(connectorId)}/ingest-inventory`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function executeSupplierCancellation(input: ExecuteSupplierCancellationRequest) {
+  return apiRequest<ExecuteSupplierCancellationResult>('/supply/cancellations/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function getWalletLedgerSummaries() {
+  return apiRequest<WalletLedgerSummaryRead[]>('/supply/finance/ledger-adjustments');
+}
+export async function postLedgerAdjustment(input: PostLedgerAdjustmentRequest) {
+  return apiRequest<PostLedgerAdjustmentResult>('/supply/finance/ledger-adjustments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+export async function getCancellationVouchers() {
+  return apiRequest<CancellationVoucherDeliveryRead[]>('/supply/notifications/cancellation-vouchers');
+}
+export async function dispatchCancellationVoucher(input: DispatchCancellationVoucherRequest) {
+  return apiRequest<CancellationVoucherDeliveryRead[]>('/supply/notifications/cancellation-vouchers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}

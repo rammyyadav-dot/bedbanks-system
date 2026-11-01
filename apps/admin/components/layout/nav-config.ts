@@ -48,11 +48,11 @@ export const navSections: NavSection[] = [
     label: 'Bookings',
     items: [
       { href: '/bookings', label: 'All Bookings', icon: CalendarRange, live: false },
-      { href: '/cancellations', label: 'Cancellations', icon: CalendarRange, live: false },
+      { href: '/cancellations', label: 'Cancellations', icon: CalendarRange, live: true },
     ],
   },
-  { label: 'Finance', items: [{ href: '/finance', label: 'Finance', icon: Wallet, live: false }] },
-  { label: 'Communications', items: [{ href: '/notifications', label: 'Notifications', icon: Bell, live: false }] },
+  { label: 'Finance', items: [{ href: '/finance/ledger', label: 'Ledger Adjustments', icon: Wallet, live: true }] },
+  { label: 'Communications', items: [{ href: '/notifications', label: 'Notifications', icon: Bell, live: true }] },
   { label: 'Reports', items: [{ href: '/reports', label: 'Reports', icon: BarChart3, live: false }] },
   { label: 'Settings', items: [{ href: '/settings', label: 'Settings', icon: Settings, live: true }] },
 ];

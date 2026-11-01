@@ -35,3 +35,69 @@ export function buildSevenDayAvailability(plan: RateOperationPlan, startDate: st
 export function sellabilityMessage(result: { eligible: boolean; status: string; reasons: string[] }) {
   return result.eligible ? `Sellable: ${result.status}` : `Not sellable: ${result.reasons.join(', ')}`
 }
+
+export function buildCancellationPolicyWrite(input: {
+  daysBeforeCheckinValue: string
+  mode: 'PERCENTAGE' | 'FIXED'
+  penaltyValue: string
+  currency: string
+}) {
+  const daysBeforeCheckin = Number(input.daysBeforeCheckinValue.trim())
+  if (!Number.isInteger(daysBeforeCheckin) || daysBeforeCheckin < 0 || !input.daysBeforeCheckinValue.trim()) {
+    throw new Error('Invalid days before check-in')
+  }
+  const currency = input.currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Invalid currency')
+  if (input.mode === 'PERCENTAGE') {
+    const penaltyPercent = Number(input.penaltyValue.trim())
+    if (!Number.isInteger(penaltyPercent) || penaltyPercent < 0 || penaltyPercent > 100 || !input.penaltyValue.trim()) {
+      throw new Error('Invalid penalty percent')
+    }
+    return { daysBeforeCheckin, penaltyPercent, currency }
+  }
+  const penaltyMinor = parseAmountMinor(input.penaltyValue)
+  return { daysBeforeCheckin, penaltyMinor, currency }
+}
+
+export function buildCancellationSimulationPayload(input: {
+  checkIn: string
+  requestedAt: string
+  currency: string
+  cancellableAmountMajor: string
+  nightlyAmountsMajorCsv?: string
+  customerAmountPaidMajor?: string
+  retainedFeesMajor?: string
+  priorRefundsMajor?: string
+  policyType: 'REFUNDABLE' | 'NON_REFUNDABLE' | 'CONDITIONAL'
+  deadlineSemantics: 'CALENDAR_DAYS_AT_LOCAL_TIME' | 'ELAPSED_HOURS'
+  propertyTimeZone?: string
+  checkInLocalTime?: string
+}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.checkIn.trim())) throw new Error('Invalid check-in date')
+  const requestedAtMs = Date.parse(input.requestedAt.trim())
+  if (Number.isNaN(requestedAtMs)) throw new Error('Invalid cancellation timestamp')
+  const currency = input.currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Invalid currency')
+  const cancellableAmountMinor = parseAmountMinor(input.cancellableAmountMajor)
+  const nightlyAmountsMinor = input.nightlyAmountsMajorCsv?.trim()
+    ? input.nightlyAmountsMajorCsv.split(',').map(part => parseAmountMinor(part))
+    : undefined
+  const customerAmountPaidMinor = input.customerAmountPaidMajor?.trim() ? parseAmountMinor(input.customerAmountPaidMajor) : undefined
+  const retainedFeesMinor = input.retainedFeesMajor?.trim() ? parseAmountMinor(input.retainedFeesMajor) : undefined
+  const priorRefundsMinor = input.priorRefundsMajor?.trim() ? parseAmountMinor(input.priorRefundsMajor) : undefined
+
+  return {
+    checkIn: input.checkIn.trim(),
+    requestedAt: new Date(requestedAtMs).toISOString(),
+    currency,
+    cancellableAmountMinor,
+    ...(nightlyAmountsMinor ? { nightlyAmountsMinor } : {}),
+    ...(customerAmountPaidMinor ? { customerAmountPaidMinor } : {}),
+    ...(retainedFeesMinor ? { retainedFeesMinor } : {}),
+    ...(priorRefundsMinor ? { priorRefundsMinor } : {}),
+    policyType: input.policyType,
+    deadlineSemantics: input.deadlineSemantics,
+    ...(input.propertyTimeZone?.trim() ? { propertyTimeZone: input.propertyTimeZone.trim() } : {}),
+    ...(input.checkInLocalTime?.trim() ? { checkInLocalTime: input.checkInLocalTime.trim() } : {}),
+  }
+}
