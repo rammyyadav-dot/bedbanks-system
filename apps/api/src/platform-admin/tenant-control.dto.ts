@@ -1,9 +1,10 @@
 import { Type } from 'class-transformer'
 import { IsArray, IsBoolean, IsDefined, ArrayMaxSize, IsEmail, IsIn, IsInt, IsISO8601, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator'
-import type { TenantBusiness } from '@bedbanks/contracts'
+import { TENANT_CONTROL_STAGES, TENANT_MEMBERSHIP_ACTIONS, type TenantBusiness } from '@bedbanks/contracts'
 export class TenantDirectoryDto {
   @IsOptional() @IsString() @MaxLength(100) search?: string
   @IsOptional() @IsIn(['ACTIVE','SUSPENDED']) status?: 'ACTIVE' | 'SUSPENDED'
+  @IsOptional() @IsIn([...TENANT_CONTROL_STAGES]) stage?: (typeof TENANT_CONTROL_STAGES)[number]
   @IsOptional() @IsIn(['BUYER','SUPPLIER','HYBRID']) classification?: string
   @IsOptional() @Matches(/^[A-Z]{2}$/) country?: string
   @IsOptional() @IsISO8601() createdFrom?: string
@@ -44,7 +45,7 @@ export class UpdateTenantProfileDto {
 }
 export class MembershipChangeDto {
   @IsEmail() email!: string
-  @IsIn(['owner','member','revoke']) role!: 'owner' | 'member' | 'revoke'
+  @IsIn([...TENANT_MEMBERSHIP_ACTIONS]) role!: (typeof TENANT_MEMBERSHIP_ACTIONS)[number]
   @IsInt() @Min(0) version!: number
 }
 export class LifecycleRequestDto {

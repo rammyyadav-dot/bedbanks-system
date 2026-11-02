@@ -18,7 +18,7 @@ Suspended memberships are returned in a separate servicing-only identity field. 
 
 ## Route map
 
-Admin `/tenants` is the server-filtered directory; `/tenants/[id]` contains Overview, Business profile, Users & memberships, Roles & permissions, Commercial, Finance & credit, Operations, Compliance, Workspace settings, and Audit & activity. Business navigation links existing Agencies, Suppliers, Access review and Reconciliation approvals views.
+Admin `/tenants` is the server-filtered directory; `/tenants/new` is the onboarding wizard; `/tenants/[id]` holds profile, commercial terms, finance (honest unavailable), lifecycle, compliance, settings and audit; `/tenants/[id]/users` holds the user roster, membership assignment (owner/member/revoke) and formal permission keys. Business navigation links existing Agencies, Suppliers, Access review and Reconciliation approvals views. Invitation delivery, MFA enrollment, admin-triggered password reset and remote session revoke remain unavailable.
 
 API `/platform/tenants`: GET directory and POST onboarding; `/:tenantId/summary`: GET detail; `/:tenantId/profile`: PATCH; `/:tenantId/memberships`: POST existing-user membership action; `/:tenantId/compliance`: POST independent decision; `/:tenantId/lifecycle`: POST maker request; `/:tenantId/approvals/:approvalId`: POST canonical decision/execution; `/:tenantId/audit`: GET scoped paginated/filterable safe timeline. `/admin/settings` retains its existing contract and permission.
 
