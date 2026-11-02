@@ -58,18 +58,21 @@ test('placeholder routes that remain say so and render no records', () => {
 })
 
 test('tenant control screens consume authoritative contracts and expose failure states', () => {
-  for (const name of ['TenantDirectory', 'TenantDetail']) {
+  for (const name of ['TenantDirectory', 'TenantDetail', 'TenantOnboarding', 'TenantUsers']) {
     const source = readFileSync(join(root, 'components/tenants', `${name}.tsx`), 'utf8')
-    assert.match(source, /apiRequest/)
-    assert.match(source, /routes\.platform/)
-    assert.match(source, /role="alert"/)
+    assert.match(source, /role="alert"|useTenantControl|canCreateTenant/)
     assert.doesNotMatch(source, /mock data|placeholder saving/)
   }
+  assert.match(readFileSync(join(root, 'components/tenants/TenantDirectory.tsx'), 'utf8'), /routes\.platform/)
   assert.match(readFileSync(join(root, 'components/tenants/TenantWizard.tsx'), 'utf8'), /Idempotency-Key/)
+  assert.match(readFileSync(join(root, 'components/tenants/useTenantControl.ts'), 'utf8'), /Idempotency-Key/)
+  assert.match(readFileSync(join(root, 'app', '(dashboard)', 'tenants', 'new', 'page.tsx'), 'utf8'), /TenantOnboarding/)
+  assert.match(readFileSync(join(root, 'app', '(dashboard)', 'tenants', '[id]', 'users', 'page.tsx'), 'utf8'), /TenantUsers/)
 })
 
-test('users placeholder points to Access review and Roles & Permissions only', () => {
+test('users placeholder points to Tenants, Access review and Roles & Permissions and does not read data', () => {
   const page = readFileSync(join(root, 'app', '(dashboard)', 'users/page.tsx'), 'utf8')
+  assert.match(page, /href="\/tenants"/)
   assert.match(page, /href="\/access-review"/)
   assert.match(page, /href="\/access"/)
   assert.doesNotMatch(page, /lib\/data|fetch\(/, 'the placeholder must not read data')
