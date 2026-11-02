@@ -29,3 +29,14 @@ export function activeMembership<M extends Pick<MembershipSummary, 'tenantId' | 
   const tenantId = resolveActiveTenantId(memberships, selected)
   return memberships.find((membership) => membership.tenantId === tenantId) ?? null
 }
+
+const TENANT_HEADER = 'x-fbeds-tenant-id'
+
+/**
+ * Pins the tenant the server resolved from the session. A caller-supplied header is overwritten
+ * so a Server Component cannot forward a body/query tenant id (CLAUDE.md invariant 1).
+ */
+export function pinActiveTenantHeader(existing: Record<string, string> | undefined, tenantId: string): Record<string, string> {
+  if (!tenantId || tenantId.trim() !== tenantId) throw new Error('A normalized tenant context is required')
+  return { ...existing, [TENANT_HEADER]: tenantId }
+}

@@ -2,6 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { authApi, type AuthenticatedUser, ApiResponseError } from '../api/auth-client';
 import { SESSION_COOKIE_NAME as COOKIE_NAME } from '../api/server-env';
+import { adminConsoleMemberships, sessionMayUseAdminConsole } from './admin-access';
 
 /**
  * Reads the session cookie from the incoming request and validates it
@@ -50,4 +51,18 @@ export async function requireSession(): Promise<AuthenticatedUser> {
   // error and therefore the code below never runs when session is null.
   // The cast is safe — if we reach this line, session is defined.
   return session as AuthenticatedUser;
+}
+
+/**
+ * Dashboard boundary (ADR 0108): the cookie has already been validated against GET /auth/me.
+ * Memberships that are not ADMIN / SUPER_ADMIN (owner counts as ADMIN) are stripped and, if none
+ * remain, the caller is sent to login. The API still re-checks every permission and tenant.
+ */
+export async function requireAdminSession(): Promise<AuthenticatedUser> {
+  const session = await requireSession();
+  if (!sessionMayUseAdminConsole(session.memberships)) {
+    const { redirect } = await import('next/navigation');
+    redirect('/login?denied=role');
+  }
+  return { ...session, memberships: adminConsoleMemberships(session.memberships) };
 }

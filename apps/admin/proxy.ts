@@ -1,10 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { resolveApiDestination } from '../../tools/deployment/runtime-api-proxy.mjs';
+import { decideAdminEdgeAccess } from './lib/auth/edge-guard';
 
 const COOKIE_NAME = process.env.AUTH_COOKIE_NAME ?? 'fbeds_session';
-
-// Routes that don't require authentication
-const PUBLIC_ROUTES = ['/login'];
 
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
@@ -18,34 +16,11 @@ export function proxy(request: NextRequest): NextResponse {
     return NextResponse.json({ error: result.reason }, { status: result.status, headers: { 'Cache-Control': 'no-store' } });
   }
 
-  // Allow public routes through immediately
-  if (PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) {
-    return NextResponse.next();
-  }
-
-  // Static files and Next.js internals — never needs auth
-  if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon') ||
-    pathname.startsWith('/api')
-  ) {
-    return NextResponse.next();
-  }
-
-  // All other routes require a session cookie.
-  // Proxy can only check cookie *presence* — it cannot call the
-  // API to validate the session (that would make every request wait
-  // for a DB round-trip in the proxy layer). The actual session
-  // validity check happens in getSession()/requireSession() in each
-  // Server Component or layout that needs the identity.
-  //
-  // This is a correct split: proxy handles routing (redirect if
-  // obviously not authed), server components handle identity (validate
-  // and get the actual user). An expired/invalid cookie will reach the
-  // page, getSession() will return null, and the page will redirect.
-  const hasSessionCookie = request.cookies.has(COOKIE_NAME);
-
-  if (!hasSessionCookie) {
+  // Edge gate (ADR 0108): require a well-formed opaque session token, not merely a cookie name.
+  // The API validates the token on GET /auth/me; requireAdminSession() in the dashboard layout
+  // refuses expired sessions and non-ADMIN / SUPER_ADMIN memberships.
+  const decision = decideAdminEdgeAccess({ pathname, sessionCookie: request.cookies.get(COOKIE_NAME)?.value });
+  if (decision === 'login') {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('from', pathname);
     return NextResponse.redirect(loginUrl);

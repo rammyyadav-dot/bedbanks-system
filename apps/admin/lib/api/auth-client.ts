@@ -50,11 +50,12 @@ export interface AuthenticatedUser {
 
 export const authApi = {
   async login(email: string, password: string) {
-    const { response } = await apiFetch<AuthenticatedUser>(routes.auth.login, {
+    const { data, response } = await apiFetch<AuthenticatedUser>(routes.auth.login, {
       method: 'POST', body: JSON.stringify({ email, password }),
     });
-    // This header is consumed only by the Server Action, never returned to a client.
-    return response.headers.getSetCookie();
+    // Set-Cookie is consumed only by the Server Action. Identity is used to refuse non-ADMIN sessions
+    // before the cookie is copied onto this host (ADR 0108).
+    return { identity: data, setCookie: response.headers.getSetCookie() };
   },
   async me(cookieHeader: string) {
     return (await apiFetch<AuthenticatedUser>(routes.auth.me, { headers: { Cookie: cookieHeader } })).data;
