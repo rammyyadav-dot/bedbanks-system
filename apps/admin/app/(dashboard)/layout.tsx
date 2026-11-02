@@ -1,16 +1,15 @@
 import type { ReactNode } from 'react'
 import { AdminShell } from '@/components/layout/AdminShell'
-import { requireSession } from '@/lib/auth/session'
+import { requireAdminSession } from '@/lib/auth/session'
 import { readSelectedTenantId } from '@/lib/auth/active-tenant'
 import { resolveActiveTenantId } from '@/lib/api/tenant-context'
 
 /**
  * Dashboard layout — server-side session validation.
  *
- * requireSession() calls GET /auth/me, validates the opaque session
- * cookie against the database, and redirects to /login if the session
- * is missing or expired. Every page under (dashboard)/ inherits this
- * check automatically — individual pages don't need to repeat it.
+ * requireAdminSession() calls GET /auth/me (opaque session, ADR 0001 / ADR 0108),
+ * refuses missing, expired or Agent-only sessions, and keeps only ADMIN /
+ * SUPER_ADMIN memberships. Every page under (dashboard)/ inherits this check.
  *
  * The active tenant is the stored selection only when it is still one of the session's memberships (the cookie is
  * untrusted input; the API re-validates it on every call). The identity is passed to AdminShell for the topbar user display and
@@ -19,7 +18,7 @@ import { resolveActiveTenantId } from '@/lib/api/tenant-context'
  * within a single render pass via the same cache).
  */
 export default async function DashboardGroupLayout({ children }: { children: ReactNode }) {
-  const identity = await requireSession()
+  const identity = await requireAdminSession()
   const activeTenantId = resolveActiveTenantId(identity.memberships, await readSelectedTenantId())
 
   return <AdminShell identity={identity} activeTenantId={activeTenantId}>{children}</AdminShell>

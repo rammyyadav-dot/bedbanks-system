@@ -27,7 +27,7 @@ test('switchTenantAction validates against fresh server-side memberships and sto
   const src = read('lib', 'auth', 'actions.ts')
   const action = src.slice(src.indexOf('export async function switchTenantAction'))
   assert.match(action, /await getSession\(\)/, 'identity comes from /auth/me, not from the client')
-  assert.match(action, /identity\.memberships\.some\(/)
+  assert.match(action, /adminConsoleMemberships\(identity\.memberships\)\.some\(/)
   assert.ok(action.indexOf('memberships.some') < action.indexOf('cookieStore.set'), 'validate before writing the cookie')
   assert.match(action, /httpOnly: true, secure: true, sameSite: 'lax'/)
   assert.match(action, /if \(!identity\) redirect\('\/login'\)/)
@@ -39,6 +39,7 @@ test('the selection never outlives or crosses a session', () => {
 })
 
 test('the layout resolves the cookie against memberships and the shell remounts per tenant', () => {
+  assert.match(read('app', '(dashboard)', 'layout.tsx'), /requireAdminSession/)
   assert.match(read('app', '(dashboard)', 'layout.tsx'), /resolveActiveTenantId\(identity\.memberships, await readSelectedTenantId\(\)\)/)
   const shell = read('components', 'layout', 'AdminShell.tsx')
   assert.doesNotMatch(shell, /pickActiveTenantId/, 'the shell no longer picks its own tenant')

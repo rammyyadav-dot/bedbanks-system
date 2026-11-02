@@ -6,6 +6,7 @@ import { parseSessionCookie } from './session-cookie';
 import { authApi, ApiResponseError } from '../api/auth-client';
 import { ACTIVE_TENANT_COOKIE } from './active-tenant';
 import { getSession } from './session';
+import { adminConsoleMemberships, sessionMayUseAdminConsole } from './admin-access';
 import { safePostLoginPath } from './post-login-path';
 import { SESSION_COOKIE_NAME as COOKIE_NAME } from '../api/server-env';
 
@@ -31,8 +32,17 @@ export async function loginAction(
   }
 
   try {
-    const headers = await authApi.login(email, password);
-    const cookie = parseSessionCookie(headers, COOKIE_NAME);
+    const { identity, setCookie } = await authApi.login(email, password);
+    if (!sessionMayUseAdminConsole(identity.memberships)) {
+      // The API already minted a session. Revoke it so an Agent-only account cannot keep an Admin-host cookie.
+      const issued = setCookie.find((header) => header.startsWith(`${COOKIE_NAME}=`));
+      const raw = issued?.slice(COOKIE_NAME.length + 1).split(';', 1)[0];
+      if (raw) {
+        try { await authApi.logout(`${COOKIE_NAME}=${raw}`); } catch { /* still refuse; never copy the cookie */ }
+      }
+      return { error: 'This account is not authorized for the Admin console.' };
+    }
+    const cookie = parseSessionCookie(setCookie, COOKIE_NAME);
     const cookieStore = await cookies();
     cookieStore.set(COOKIE_NAME, cookie.value, cookie.options);
     // A new sign-in never inherits a tenant selection made by an earlier session in this browser.
@@ -93,7 +103,7 @@ export async function switchTenantAction(tenantId: string): Promise<SwitchTenant
     return { error: 'Your session could not be verified. Please try again.' };
   }
   if (!identity) redirect('/login');
-  if (typeof tenantId !== 'string' || !identity.memberships.some((membership) => membership.tenantId === tenantId)) {
+  if (typeof tenantId !== 'string' || !adminConsoleMemberships(identity.memberships).some((membership) => membership.tenantId === tenantId)) {
     return { error: 'That tenant is not available to your account.' };
   }
   const cookieStore = await cookies();
