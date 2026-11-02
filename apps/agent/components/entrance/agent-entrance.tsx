@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { Eye, EyeOff, Headset, Info, MessageSquare, Rss } from 'lucide-react'
 import { TradeFooter } from '@/components/entrance/trade-frame'
+import { loginRequestSchema } from '@bedbanks/validation/agent'
 import { login, type AgentIdentity } from '@/lib/api-client'
 import { entranceCards, heroCopy } from '@/lib/marketplace-content'
 import { markAgentSession } from '@/lib/recent-searches'
@@ -37,8 +38,14 @@ export function AgentEntrance({
     setSubmitting(true)
     setError('')
     const form = new FormData(event.currentTarget)
+    const parsed = loginRequestSchema.safeParse({ email: String(form.get('email') ?? ''), password: String(form.get('password') ?? '') })
+    if (!parsed.success) {
+      setError(signInErrorMessage(new Error('Invalid sign-in details')))
+      setSubmitting(false)
+      return
+    }
     try {
-      const identity = await login(String(form.get('email')), String(form.get('password')))
+      const identity = await login(parsed.data.email, parsed.data.password)
       markAgentSession(window.sessionStorage)
       if (returnPath !== '/') {
         window.location.assign(returnPath)

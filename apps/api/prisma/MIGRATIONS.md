@@ -6,7 +6,7 @@ Run these commands from `apps/api`. The committed migration files are the only p
 ## Preserved migration history
 
 1. `20260101000000_baseline_identity` — P0-C tenant, user and membership baseline.
-2. `20260910000000_p0d_authentication` — status, credentials/lifecycle fields and opaque sessions.
+2. `20260910000000_p0d_authentication` — status, `User.passwordHash`, lifecycle fields and the opaque `Session` table (`token_hash` only). That remains the identity/auth schema; do not add a second Session model.
 3. `202609160001_agent_domain_foundation` — incremental roles, permissions, bookings, wallet/ledger and audit models.
 4. `202609180001_prisma_tenant_finance_hardening` — tenant-bound role assignments, tenant-scoped idempotency, BIGINT money, multi-currency wallets, audit payload controls and PostgreSQL RLS.
 5. `202609180002_postgres_release_controls` — non-owner ledger/audit append-only RLS policies and ordinary-role system-audit insert protection.

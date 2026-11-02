@@ -1,5 +1,8 @@
 export function signInErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : ''
+  if (message === 'Invalid sign-in details') {
+    return 'Enter a valid work email and password.'
+  }
   if (message === 'Invalid credentials' || message === 'Session expired') {
     return 'We could not sign you in. Check your credentials and try again.'
   }

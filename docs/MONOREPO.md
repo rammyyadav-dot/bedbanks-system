@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a pnpm monorepo using Turbo for build orchestration. It's organized into applications and shared packages.
+This is a pnpm monorepo using Turbo. Applications talk to the NestJS API through `/api/v1`. Shared packages hold contracts, types, validation and presentational UI — never Prisma or NestJS (ADR 0075, ADR 0108).
 
 ## Directory Structure
 
@@ -10,142 +10,43 @@ This is a pnpm monorepo using Turbo for build orchestration. It's organized into
 bedbanks-system/
 ├── apps/
 │   ├── agent/          # B2B Agent Portal (Next.js)
-│   ├── api/            # Backend API (to be created)
-│   ├── admin/          # Admin Portal (to be created)
-│   └── supplier/       # Supplier Extranet (to be created)
+│   ├── api/            # NestJS API (`/api/v1`, Prisma, Neon PostgreSQL)
+│   ├── admin/          # Admin Console (Next.js)
+│   ├── supplier/       # Supplier Extranet (Next.js)
+│   └── website/        # Public marketing site
 │
 ├── packages/
-│   ├── ui/             # Shared UI Components
-│   ├── types/          # Shared TypeScript Types
-│   ├── validation/     # Zod Validation Schemas
-│   └── config/         # Shared Configuration
+│   ├── contracts/      # Routes, DTOs, envelopes (`@bedbanks/contracts`, `./agent`)
+│   ├── types/          # Shared TypeScript types (integer minor-unit money)
+│   ├── validation/     # Zod schemas (`@bedbanks/validation`, `./agent`)
+│   ├── api-client/     # Shared HTTP envelope client (`@bedbanks/api-client`, `./agent`)
+│   ├── domain/         # Provider-neutral search/booking types
+│   ├── money/          # Integer minor-unit arithmetic
+│   ├── pricing/        # Pure basis-point arithmetic
+│   ├── ui/             # Presentational components
+│   ├── tracing/        # OpenTelemetry bootstrap
+│   └── connectors/     # Server-only supplier adapters
 │
-├── docs/               # Documentation
-├── .github/            # GitHub Actions & CI/CD
-├── pnpm-workspace.yaml # Workspace configuration
-├── turbo.json          # Turbo build configuration
-└── tsconfig.json       # Root TypeScript configuration
+├── docs/
+├── .github/
+├── pnpm-workspace.yaml
+├── turbo.json
+└── tsconfig.json
 ```
 
 ## Getting Started
 
-### Installation
-
 ```bash
-# Install pnpm if not already installed
-npm install -g pnpm
-
-# Install all dependencies
 pnpm install
-```
-
-### Development
-
-```bash
-# Run all apps in development mode
-pnpm dev
-
-# Run specific app
-cd apps/agent
 pnpm dev
 ```
 
-### Building
+The Agent reaches `POST /api/v1/auth/login`, `POST /api/v1/agent/search` and `/api/v1/agent/bookings` through `@bedbanks/api-client/agent` and `@bedbanks/contracts/agent`. Hotel images use `GET /api/v1/agent/hotels/:hotelId/images/:imageId/content`. Admin uses the same prefix via the same-origin proxy.
 
-```bash
-# Build all packages and apps (respects dependency order)
-pnpm build
+## Workspace dependencies
 
-# Build specific workspace
-cd packages/ui
-pnpm build
-```
+Use `workspace:*` for internal packages. The Agent may import only `@bedbanks/contracts/agent` and `@bedbanks/validation/agent`.
 
-### Scripts
+## Database
 
-Available scripts in root `package.json`:
-
-- `pnpm dev` - Start all apps in development mode (parallel)
-- `pnpm build` - Build all packages and apps
-- `pnpm lint` - Run linting across all workspaces
-- `pnpm type-check` - Run TypeScript type checking
-- `pnpm test` - Run tests across all workspaces
-- `pnpm format` - Format code with Prettier
-
-## Workspace Dependencies
-
-### Using Workspace Protocol
-
-When one package depends on another in the same monorepo, use the `workspace:*` protocol:
-
-```json
-{
-  "dependencies": {
-    "@bedbanks/types": "workspace:*",
-    "react": "workspace:*"
-  }
-}
-```
-
-### Internal Imports
-
-Use path aliases defined in `tsconfig.json`:
-
-```typescript
-// Import from ui package
-import { Button } from '@ui/components/Button'
-
-// Import from types package
-import type { Hotel } from '@types/domain/hotel'
-
-// Import from validation package
-import { hotelSchema } from '@validation/schemas/hotel'
-
-// Import from config package
-import { API_BASE_URL } from '@config/constants'
-```
-
-## Turbo Build Pipeline
-
-Turbo orchestrates builds with dependency awareness:
-
-- **build**: Depends on all dependency builds completing first
-- **dev**: Runs all apps in parallel (no caching)
-- **lint**: Caches results for faster re-runs
-- **type-check**: Runs TypeScript type checking
-- **test**: Runs tests with output caching
-
-## Adding New Workspaces
-
-### Adding a new app
-
-```bash
-mkdir apps/new-app
-cd apps/new-app
-# Create package.json and src/
-```
-
-### Adding a new package
-
-```bash
-mkdir packages/new-package
-cd packages/new-package
-# Create package.json and src/
-```
-
-Both will be automatically included by pnpm due to the workspace configuration.
-
-## Tips
-
-- Always run scripts from the monorepo root unless working in a specific workspace
-- Turbo caches build artifacts - use `pnpm build --force` to rebuild without cache
-- TypeScript path aliases enable IDE autocomplete across packages
-- Each workspace has its own `tsconfig.json` that extends the root
-
-## Next Steps
-
-1. ✅ Monorepo foundation established
-2. ⬜ Backend API setup (Phase 1)
-3. ⬜ Database & Prisma schema (Phase 2)
-4. ⬜ Authentication & Authorization (Phase 3)
-5. ⬜ Business logic implementation (Phase 4+)
+The Prisma schema and migration chain live in `apps/api/prisma`. `User.passwordHash` and `Session` were added in `20260910000000_p0d_authentication`. Do not run `prisma migrate dev` to invent production history.

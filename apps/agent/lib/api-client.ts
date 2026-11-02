@@ -1,4 +1,5 @@
 import { routes, type AgentFundingReceiptView, type AgentFundingView, type CreateQuotationRequest, type FundingDeclareRequest, type Quotation, type QuotationExportFormat, type QuotationExportJob, type SmartSearchParseResponse, type UpdateQuotationRequest } from '@bedbanks/contracts/agent'
+import { ApiClientError, createHttpClient } from '@bedbanks/api-client/agent'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'
@@ -26,25 +27,31 @@ export function agentSession(identity: { user: AgentIdentity['user']; membership
   return { user: identity.user, memberships: identity.memberships, bookingEnabled: bookingEnabledFromContext(bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(settlementCurrencies) }
 }
 
-const apiBase = agentApiBase
+const http = createHttpClient({
+  baseUrl: agentApiBase,
+  nonExpiringPaths: NON_EXPIRING_PATHS,
+  onUnauthorized: () => announceSessionExpired(),
+})
 
 /** availableCredit is an integer minor-unit amount serialised as a string, in `currency`. */
 export type FinanceSummary = { status: string; currency: string; availableCredit: string | null; creditLimit?: string | null; overdue?: { state: 'CURRENT' | 'NOTICE' | 'HOLDS_REFUSED'; unpaidMinor: string; daysOverdue: number } | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, { ...init, credentials: 'include', headers: { 'Content-Type': 'application/json', ...init?.headers } })
-  const body = await response.json().catch(() => null)
-  if (!response.ok) {
-    if (response.status === 401) { if (!NON_EXPIRING_PATHS.includes(path)) announceSessionExpired(); throw new Error('Session expired') }
-    if (response.status === 403) throw new Error('Access denied')
-    throw new Error('Request failed')
+  try {
+    return await http.request<T>(path, init)
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      if (error.status === 401) throw new Error('Session expired')
+      if (error.status === 403) throw new Error('Access denied')
+      throw new Error('Request failed')
+    }
+    throw error
   }
-  return body?.data ?? body
 }
 
 export async function login(email: string, password: string) {
   try {
-    return await request<AgentIdentity>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+    return await request<AgentIdentity>(routes.auth.login, { method: 'POST', body: JSON.stringify({ email, password }) })
   } catch (error) {
     if (error instanceof Error && error.message === 'Session expired') throw new Error('Invalid credentials')
     throw error
@@ -52,23 +59,23 @@ export async function login(email: string, password: string) {
 }
 
 export async function getAgentContext() {
-  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown; settlementCurrencies?: unknown }>('/agent/context')
+  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown; settlementCurrencies?: unknown }>(routes.agent.context)
   return { ...context, bookingEnabled: bookingEnabledFromContext(context.bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(context.settlementCurrencies) }
 }
 
 export function logout() {
-  return request<{ loggedOut: boolean }>('/auth/logout', { method: 'POST' })
+  return request<{ loggedOut: boolean }>(routes.auth.logout, { method: 'POST' })
 }
 
 export function getFinanceSummary(tenantId: string) {
-  return request<FinanceSummary>(`/agent/finance/summary`, { headers: { 'x-fbeds-tenant-id': tenantId } })
+  return request<FinanceSummary>(routes.agent.financeSummary, { headers: { 'x-fbeds-tenant-id': tenantId } })
 }
 
 export function getSearchStatus(tenantId: string) {
   const stay = defaultSearchStay(Date.now(), 1)
   const checkIn = stay.checkIn
   const checkOut = stay.checkOut
-  return request<{ status: 'not_checked' | 'provider_unavailable' }>('/agent/search/status', { method: 'POST',
+  return request<{ status: 'not_checked' | 'provider_unavailable' }>(routes.agent.searchStatus, { method: 'POST',
     headers: { 'x-fbeds-tenant-id': tenantId },
     body: JSON.stringify({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 1,
       children: 0, childAges: [], nationality: 'IN', currency: 'AED' }) })
@@ -76,11 +83,11 @@ export function getSearchStatus(tenantId: string) {
 
 /** The agency's own funding receipts (ADR 0028 slice 2). Declaring moves no money: finance verifies against the bank statement first. */
 export function getFundingReceipts(tenantId: string) {
-  return request<AgentFundingView>('/agent/funding/receipts', { headers: { 'x-fbeds-tenant-id': tenantId } })
+  return request<AgentFundingView>(routes.agent.fundingReceipts, { headers: { 'x-fbeds-tenant-id': tenantId } })
 }
 
 export function declareFundingReceipt(tenantId: string, body: FundingDeclareRequest) {
-  return request<AgentFundingReceiptView>('/agent/funding/receipts', { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
+  return request<AgentFundingReceiptView>(routes.agent.fundingReceipts, { method: 'POST', headers: { 'x-fbeds-tenant-id': tenantId }, body: JSON.stringify(body) })
 }
 
 /** Smart Search (ADR 0065): the server reads search fields from pasted text. The text is not stored or logged. */

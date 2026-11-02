@@ -26,8 +26,14 @@ const PACKAGES = ['packages'] as const
 /** Packages that only the API may load. A prefix match covers every connector workspace. */
 const SERVER_ONLY = [/^@prisma\//, /^prisma$/, /^@bedbanks\/connectors(-|\/|$)/, /^@nestjs\//, /^@bedbanks\/api$/]
 
-/** The only contract entries each app may import. Apps not listed may import any entry. */
-const CONTRACT_ENTRIES: Record<string, readonly string[]> = { 'apps/agent': ['@bedbanks/contracts/agent'] }
+/** Audience-split packages: the Agent may import only these entries (ADR 0075, ADR 0108). */
+const RESTRICTED_ENTRIES: Record<string, Record<string, readonly string[]>> = {
+  'apps/agent': {
+    '@bedbanks/contracts': ['@bedbanks/contracts/agent'],
+    '@bedbanks/validation': ['@bedbanks/validation/agent'],
+    '@bedbanks/api-client': ['@bedbanks/api-client', '@bedbanks/api-client/agent'],
+  },
+}
 
 const appNames = new Map<string, string>()
 for (const app of ALL_APPS) {
@@ -72,9 +78,13 @@ function scan(dir: string, owner: string, isPackage: boolean) {
       if (browser && SERVER_ONLY.some((pattern) => pattern.test(specifier))) {
         violations.push(`${where}: server-only-dep '${specifier}' imported by a browser app`)
       }
-      const entries = CONTRACT_ENTRIES[owner]
-      if (entries && /^@bedbanks\/contracts(\/|$)/.test(specifier) && !entries.includes(specifier)) {
-        violations.push(`${where}: agent-contracts '${specifier}'; import ${entries.join(' or ')}`)
+      const restricted = RESTRICTED_ENTRIES[owner]
+      if (restricted) {
+        for (const [pkg, entries] of Object.entries(restricted)) {
+          if ((specifier === pkg || specifier.startsWith(`${pkg}/`)) && !entries.includes(specifier)) {
+            violations.push(`${where}: agent-contracts '${specifier}'; import ${entries.join(' or ')}`)
+          }
+        }
       }
     }
   }

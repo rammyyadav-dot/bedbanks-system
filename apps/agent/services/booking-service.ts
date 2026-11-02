@@ -1,7 +1,7 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
-import { DUPLICATE_BOOKING_SUSPECTED, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
+import { DUPLICATE_BOOKING_SUSPECTED, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
 
 /**
@@ -81,7 +81,7 @@ export class BookingService {
 
   /** Creates the inventory hold. The hold response carries a meaningful status even for non-2xx (unavailable, price_changed, …). */
   async hold(offerId: string, searchId: string, currency: string, sellAmountMinor: number, idempotencyKey: string, tenantId: string): Promise<BookingResult<HoldOutcome>> {
-    const result = await this.call(`/agent/offers/${encodeURIComponent(offerId)}/hold`, tenantId, { method: 'POST', body: JSON.stringify({ searchId, expectedCurrency: currency, expectedSellAmountMinor: sellAmountMinor, idempotencyKey }) })
+    const result = await this.call(routes.agent.holdOffer.replace(':offerId', encodeURIComponent(offerId)), tenantId, { method: 'POST', body: JSON.stringify({ searchId, expectedCurrency: currency, expectedSellAmountMinor: sellAmountMinor, idempotencyKey }) })
     if (!('ok' in result)) {
       const data = isRecord(result.body) && 'data' in result.body ? result.body.data : null
       if (isRecord(data) && typeof data.status === 'string' && data.status !== 'booking_unavailable') {
@@ -98,7 +98,7 @@ export class BookingService {
 
   /** Gives the inventory back before the hold expires. Only possible while the hold is not yet part of a booking attempt. */
   async releaseHold(holdId: string, tenantId: string): Promise<BookingResult<{ holdId: string; status: 'RELEASED' | 'EXPIRED' }>> {
-    return this.parse(await this.call(`/agent/holds/${encodeURIComponent(holdId)}`, tenantId, { method: 'DELETE' }),
+    return this.parse(await this.call(routes.agent.releaseHold.replace(':holdId', encodeURIComponent(holdId)), tenantId, { method: 'DELETE' }),
       (data): data is { holdId: string; status: 'RELEASED' | 'EXPIRED' } => isRecord(data) && typeof data.holdId === 'string' && (data.status === 'RELEASED' || data.status === 'EXPIRED'))
   }
 
@@ -107,12 +107,12 @@ export class BookingService {
       ...(guest.guests ? { guests: guest.guests } : {}), ...(guest.agentRef?.trim() ? { agentRef: guest.agentRef.trim() } : {}),
       ...(guest.specialRequests && (guest.specialRequests.codes.length || guest.specialRequests.note?.trim() || guest.specialRequests.arrivalTime) ? { specialRequests: guest.specialRequests } : {}),
       ...(guest.termsAccepted !== undefined ? { termsAccepted: guest.termsAccepted } : {}), ...(guest.acknowledgeDuplicate ? { acknowledgeDuplicate: true } : {}) }
-    return this.parse(await this.call('/agent/prebook', tenantId, { method: 'POST', body: JSON.stringify(body) }),
+    return this.parse(await this.call(routes.agent.prebook, tenantId, { method: 'POST', body: JSON.stringify(body) }),
       (data): data is PrebookData => isRecord(data) && data.status === 'prebooked' && typeof data.bookingId === 'string' && typeof data.bookingReference === 'string')
   }
 
   async confirm(bookingId: string, tenantId: string, ccEmails: string[] = []): Promise<BookingResult<ConfirmData>> {
-    return this.parse(await this.call('/agent/bookings', tenantId, { method: 'POST', body: JSON.stringify({ bookingId, ...(ccEmails.length ? { ccEmails } : {}) }) }),
+    return this.parse(await this.call(routes.agent.bookings, tenantId, { method: 'POST', body: JSON.stringify({ bookingId, ...(ccEmails.length ? { ccEmails } : {}) }) }),
       (data): data is ConfirmData => isRecord(data) && data.status === 'CONFIRMED' && typeof data.bookingId === 'string' && typeof data.reference === 'string')
   }
 
@@ -122,20 +122,20 @@ export class BookingService {
     if (query.offset !== undefined) params.set('offset', String(query.offset))
     if (query.status) params.set('status', query.status)
     const suffix = params.size ? `?${params.toString()}` : ''
-    return this.parse(await this.call(`/agent/bookings${suffix}`, tenantId), isBookingPage)
+    return this.parse(await this.call(`${routes.agent.bookings}${suffix}`, tenantId), isBookingPage)
   }
 
   async detail(bookingId: string, tenantId: string): Promise<BookingResult<BookingDetail>> {
-    return this.parse(await this.call(`/agent/bookings/${encodeURIComponent(bookingId)}`, tenantId),
+    return this.parse(await this.call(routes.agent.booking.replace(':id', encodeURIComponent(bookingId)), tenantId),
       (data): data is BookingDetail => isBookingSummary(data) && typeof (data as Record<string, unknown>).cancellable === 'boolean' && Array.isArray((data as Record<string, unknown>).documents) && isTimeline((data as Record<string, unknown>).timeline))
   }
 
   async cancellationQuote(bookingId: string, tenantId: string): Promise<BookingResult<CancellationQuote>> {
-    return this.parse(await this.call(`/agent/bookings/${encodeURIComponent(bookingId)}/cancellation-quote`, tenantId), isQuote)
+    return this.parse(await this.call(routes.agent.cancellationQuote.replace(':id', encodeURIComponent(bookingId)), tenantId), isQuote)
   }
 
   async cancel(bookingId: string, reason: string, tenantId: string): Promise<BookingResult<CancellationData>> {
-    return this.parse(await this.call(`/agent/bookings/${encodeURIComponent(bookingId)}`, tenantId, { method: 'DELETE', body: JSON.stringify({ reason: reason.trim().slice(0, 500) }) }),
+    return this.parse(await this.call(routes.agent.cancelBooking.replace(':id', encodeURIComponent(bookingId)), tenantId, { method: 'DELETE', body: JSON.stringify({ reason: reason.trim().slice(0, 500) }) }),
       (data): data is CancellationData => isQuote(data) && (data as Record<string, unknown>).status === 'CANCELLED')
   }
 
@@ -143,7 +143,7 @@ export class BookingService {
   async documentHtml(bookingId: string, type: DocumentType, tenantId: string): Promise<BookingResult<string>> {
     if (!this.base || !tenantId) return failureFor(0, '')
     try {
-      const response = await fetch(`${this.base}/agent/bookings/${encodeURIComponent(bookingId)}/documents/${type}/html`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
+      const response = await fetch(`${this.base}${routes.agent.bookingDocumentHtml.replace(':id', encodeURIComponent(bookingId)).replace(':type', type)}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
       if (response.status === 503) return { ok: false, kind: 'unavailable', message: 'Booking is not enabled for this workspace yet.' }
       if (!response.ok) { const body: unknown = await response.json().catch(() => null); return failureFor(response.status, isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string' ? body.error.message : '') }
       return { ok: true, data: await response.text() }
