@@ -158,6 +158,11 @@ export class HotelRoomsService {
         if (again) return { room: await this.one(tx, tenantId, hotel.id, current.id), auditRequestId: again.requestId, replayed: true }
         if (body.expectedToken !== this.token(current)) this.stale()
         const f = data.fields
+        const nextMaxOccupancy = f.maxOccupancy ?? current.maxOccupancy
+        if (nextMaxOccupancy < current.maxOccupancy) {
+          const exceeded = await tx.ratePlan.findMany({ where: { tenantId, roomTypeId: current.id, status: 'ACTIVE', occupancy: { gt: nextMaxOccupancy } }, select: { code: true }, orderBy: { code: 'asc' }, take: 10 })
+          if (exceeded.length > 0) throw new ConflictException({ code: 'ROOM_OCCUPANCY_BELOW_ACTIVE_PLANS', message: `Cannot lower maxOccupancy to ${nextMaxOccupancy}: active rate plan(s) ${exceeded.map((p) => p.code).join(', ')} require higher occupancy. Suspend or update those plans first.` })
+        }
         const bedding = data.bedding ? mergeBedding(current.beddingMetadata, data.bedding) : undefined
         await tx.roomType.update({ where: { id: current.id }, data: { ...f, ...(bedding ? { beddingMetadata: bedding as Prisma.InputJsonValue } : {}), updatedAt: new Date() } })
         if (data.amenities) await this.setAmenities(tx, tenantId, hotel.id, current.id, userId, data.amenities)

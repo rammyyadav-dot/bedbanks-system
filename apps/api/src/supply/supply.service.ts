@@ -3,12 +3,13 @@ import { assertHotelIdentityAvailable } from '../hotel-setup/hotel-identity'
 import { assertRoomActivationAllowed, lockHotelSetup, touchSetup } from '../hotel-setup/hotel-setup-shared'
 import { isIanaTimeZone, assessCompleteness, regressions } from '../hotel-setup/hotel-setup-rules'
 import { calendarDate, rateInput, availabilityInput, inputRows, uniqueRows } from './rate-input'
-import { occupancyProblems } from './room-rules'
+import { occupancyProblems, planOccupancyValid } from './room-rules'
 import { enabledCurrency } from '../agent/currency'
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
 import { CancellationPolicyService, type CancellationSimulationRule } from '../agent/cancellation-policy.service'
+import { transitionBooking } from '../booking-ops/booking-transition'
 import { LedgerService } from '../agent/ledger.service'
 import { CancellationNotificationService } from './cancellation-notification.service'
 import {
@@ -668,7 +669,7 @@ export class SupplyService {
 
   async ratePlans(tenantId: string, userId: string) { await this.check(tenantId, userId, 'supply.rates.read'); return this.prisma.withTenant(tenantId, tx => tx.ratePlan.findMany({ where: { tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } } } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true }, orderBy: { code: 'asc' } })) }
   async ratePlan(tenantId: string, userId: string, ratePlanId: string) { await this.check(tenantId, userId, 'supply.rates.read'); const value = await this.prisma.withTenant(tenantId, tx => tx.ratePlan.findFirst({ where: { id: ratePlanId, tenantId }, include: { contract: { include: { supplier: { select: { id: true, displayName: true } }, supplierHotelMapping: true } }, roomType: { include: { hotel: { select: { id: true, name: true } } } }, boardBasis: true } })); if (!value) throw new NotFoundException('Rate plan not found'); return value }
-  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { refuseStatusField(input); refuseUnknownFields(input); if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const terms = planTermsOrThrow(input, { validFrom: null, validTo: null, paymentType: null }, contract); const cancellationPolicySet = await cancellationSetOrThrow(tx, input.contractId, input.refundable ?? true, input.cancellationPolicySet); const markets = planMarketsOrThrow(input, { salesMarkets: [], nationalities: [] }, contract); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } }); return { id: value.id, value } }) }
+  async createRatePlan(tenantId: string, userId: string, input: any, requestId?: string) { refuseStatusField(input); refuseUnknownFields(input); if (!Number.isInteger(input.occupancy) || input.occupancy < 1) throw new BadRequestException('Invalid occupancy'); return this.write(tenantId, userId, 'supply.rates.manage', 'supply.rate_plan.created', 'rate_plan', requestId, async tx => { const contract = await tx.contract.findFirst({ where: { id: input.contractId, tenantId }, include: { supplierHotelMapping: true } }); const room = await tx.roomType.findFirst({ where: { id: input.roomTypeId, hotel: { tenantId } } }); const board = await tx.boardBasis.findFirst({ where: { id: input.boardBasisId, tenantId, isActive: true } }); if (!contract || !room || !board) throw new BadRequestException('Invalid rate plan relationship'); if (!planOccupancyValid(input.occupancy, room)) throw new BadRequestException('Invalid occupancy'); if (contract.supplierHotelMapping && contract.supplierHotelMapping.hotelId !== room.hotelId) throw new BadRequestException('Contract and room hotel mismatch'); const terms = planTermsOrThrow(input, { validFrom: null, validTo: null, paymentType: null }, contract); const cancellationPolicySet = await cancellationSetOrThrow(tx, input.contractId, input.refundable ?? true, input.cancellationPolicySet); const markets = planMarketsOrThrow(input, { salesMarkets: [], nationalities: [] }, contract); const value = await tx.ratePlan.create({ data: { tenantId, contractId: input.contractId, roomTypeId: input.roomTypeId, boardBasisId: input.boardBasisId, code: clean(input.code), occupancy: input.occupancy, currency: enabledCurrency(input.currency), refundable: input.refundable ?? true, taxesIncluded: input.taxesIncluded ?? false, feesIncluded: input.feesIncluded ?? false, minStay: input.minStay ?? 1, maxStay: input.maxStay ?? null, releaseDays: input.releaseDays ?? 0, validFrom: dateOrNull(terms.validFrom), validTo: dateOrNull(terms.validTo), paymentType: terms.paymentType, cancellationPolicySet, salesMarkets: markets.salesMarkets, nationalities: markets.nationalities } }); return { id: value.id, value } }) }
   async updateRatePlan(tenantId: string, userId: string, ratePlanId: string, input: any, requestId?: string) {
     // Validated before any permission lookup, transaction or write, so a mixed body is refused whole.
     refuseStatusField(input); refuseUnknownFields(input)
@@ -1347,10 +1348,12 @@ export class SupplyService {
                 refundMinor,
               },
             })
-        await tx.booking.update({
-          where: { id: booking.id, tenantId },
-          data: { status: 'CANCELLED' },
-        })
+        if (booking.status === 'CONFIRMED') {
+          await transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemRequestCancellation', expectedStatus: 'CONFIRMED', actor: { type: 'USER', id: userId }, level: 'SYSTEM', reason, idempotencyKey: `supply-cancel:${idempotencyKey}:request`, now: new Date() })
+          await transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemCompleteCancellation', expectedStatus: 'CANCEL_REQUESTED', actor: { type: 'USER', id: userId }, level: 'SYSTEM', reason, supplierCancellationRef: evaluated.supplierCancellationRef ?? undefined, idempotencyKey: `supply-cancel:${idempotencyKey}:complete`, now: new Date() })
+        } else if (booking.status === 'CANCEL_REQUESTED') {
+          await transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemCompleteCancellation', expectedStatus: 'CANCEL_REQUESTED', actor: { type: 'USER', id: userId }, level: 'SYSTEM', reason, supplierCancellationRef: evaluated.supplierCancellationRef ?? undefined, idempotencyKey: `supply-cancel:${idempotencyKey}:complete`, now: new Date() })
+        }
       }
 
       await tx.auditEvent.create({

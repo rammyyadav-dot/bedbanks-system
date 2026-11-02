@@ -131,6 +131,9 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
 - `ComplianceExportBatchRecord`: compliance export role only: append-only batch membership (ADR 0067)
 - `ComplianceRecord`: never written by any role: appended by the AuditEvent_compliance_capture trigger (owner, SECURITY DEFINER) in the audit event's own transaction (ADR 0067)
+- `ConnectorCredentialReference`: connector secret reference registration: operator/privileged supply path (ADR 0032); never read or written by the API runtime role
+- `ConnectorDefinition`: connector registry authoring: operator/privileged supply path (ADR 0032)
+- `ConnectorExecution`: connector execution telemetry: written by privileged connector ingestion and cancellation execution paths
 - `Contract`: supply authoring
 - `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
@@ -146,6 +149,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `InventoryHoldNight`: holds are gated
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
 - `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
+- `InventoryUpdateEvent`: connector inventory update log: written by privileged connector ingestion paths
 - `LedgerAdjustment`: finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)
 - `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
 - `LedgerEntry`: finance-gated

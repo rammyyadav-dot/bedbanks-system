@@ -1,7 +1,7 @@
 import { mergeBedding, mergedOccupancyProblems, normaliseAmenities, normaliseRoomSave, parseBedding } from './hotel-room-rules'
-import { occupancyProblems } from '../supply/room-rules'
+import { occupancyProblems, planOccupancyValid } from '../supply/room-rules'
 
-describe('occupancyProblems (shared with the supply API)', () => {
+describe('occupancyProblems and planOccupancyValid (shared with the supply API)', () => {
   it('accepts the canonical rule and names each broken part', () => {
     expect(occupancyProblems(2, 1, 3)).toEqual([])
     expect(occupancyProblems(2, 0, 2)).toEqual([])
@@ -10,6 +10,14 @@ describe('occupancyProblems (shared with the supply API)', () => {
     expect(occupancyProblems(2, 2, 3)[0]).toMatch(/at least maxAdults plus maxChildren/)
     expect(occupancyProblems(2.5, 0, 3)[0]).toMatch(/maxAdults/)
     expect(occupancyProblems(2, 0, '3')[0]).toMatch(/maxOccupancy/)
+  })
+  it('validates plan occupancy against room maxOccupancy', () => {
+    expect(planOccupancyValid(1, { maxOccupancy: 3 })).toBe(true)
+    expect(planOccupancyValid(3, { maxOccupancy: 3 })).toBe(true)
+    expect(planOccupancyValid(4, { maxOccupancy: 3 })).toBe(false)
+    expect(planOccupancyValid(0, { maxOccupancy: 3 })).toBe(false)
+    expect(planOccupancyValid(2.5, { maxOccupancy: 3 })).toBe(false)
+    expect(planOccupancyValid('2', { maxOccupancy: 3 })).toBe(false)
   })
 })
 
