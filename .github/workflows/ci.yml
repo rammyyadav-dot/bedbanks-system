@@ -13,6 +13,41 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Path filter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      prisma: ${{ steps.filter.outputs.prisma }}
+      verify: ${{ steps.filter.outputs.verify }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      website: ${{ steps.filter.outputs.website }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then git fetch --no-tags --depth=50 origin "$BASE_REF"; fi
+          git fetch --no-tags --depth=50 origin main || true
+          node tools/ci-path-filter.mjs >> "$GITHUB_OUTPUT"
+          {
+            echo "### Path filter"
+            echo '```'
+            grep -E '^(prisma|verify|e2e|website)=' "$GITHUB_OUTPUT" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   schema-integrity:
     name: Schema integrity
     runs-on: ubuntu-24.04
@@ -35,9 +70,12 @@ jobs:
         run: node tools/migration-ledger-check.mjs chain
       - run: node --import tsx --test tools/runtime-db-role-check.test.ts
       - run: node --import tsx --test tools/tenant-filter-check.test.ts
+      - run: node --test tools/ci-path-filter.test.mjs
 
   prisma-migration-certification:
     name: Prisma migration certification
+    needs: changes
+    if: github.ref == 'refs/heads/main' || needs.changes.outputs.prisma == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -105,6 +143,8 @@ jobs:
         run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs
 
   verify:
+    needs: changes
+    if: github.ref == 'refs/heads/main' || needs.changes.outputs.verify == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -137,6 +177,8 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
         with:
           version: 10.4.1
@@ -161,15 +203,37 @@ jobs:
       - name: Certify runtime DB identity against real role fixtures (membership, inheritance, SET ROLE/RESET)
         run: pnpm --filter @bedbanks/api ops:certify-runtime-db-identity
       - run: pnpm exec tsx --tsconfig apps/api/tsconfig.json apps/api/test/preview-di.smoke.ts
-      - run: pnpm turbo run type-check lint --cache-dir=.turbo --env-mode=loose
+      - name: Type-check and lint (affected packages on PRs; everything on main)
         env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
           NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ] && [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=50 origin "$BASE_REF"
+            pnpm turbo run type-check lint --cache-dir=.turbo --env-mode=loose --filter="...[origin/$BASE_REF]"
+          else
+            pnpm turbo run type-check lint --cache-dir=.turbo --env-mode=loose
+          fi
       # Tests need the live Postgres/Redis services, so they are never served from the Turborepo cache.
+      - name: Critical-flow unit tests (hotel search, contract rate calculation, booking confirmation)
+        run: >-
+          pnpm --filter @bedbanks/api exec jest --runInBand
+          src/agent/agent-search.service.spec.ts
+          src/agent/contracted-inventory.adapter.search.spec.ts
+          src/supply/contract-rate-calculation.spec.ts
+          src/supply/contracted-sellability.spec.ts
+          src/agent/booking-confirmation.service.spec.ts
+          src/agent/booking-transaction.service.spec.ts
+      - run: pnpm --filter @bedbanks/pricing test
       - run: pnpm -r --if-present test
       - run: pnpm turbo run build --cache-dir=.turbo --env-mode=loose
 
   e2e-release-suite:
     name: End-to-end release suite (Admin, Agent, Supplier)
+    needs: changes
+    if: github.ref == 'refs/heads/main' || needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
@@ -226,6 +290,8 @@ jobs:
 
   website-production-checks:
     name: Website production checks
+    needs: changes
+    if: github.ref == 'refs/heads/main' || needs.changes.outputs.website == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -267,3 +333,36 @@ jobs:
             apps/website/playwright-report
             apps/website/test-results
           if-no-files-found: ignore
+          retention-days: 7
+
+  ci-complete:
+    name: CI complete
+    needs: [changes, schema-integrity, prisma-migration-certification, verify, e2e-release-suite, website-production-checks]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every executed job succeeded (skipped path-filtered jobs are allowed)
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          SCHEMA: ${{ needs.schema-integrity.result }}
+          PRISMA: ${{ needs.prisma-migration-certification.result }}
+          VERIFY: ${{ needs.verify.result }}
+          E2E: ${{ needs.e2e-release-suite.result }}
+          WEBSITE: ${{ needs.website-production-checks.result }}
+        run: |
+          set -euo pipefail
+          fail=0
+          for pair in "Path filter:$CHANGES" "Schema integrity:$SCHEMA" "Prisma migration certification:$PRISMA" "verify:$VERIFY" "End-to-end release suite:$E2E" "Website production checks:$WEBSITE"; do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            case "$result" in
+              success|skipped) echo "$name: $result" ;;
+              *) echo "$name: $result" >&2; fail=1 ;;
+            esac
+          done
+          [ "$fail" = 0 ] || exit 1
+          if [ "$CHANGES" != success ] || [ "$SCHEMA" != success ]; then
+            echo "Path filter and Schema integrity must always run" >&2
+            exit 1
+          fi

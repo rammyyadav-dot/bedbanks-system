@@ -26,11 +26,12 @@ database owner credential.
 2. `scripts/ecs-migrate.sh <env> <sha>` is the owner-run migration entry point. It resolves `fbeds/api:<sha>-migrate` to a digest, registers a migrate task
    definition revision pinned to it, runs it once with the api service's own subnets and security group, and fails unless the container exits 0.
    Production requires a typed confirmation. It uses the owner's credentials; CI cannot reach it.
-3. `staging-release.yml` chains CI success on `main` → images → deploy → smoke test for staging only, calling the existing `aws-images` and `aws-deploy`
+3. `deploy.yml` chains CI success on `main` → images → deploy → smoke test for staging only, calling the existing `aws-images` and `aws-deploy`
    workflows so the promotion gate and environment approval are unchanged. It compares the commit with the last successful staging deployment and, when
    `apps/api/prisma/migrations` changed (or nothing was deployed yet), builds images but holds the deploy and prints the two commands the owner runs next.
    It is inert unless the repository variable `STAGING_PIPELINE_ENABLED` is `true`. The smoke job shows as skipped until `STAGING_SMOKE_URL` is set.
-   Production remains manual (`aws-images`, `aws-deploy` with its staging-first gate).
+   Production remains dispatch-only (`deploy.yml` with environment=production, or `aws-images` / `aws-deploy` with its staging-first gate).
+   `staging-release.yml` is a `workflow_dispatch` alias that calls `deploy.yml` (ADR 0109).
 
 ## Consequences
 

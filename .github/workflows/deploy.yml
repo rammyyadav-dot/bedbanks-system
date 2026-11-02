@@ -1,6 +1,34 @@
-name: Deploy gate
+name: Deploy
 
+# Merge-to-main delivery onto AWS ECS Fargate (ADR 0040, 0090, 0109). When CI succeeds on main this builds the images for that
+# exact commit and rolls staging to them. Production is never touched automatically: dispatch this workflow with environment=production
+# after staging is green (the promotion gate in aws-deploy.yml still applies).
+#
+# Inert until STAGING_PIPELINE_ENABLED=true (staging) and the AWS foundation exists. Migrations are never run from CI (ADR 0040/0055).
+# A staging commit that changes apps/api/prisma/migrations builds images but holds the deploy until the owner runs
+# scripts/ecs-migrate.sh and re-dispatches with migrations_applied=true.
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      sha:
+        required: false
+        type: string
+        default: ''
+      migrations_applied:
+        required: false
+        type: boolean
+        default: false
+      services:
+        required: false
+        type: string
+        default: 'api admin agent supplier website'
   workflow_dispatch:
     inputs:
       environment:
@@ -8,15 +36,155 @@ on:
         required: true
         type: choice
         options: [staging, production]
+      sha:
+        description: Full commit SHA on main (empty = the tip of main)
+        required: false
+        type: string
+        default: ''
+      migrations_applied:
+        description: I ran scripts/ecs-migrate.sh <env> <sha> and it succeeded (skips the pending-migration stop)
+        required: true
+        type: boolean
+        default: false
+      services:
+        description: Space-separated subset of api admin agent supplier website (deploy api first)
+        required: false
+        type: string
+        default: 'api admin agent supplier website'
 
 permissions:
+  id-token: write
   contents: read
+  checks: read
+  deployments: read
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: false
 
 jobs:
-  deploy-gate:
+  plan:
+    name: Plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment: ${{ inputs.environment }}
+    timeout-minutes: 10
+    if: >-
+      (inputs.environment == 'production' && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')) ||
+      (vars.STAGING_PIPELINE_ENABLED == 'true' &&
+       (github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'workflow_call' ||
+        (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')))
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      environment: ${{ steps.p.outputs.environment }}
+      services: ${{ steps.p.outputs.services }}
+      migrations_pending: ${{ steps.p.outputs.migrations_pending }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - run: echo "Deployment is manual and provider-managed. For AWS use the "AWS images" then "AWS deploy" workflows (docs/runbooks/aws-ecs-deployment.md); complete docs/runbooks/deploy.md first."
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_ENV: ${{ inputs.environment }}
+          INPUT_SERVICES: ${{ inputs.services }}
+          APPLIED: ${{ inputs.migrations_applied }}
+        run: |
+          set -euo pipefail
+          environment="${INPUT_ENV:-staging}"
+          case "$environment" in staging|production) ;; *) echo "unknown environment $environment" >&2; exit 1 ;; esac
+          services="${INPUT_SERVICES:-api admin agent supplier website}"
+          if [ "$EVENT" = workflow_run ]; then sha="$RUN_SHA"
+          elif [ -n "$INPUT_SHA" ]; then sha="$INPUT_SHA"
+          else sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"; fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-character commit SHA" >&2; exit 1; }
+          rel=$(gh api "repos/$REPO/compare/main...$sha" --jq .status)
+          case "$rel" in identical|behind) ;; *) echo "$sha is not on main (compare: $rel)" >&2; exit 1 ;; esac
+          tip=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$EVENT" = workflow_run ] && [ "$sha" != "$tip" ]; then
+            echo "$sha is no longer the tip of main ($tip); the newer commit has its own run" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "sha=$sha"
+              echo "environment=$environment"
+              echo "services=$services"
+              echo "migrations_pending=superseded"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pending=false
+          changed="not evaluated (production dispatch does not auto-hold)"
+          if [ "$environment" = staging ]; then
+            prev=""
+            for id in $(gh api "repos/$REPO/deployments?environment=staging&per_page=50" --jq '.[].id'); do
+              state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // "none"')
+              if [ "$state" = success ]; then prev=$(gh api "repos/$REPO/deployments/$id" --jq .sha); break; fi
+            done
+            pending=true; changed="unknown (no earlier successful staging deployment)"
+            if [ -n "$prev" ]; then
+              changed=$(gh api --paginate "repos/$REPO/compare/$prev...$sha" --jq '[.files[].filename | select(startswith("apps/api/prisma/migrations/"))] | length' | awk '{s+=$1} END {print s+0}')
+              [ "$changed" -gt 0 ] || pending=false
+            fi
+            if [ "$pending" = true ] && [ "$APPLIED" = true ]; then pending=false; changed="$changed (owner confirmed applied)"; fi
+          fi
+          {
+            echo "### Deploy plan"
+            echo "- environment: \`$environment\`"
+            echo "- commit: \`$sha\`"
+            echo "- services: \`$services\`"
+            echo "- migration files changed: $changed"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$pending" = true ]; then
+            {
+              echo "- **Deploy is held.** Images are still built. Next steps (owner credentials, RDS snapshot first):"
+              echo '```'
+              echo "scripts/ecs-migrate.sh staging $sha"
+              echo "gh workflow run deploy.yml -f environment=staging -f sha=$sha -f migrations_applied=true"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "sha=$sha"
+            echo "environment=$environment"
+            echo "services=$services"
+            echo "migrations_pending=$pending"
+          } >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build images
+    needs: plan
+    if: needs.plan.outputs.migrations_pending != 'superseded'
+    uses: ./.github/workflows/aws-images.yml
+    with:
+      environment: ${{ needs.plan.outputs.environment }}
+      apps: ${{ needs.plan.outputs.services }}
+      sha: ${{ needs.plan.outputs.sha }}
+
+  deploy:
+    name: Deploy to ECS Fargate
+    needs: [plan, images]
+    if: needs.plan.outputs.migrations_pending == 'false'
+    uses: ./.github/workflows/aws-deploy.yml
+    with:
+      environment: ${{ needs.plan.outputs.environment }}
+      sha: ${{ needs.plan.outputs.sha }}
+      services: ${{ needs.plan.outputs.services }}
+
+  smoke:
+    name: Smoke test staging
+    needs: [plan, deploy]
+    if: needs.plan.outputs.environment == 'staging' && vars.STAGING_SMOKE_URL != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: API readiness through the staging edge
+        env:
+          URL: ${{ vars.STAGING_SMOKE_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$URL" == https://* ]] || { echo "STAGING_SMOKE_URL must be https" >&2; exit 1; }
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)
+            [ "$code" = 200 ] && { echo "ready after $attempt attempt(s)" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+            echo "attempt $attempt: HTTP $code"; sleep 15
+          done
+          echo "staging did not become ready; consider the AWS rollback workflow" >&2; exit 1

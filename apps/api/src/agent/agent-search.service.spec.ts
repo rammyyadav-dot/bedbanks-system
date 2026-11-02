@@ -189,4 +189,28 @@ describe('AgentSearchService cache boundary', () => {
     await service.execute(criteria, 'tenant-a', 'r1', identity)
     expect(cache.writes[0].options.ttlMs).toBe(120_000)
   })
+
+  it('returns provider_unavailable for an unconfigured supplier without calling search', async () => {
+    const search = jest.fn()
+    const { service } = setup(search, new MemoryCache(), 'unconfigured')
+    const result = await service.execute(criteria, 'tenant-a', 'r1', identity)
+    expect(result).toMatchObject({ status: 'provider_unavailable', hotels: [], total: 0, providerSummary: { queried: 0, succeeded: 0, failed: 0 } })
+    expect(search).not.toHaveBeenCalled()
+  })
+
+  it('treats an invalid provider summary as mapping_unavailable, never as a priced result', async () => {
+    const { service, audit } = setup(jest.fn().mockResolvedValue({ offers: [hotel], providerSummary: { queried: 1, succeeded: 2, failed: 0 } }))
+    const result = await service.execute(criteria, 'tenant-a', 'r1', identity)
+    expect(result).toMatchObject({ status: 'mapping_unavailable', hotels: [], total: 0 })
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'hotel.search.mapping_unavailable' }))
+  })
+
+  it('does not put supplier error text into the audit payload when search throws', async () => {
+    const { service, audit } = setup(jest.fn().mockRejectedValue(new Error('secret endpoint token=abcd')))
+    const result = await service.execute(criteria, 'tenant-a', 'r1', identity)
+    expect(result.status).toBe('provider_unavailable')
+    const payload = (audit.record as jest.Mock).mock.calls[0][0].payload
+    expect(JSON.stringify(payload)).not.toMatch(/secret|token=/)
+    expect(payload.status).toBe('provider_unavailable')
+  })
 })
