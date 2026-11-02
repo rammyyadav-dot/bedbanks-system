@@ -42,19 +42,19 @@ All take `days` (1-365, default 90) and `from`. Invalid input is a 400, another 
 
 Hotel status: **NOT_READY** if there is no live plan, any live plan is FAIL, a readiness gate FAILs or nothing is sellable; **READY_WITH_WARNINGS** if any plan or gate warns; otherwise **CERTIFIED**.
 
-## Applicability: what does not exist in fBeds
-These are not audited and never reported as passed.
+## Applicability: current platform state vs earlier specifications
+The table below records how fBeds models these concepts today (updated per [ADR 0058](adr/0058-promotions-and-derived-rates-pricing-policy.md), [ADR 0067](adr/0067-hotel-contracting-correctness-and-governance.md) and [ADR 0089](adr/0089-hotel-deals-and-promotions.md)):
 
 | Concept in the other specification | fBeds |
 | --- | --- |
-| Pricing layers and promotions | One contracted rate and one markup rule per night |
-| Agent extra markup | Tenant, supplier or hotel markup rule only (ADR 0018) |
-| Event supplements | No model |
-| SGL / DBL / TPL columns | A plan prices one numeric occupancy |
+| Pricing layers and promotions | Contracted base + guest lines, then plan promotions ([ADR 0058](adr/0058-promotions-and-derived-rates-pricing-policy.md)) and hotel deals ([ADR 0089](adr/0089-hotel-deals-and-promotions.md)), then board/compulsory and event supplements, then markup rule per night |
+| Agent extra markup | Tenant, supplier or hotel markup rule, with client (`agencyId`) and market tiers plus hotel/supplier exclusions ([ADR 0018](adr/0018-commercial-markup-rules.md), [ADR 0067 F-11](adr/0067-hotel-contracting-correctness-and-governance.md)) |
+| Event supplements | `RoomEvent` and `EventSupplement` ([ADR 0089](adr/0089-room-event-master-and-event-supplements.md)) |
+| SGL / DBL / TPL columns | `DailyRate` keyed by numeric occupancy (1..`maxOccupancy`, [ADR 0067 F-05](adr/0067-hotel-contracting-correctness-and-governance.md)); the audit row classifies the plan's base occupancy |
 | Meal Plan Master | `BoardBasis` reference table, already checked by the evaluator |
-| Bulk Rate Loader | None; rates are authored by Quick Update and supply routes |
-| Whole-AED rounding | Exact minor units; half-up markup in `@bedbanks/pricing` |
-| Source-market pricing | Markets and nationalities restrict who may buy a contract ([ADR 0035](adr/0035-contract-sales-markets-and-nationalities.md)); they never change a price |
+| Bulk Rate Loader | Quick Update (single, season windows, % and fixed relative adjustments, [ADR 0067 F-14](adr/0067-hotel-contracting-correctness-and-governance.md)) and CSV calendar import |
+| Whole-AED rounding | Exact minor units; half-up integer arithmetic in `@bedbanks/pricing` and `apps/api/src/supply` |
+| Source-market pricing | Markets and nationalities restrict eligibility ([ADR 0035](adr/0035-contract-sales-markets-and-nationalities.md), [ADR 0107](adr/0107-market-validity-profiling.md)); market-tier markups ([ADR 0067 F-11](adr/0067-hotel-contracting-correctness-and-governance.md)) and market-scoped deals ([ADR 0089](adr/0089-hotel-deals-and-promotions.md)) adjust the price |
 
 Impossible by constraint (no check, by design): duplicate (plan, date, occupancy) rows, overlapping ACTIVE markup rules for one target, malformed active rules (`loadActiveMarkupRules` fails closed).
 

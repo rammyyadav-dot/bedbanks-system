@@ -171,6 +171,18 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
       expect(await prisma.ratePlan.count({ where: { tenantId, code: `${suffix}-BORN` } })).toBe(0)
     })
 
+    it('refuses to create a rate plan whose occupancy exceeds the room maxOccupancy, and refuses lowering room maxOccupancy below an active plan', async () => {
+      await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-OCC-OVER`, occupancy: 4, currency: 'AED' }).expect(400)
+      expect(await prisma.ratePlan.count({ where: { tenantId, code: `${suffix}-OCC-OVER` } })).toBe(0)
+      const activePlanId = await newPlan(true, { occupancy: 3 })
+      await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: activePlanId, stayDate, occupancy: 3, amountMinor: '55000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
+      await activate(activePlanId).then((r) => expectStatus(r, 201))
+      const roomView = (await api(operator).get(`/admin/hotels/${hotelId}/rooms`).expect(200)).body.data.rooms.find((r: { id: string }) => r.id === roomId)
+      const shrink = await api(operator).patch(`/admin/hotels/${hotelId}/rooms/${roomId}`, { idempotencyKey: `${suffix}-shrink-room`, expectedToken: roomView.concurrencyToken, maxAdults: 2, maxChildren: 0, maxOccupancy: 2 }).expect(409)
+      expect(shrink.body.error.code).toBe('ROOM_OCCUPANCY_BELOW_ACTIVE_PLANS')
+      await api(operator).post(`/supply/rate-plans/${activePlanId}/suspend`, { expectedUpdatedAt: (await readiness(activePlanId)).updatedAt, reason: 'cleanup' }).expect(201)
+    })
+
     it('refuses to edit an active plan into a state activation would reject', async () => {
       const id = await newPlan(true); await activate(id).then((r) => expectStatus(r, 201))
       const draftContract = (await api(operator).post('/supply/contracts', { supplierId, supplierHotelMappingId: mappingId, code: `${suffix}-C-DRAFT`, validFrom: iso(-30), validTo: iso(365), settlementCurrency: 'AED' }).expect(201)).body.data.id

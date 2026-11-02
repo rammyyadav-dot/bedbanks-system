@@ -10,3 +10,11 @@ export function occupancyProblems(maxAdults: unknown, maxChildren: unknown, maxO
   else if (problems.length === 0 && (maxOccupancy as number) < (maxAdults as number) + (maxChildren as number)) problems.push('maxOccupancy: must be at least maxAdults plus maxChildren')
   return problems
 }
+
+/**
+ * Validates that a rate plan's base occupancy fits within its room's capacity (ADR 0067, gap 1).
+ * Shared across `createRatePlan`, `updateRatePlan`, and `HotelRoomsService.update`.
+ */
+export function planOccupancyValid(occupancy: unknown, room: { maxOccupancy: number }): boolean {
+  return typeof occupancy === 'number' && Number.isInteger(occupancy) && occupancy >= 1 && occupancy <= room.maxOccupancy
+}
