@@ -17,5 +17,9 @@ Measured exact-scan cost (same table, one tenant of 100,000 hotels): 45 ms for a
 - The HNSW index is no longer used by this query. It is kept (dropping it is a separate migration with its own review) and becomes useful only if a cross-tenant or very-large-tenant query is added. Revisit if a single tenant approaches ~500,000 indexed hotels.
 - The shortlist is a retrieval signal only; it still never approves a mapping.
 
+## Amendment (2026-11-02) — hybrid retrievers
+
+The MATERIALIZED tenant/country fence stays on the **vector** retriever only (`vector_scope AS MATERIALIZED`). Trigram (`normalized_name % …`) and lexical (`search_tsv @@`) retrievers filter `"tenant_id"` (and country) on `"HotelSearchIndex"` so they can use the GIN indexes from ADR 0073 hybrid retrieval instead of sorting every materialized tenant row. Vector recall is unchanged: the planner still cannot walk the shared HNSW index across tenants. `explainHotelCandidates` EXPLAINs this production statement; a simplified `ORDER BY embedding <=> … LIMIT 20` probe is not evidence.
+
 ## Rollback
-Restore the previous `ORDER BY ... LIMIT 20` query in `hotel-search-index.ts`.
+Restore the previous `ORDER BY ... LIMIT 20` query in `hotel-search-index.ts`. To undo only the 2026-11-02 amendment, wrap trigram and text retrievers in the same MATERIALIZED tenant CTE as the vector retriever.

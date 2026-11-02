@@ -102,3 +102,74 @@ resource "aws_cloudwatch_metric_alarm" "portal_no_healthy_hosts" {
   alarm_actions       = [aws_sns_topic.alarms.arn]
   treat_missing_data  = "breaching"
 }
+
+# Saturation and latency (release-hardening F2). Availability alarms above remain the page-now signals;
+# these tell the on-call the API is still up but no longer meeting the provisional read budget.
+resource "aws_cloudwatch_metric_alarm" "api_latency_p95" {
+  alarm_name          = "${local.name}-api-target-latency"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "TargetResponseTime"
+  extended_statistic  = "p95"
+  period              = 60
+  evaluation_periods  = 5
+  datapoints_to_alarm = 3
+  threshold           = 0.75 # 750 ms; provisional API read p99 bound. Owner may lower after staging soak.
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { TargetGroup = aws_lb_target_group.api.arn_suffix, LoadBalancer = aws_lb.internal.arn_suffix }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "notBreaching"
+}
+resource "aws_cloudwatch_metric_alarm" "api_cpu" {
+  alarm_name          = "${local.name}-api-cpu"
+  namespace           = "AWS/ECS"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 60
+  evaluation_periods  = 5
+  datapoints_to_alarm = 3
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { ClusterName = aws_ecs_cluster.this.name, ServiceName = aws_ecs_service.this["api"].name }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "notBreaching"
+}
+resource "aws_cloudwatch_metric_alarm" "api_memory" {
+  alarm_name          = "${local.name}-api-memory"
+  namespace           = "AWS/ECS"
+  metric_name         = "MemoryUtilization"
+  statistic           = "Average"
+  period              = 60
+  evaluation_periods  = 5
+  datapoints_to_alarm = 3
+  threshold           = 80
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { ClusterName = aws_ecs_cluster.this.name, ServiceName = aws_ecs_service.this["api"].name }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "notBreaching"
+}
+resource "aws_cloudwatch_metric_alarm" "db_connections" {
+  alarm_name          = "${local.name}-db-connections"
+  namespace           = "AWS/RDS"
+  metric_name         = "DatabaseConnections"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 3
+  threshold           = 80 # db.m7g.large default max_connections is well above this; staging soak should retune
+  comparison_operator = "GreaterThanThreshold"
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.this.identifier }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "notBreaching"
+}
+resource "aws_cloudwatch_metric_alarm" "db_memory" {
+  alarm_name          = "${local.name}-db-freeable-memory"
+  namespace           = "AWS/RDS"
+  metric_name         = "FreeableMemory"
+  statistic           = "Minimum"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 268435456 # 256 MiB
+  comparison_operator = "LessThanThreshold"
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.this.identifier }
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  treat_missing_data  = "notBreaching"
+}

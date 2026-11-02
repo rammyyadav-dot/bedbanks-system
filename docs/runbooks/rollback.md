@@ -9,6 +9,27 @@ Stop the rollout, identify the deployed version, and roll back **application cod
 4. Roll back dependents in the reverse of deploy order: portals first, then the API. If the bad release included a migration the older code cannot run against, stop and escalate to the owner instead of rolling back.
 5. Record the incident per `docs/runbooks/incident-response.md`; open a fix-forward pull request. Re-deploying the bad commit requires a new commit SHA.
 
+## Abort thresholds (decision: incident commander)
+
+Stop the rollout and run this runbook when any of the following holds for five consecutive minutes after the new revision is serving traffic:
+
+| Signal | Abort if |
+|---|---|
+| API 5xx (`HTTPCode_Target_5XX_Count`) | more than 20 in 5 minutes |
+| API p95 target latency | above 750 ms |
+| Healthy host count | 0 (the no-healthy-hosts alarm already pages) |
+| RDS CPU | above 80 % while error rate is also rising |
+| Circuit breaker | ECS rolled the service back by itself — treat as a failed deploy, not a successful rollback |
+
+Owner of the abort decision: the incident commander named in `incident-response.md`. Operator runs the AWS rollback workflow. Do not abort solely on a single spike with no customer-facing errors.
+
+## Verify after rollback (target: under 5 minutes)
+
+1. `GET /api/v1/health` returns 200 and `GET /api/v1/health/ready` returns 200.
+2. Sign-in cookie still authenticates (one synthetic account).
+3. Agent search for a known fixture hotel still returns contracted offers (booking remains fail-closed unless the owner enabled it).
+4. `prisma:migrate:status` still matches this commit's chain — rollback never drops schema. If the aborted release applied a migration the previous image cannot run, **do not** roll the API back; restore or roll forward per `recovery.md`.
+
 ## Not covered
 - Database rollback (forward-only; see the migration's notes and `docs/runbooks/recovery.md`).
 - Vercel-hosted portals during the migration period: use Vercel's instant rollback to the previous deployment (`docs/runbooks/vercel-deployment-topology.md`).

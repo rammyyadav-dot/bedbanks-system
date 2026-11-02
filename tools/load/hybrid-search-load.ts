@@ -17,7 +17,7 @@
  * describe production. Results from a tiny corpus are rejected via LOADTEST_MIN_ROWS.
  */
 import { PrismaClient } from '@prisma/client'
-import { retrieveHotelCandidates } from '../../apps/api/src/mapping/hotel-search-index'
+import { explainHotelCandidates, retrieveHotelCandidates } from '../../apps/api/src/mapping/hotel-search-index'
 
 const url = process.env.LOADTEST_DATABASE_URL
 const tenantId = process.env.LOADTEST_TENANT_ID
@@ -102,10 +102,9 @@ async function main() {
   if (rows < minRows) throw new Error(`corpus has ${rows} rows, below LOADTEST_MIN_ROWS=${minRows}; results would not represent peak traffic`)
   if (samples.length === 0) throw new Error('no samples drawn; corpus too small for TABLESAMPLE')
 
-  // Plan check: confirms whether HNSW is actually used with the tenant/country filter.
-  const plan = await withTenant((tx) => tx.$queryRawUnsafe<Array<Record<string, string>>>(
-    `EXPLAIN (ANALYZE, BUFFERS) SELECT "hotel_id" FROM "HotelSearchIndex" WHERE "tenant_id" = '${tenantId!.replace(/'/g, "''")}' ORDER BY "embedding" <=> (SELECT "embedding" FROM "HotelSearchIndex" LIMIT 1) LIMIT 20`))
-  console.log('plan:\n' + plan.map((r) => Object.values(r)[0]).join('\n'))
+  // Plan check: EXPLAIN the production retrieveHotelCandidates statement, not a simplified HNSW-only probe.
+  const plan = await withTenant((tx) => explainHotelCandidates(tx, tenantId!, samples[0]))
+  console.log('plan:\n' + plan)
 
   // Warm-up so cold Neon compute / cache does not skew the first step, but report cold start separately.
   await runStep(Math.min(8, pool), samples).catch(() => undefined)

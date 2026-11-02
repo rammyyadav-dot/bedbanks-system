@@ -42,6 +42,7 @@ fingerprint() {
 }
 
 now() { date +%s.%N; }
+elapsed() { awk -v t0="$1" -v t1="$2" 'BEGIN { printf "%.2f", t1 - t0 }'; }
 
 psqlq "$admin" "DROP DATABASE IF EXISTS \"$target_name\"" >/dev/null
 t0=$(now)
@@ -53,8 +54,8 @@ t2=$(now)
 
 before=$(fingerprint "$src")
 after=$(fingerprint "$target")
-printf '{"drill":"logical-restore","source":"%s","dump_seconds":%.2f,"restore_seconds":%.2f,"dump_bytes":%s,"tables|digest|forced_rls|policies|migrations":"%s"}\n' \
-  "$dbname" "$(bc <<<"$t1-$t0")" "$(bc <<<"$t2-$t1")" "$(stat -c %s "$workdir/drill.dump")" "$after"
+printf '{"drill":"logical-restore","source":"%s","dump_seconds":%s,"restore_seconds":%s,"dump_bytes":%s,"tables|digest|forced_rls|policies|migrations":"%s"}\n' \
+  "$dbname" "$(elapsed "$t0" "$t1")" "$(elapsed "$t1" "$t2")" "$(stat -c %s "$workdir/drill.dump")" "$after"
 if [ "$before" != "$after" ]; then
   echo "MISMATCH: source=$before restored=$after" >&2
   exit 1
