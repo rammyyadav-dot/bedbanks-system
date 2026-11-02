@@ -1,0 +1,24 @@
+{
+  "name": "@bedbanks/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared HTTP client for the NestJS /api/v1 envelope",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

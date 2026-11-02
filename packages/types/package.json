@@ -2,12 +2,16 @@
   "name": "@bedbanks/types",
   "version": "0.1.0",
   "private": true,
-  "description": "FBEDS Shared TypeScript Types",
+  "type": "module",
+  "description": "FBEDS shared TypeScript types (integer minor-unit money; no float amounts)",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test"
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

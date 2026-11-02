@@ -2,15 +2,21 @@
   "name": "@bedbanks/validation",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "FBEDS Validation Schemas",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts"
+  },
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --import tsx --test"
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@bedbanks/contracts": "workspace:*",
+    "@bedbanks/types": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

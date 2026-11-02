@@ -58,6 +58,9 @@ importers:
       '@bedbanks/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
+      '@bedbanks/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@bedbanks/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -149,6 +152,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@bedbanks/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@bedbanks/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -164,9 +170,15 @@ importers:
       '@bedbanks/tracing':
         specifier: workspace:*
         version: link:../../packages/tracing
+      '@bedbanks/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@bedbanks/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@bedbanks/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@fontsource/ibm-plex-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -553,6 +565,19 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/api-client:
+    dependencies:
+      '@bedbanks/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@bedbanks/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/config:
     devDependencies:
       typescript:
@@ -686,6 +711,9 @@ importers:
       '@bedbanks/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@bedbanks/types':
+        specifier: workspace:*
+        version: link:../types
       zod:
         specifier: ^4.6.7
         version: 4.6.7
