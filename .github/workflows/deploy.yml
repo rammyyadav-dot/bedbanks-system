@@ -103,10 +103,12 @@ jobs:
           tip=$(gh api "repos/$REPO/commits/main" --jq .sha)
           if [ "$EVENT" = workflow_run ] && [ "$sha" != "$tip" ]; then
             echo "$sha is no longer the tip of main ($tip); the newer commit has its own run" >> "$GITHUB_STEP_SUMMARY"
-            echo "sha=$sha" >> "$GITHUB_OUTPUT"
-            echo "environment=$environment" >> "$GITHUB_OUTPUT"
-            echo "services=$services" >> "$GITHUB_OUTPUT"
-            echo "migrations_pending=superseded" >> "$GITHUB_OUTPUT"
+            {
+              echo "sha=$sha"
+              echo "environment=$environment"
+              echo "services=$services"
+              echo "migrations_pending=superseded"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           pending=false
@@ -140,10 +142,12 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "environment=$environment" >> "$GITHUB_OUTPUT"
-          echo "services=$services" >> "$GITHUB_OUTPUT"
-          echo "migrations_pending=$pending" >> "$GITHUB_OUTPUT"
+          {
+            echo "sha=$sha"
+            echo "environment=$environment"
+            echo "services=$services"
+            echo "migrations_pending=$pending"
+          } >> "$GITHUB_OUTPUT"
 
   images:
     name: Build images

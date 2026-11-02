@@ -207,6 +207,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set -euo pipefail
           if [ "$EVENT" = pull_request ] && [ -n "$BASE_REF" ]; then
@@ -361,4 +362,7 @@ jobs:
             esac
           done
           [ "$fail" = 0 ] || exit 1
-          [ "$CHANGES" = success ] && [ "$SCHEMA" = success ] || { echo "Path filter and Schema integrity must always run" >&2; exit 1; }
+          if [ "$CHANGES" != success ] || [ "$SCHEMA" != success ]; then
+            echo "Path filter and Schema integrity must always run" >&2
+            exit 1
+          fi

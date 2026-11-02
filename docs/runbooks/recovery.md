@@ -15,7 +15,13 @@ On SIGTERM the API reports `GET /api/v1/health/ready` as 503, finishes in-flight
 
 ## Alarms (SNS topic `<env>-alarms`; subscribe `alarm_email` or the on-call route)
 
-Unhealthy targets, API 5xx, no healthy targets (missing data counts as breaching), RDS CPU and free storage. Confirm after each environment apply that the topic has a confirmed subscriber; an alarm with no subscriber is not monitoring.
+Availability (page now): unhealthy targets, API 5xx, no healthy targets (missing data counts as breaching).
+
+Saturation and latency (investigate): API target p95 `TargetResponseTime` (750 ms), API ECS CPU and memory (80 %), RDS CPU, RDS free storage (10 GiB), RDS `DatabaseConnections` (80), RDS `FreeableMemory` (256 MiB).
+
+Scheduled jobs (when enabled): compliance export/verify heartbeats, hotel-search reindex heartbeat.
+
+Confirm after each environment apply that the topic has a confirmed subscriber; an alarm with no subscriber is not monitoring. Delivery to a real mailbox is an owner-run staging drill, not a CI check.
 
 ## Recovery
 
@@ -24,4 +30,4 @@ Unhealthy targets, API 5xx, no healthy targets (missing data counts as breaching
 - **Restore drill:** at least once per quarter and before go-live, restore a staging snapshot to a new instance, run `prisma:migrate:status` and the tenant-control certification against it, and record the date, duration and result in `docs/evidence`. A backup that has never been restored is unverified.
 - **Credential exposure:** follow `incident-response.md` and `docs/aws-secret-rotation-runbook.md`.
 - **Logical dump caveat:** `pg_dump` of one database carries no roles. A dump restored with `--no-owner` into a cluster missing the runtime and ops roles silently drops their grants; create the roles first (`pg_dumpall --globals-only`, or the `ops:provision-*` commands) and re-run the strict-role certification. RDS snapshot and point-in-time restores keep roles.
-- **Local rehearsal:** `SOURCE_URL=postgresql://…@localhost:…/<db> tools/ops/restore-drill.sh` dumps a disposable database, restores it beside the source and fails unless table row counts, forced-RLS tables, policies and the migration ledger match. It refuses non-loopback hosts. Latest evidence: `docs/release-hardening-certification-2026-10-30.md`.
+- **Local rehearsal:** `SOURCE_URL=postgresql://…@localhost:…/<db> tools/ops/restore-drill.sh` dumps a disposable database, restores it beside the source and fails unless table row counts, forced-RLS tables, policies and the migration ledger match. It refuses non-loopback hosts. Latest evidence: `docs/release-certification-2026-11-02.md` (logical restore PASS; local WAL PITR PASS on a dedicated cluster; RDS snapshot/PITR still owner-run).

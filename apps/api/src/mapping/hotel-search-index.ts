@@ -65,49 +65,56 @@ const RETRIEVER_LIMIT = 40
 const RRF_K = 60
 const RESULT_LIMIT = 20
 
+type CandidateObservation = { name: string; address?: string | null; city?: string | null; countryCode?: string | null }
+
 /**
  * Hybrid retrieval: vector, trigram and full-text candidates are fetched independently and fused by rank (RRF),
  * so incomparable raw scores are never mixed. Uses stock pgvector, pg_trgm and tsvector, available on any PostgreSQL.
  *
- * Every retriever reads from one MATERIALIZED tenant scope on purpose. Left as a plain WHERE, the planner orders by the HNSW index and
- * filters afterwards, so with many tenants in one index the approximate scan returns other tenants' neighbours and the tenant gets
- * fewer than LIMIT rows, or none (reproduced: 100 tenants, 0 of 20). Reading the tenant first makes recall exact and independent of
- * pgvector's version and of hnsw.ef_search (docs/adr/0073).
+ * Vector recall is exact for the tenant (ADR 0073): the tenant/country rows are read into a MATERIALIZED CTE first so
+ * the planner cannot walk the shared HNSW index across tenants and filter afterwards (reproduced: 100 tenants, 0 of 20).
+ * Trigram and lexical retrievers filter `tenant_id` (and country) on `HotelSearchIndex` directly so they can use the
+ * GIN indexes instead of sorting every materialized tenant row.
  */
-export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tenantId: string, observation: { name: string; address?: string | null; city?: string | null; countryCode?: string | null }, embedder: MappingEmbeddingProvider = embeddings): Promise<HotelCandidateRow[]> {
+function hotelCandidateQuery(tenantId: string, observation: CandidateObservation, embedder: MappingEmbeddingProvider) {
   const normalized = normalizeHotelIdentity(observation)
   const literal = vectorLiteral(embedder.embed(hotelEmbeddingText(normalized)))
   const text = [normalized.normalizedName, normalized.normalizedCity, normalized.normalizedAddress].join(' ')
   const country = normalized.normalizedCountryCode
-  return tx.$queryRaw<HotelCandidateRow[]>`
-    WITH "scoped" AS MATERIALIZED (
-      SELECT "hotel_id", "normalized_name", "embedding", "search_tsv"
+  const name = normalized.normalizedName
+  return Prisma.sql`
+    WITH q AS (
+      SELECT replace(plainto_tsquery('simple', ${text})::text, ' & ', ' | ')::tsquery AS tsq
+    ),
+    vector_scope AS MATERIALIZED (
+      SELECT "hotel_id", "embedding"
         FROM "HotelSearchIndex"
        WHERE "tenant_id" = ${tenantId} AND (${country} = '' OR "normalized_country_code" = ${country})
-    ),
-    q AS (
-      SELECT replace(plainto_tsquery('simple', ${text})::text, ' & ', ' | ')::tsquery AS tsq
     ),
     vector_ranked AS (
       SELECT "hotel_id", "embedding" <=> ${literal}::vector AS distance,
              row_number() OVER (ORDER BY "embedding" <=> ${literal}::vector) AS rank
-        FROM "scoped"
+        FROM vector_scope
        ORDER BY "embedding" <=> ${literal}::vector
        LIMIT ${RETRIEVER_LIMIT}
     ),
     trigram_ranked AS (
-      SELECT "hotel_id", similarity("normalized_name", ${normalized.normalizedName}) AS sim,
-             row_number() OVER (ORDER BY similarity("normalized_name", ${normalized.normalizedName}) DESC) AS rank
-        FROM "scoped"
-       WHERE "normalized_name" % ${normalized.normalizedName}
+      SELECT "hotel_id", similarity("normalized_name", ${name}) AS sim,
+             row_number() OVER (ORDER BY similarity("normalized_name", ${name}) DESC) AS rank
+        FROM "HotelSearchIndex"
+       WHERE "tenant_id" = ${tenantId}
+         AND (${country} = '' OR "normalized_country_code" = ${country})
+         AND "normalized_name" % ${name}
        ORDER BY sim DESC
        LIMIT ${RETRIEVER_LIMIT}
     ),
     text_ranked AS (
       SELECT "hotel_id", ts_rank_cd("search_tsv", q.tsq) AS score,
              row_number() OVER (ORDER BY ts_rank_cd("search_tsv", q.tsq) DESC) AS rank
-        FROM "scoped", q
-       WHERE "search_tsv" @@ q.tsq
+        FROM "HotelSearchIndex", q
+       WHERE "HotelSearchIndex"."tenant_id" = ${tenantId}
+         AND (${country} = '' OR "normalized_country_code" = ${country})
+         AND "search_tsv" @@ q.tsq
        ORDER BY score DESC
        LIMIT ${RETRIEVER_LIMIT}
     ),
@@ -120,15 +127,25 @@ export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tena
     )
     SELECT f."hotel_id" AS "hotelId",
            1 - (i."embedding" <=> ${literal}::vector) AS "vectorSimilarity",
-           similarity(i."normalized_name", ${normalized.normalizedName}) AS "nameSimilarity",
+           similarity(i."normalized_name", ${name}) AS "nameSimilarity",
            COALESCE(ts_rank_cd(i."search_tsv", q.tsq), 0)::float8 AS "textRank",
            f.fused::float8 AS "fusedScore"
       FROM fused f
-      JOIN "scoped" i ON i."hotel_id" = f."hotel_id"
+      JOIN "HotelSearchIndex" i ON i."hotel_id" = f."hotel_id" AND i."tenant_id" = ${tenantId}
       CROSS JOIN q
      ORDER BY f.fused DESC, f."hotel_id" ASC
      LIMIT ${RESULT_LIMIT}
   `
+}
+
+export async function retrieveHotelCandidates(tx: Prisma.TransactionClient, tenantId: string, observation: CandidateObservation, embedder: MappingEmbeddingProvider = embeddings): Promise<HotelCandidateRow[]> {
+  return tx.$queryRaw<HotelCandidateRow[]>(hotelCandidateQuery(tenantId, observation, embedder))
+}
+
+/** EXPLAIN of the production candidate query (not a simplified HNSW-only probe). */
+export async function explainHotelCandidates(tx: Prisma.TransactionClient, tenantId: string, observation: CandidateObservation, embedder: MappingEmbeddingProvider = embeddings): Promise<string> {
+  const rows = await tx.$queryRaw<Array<Record<string, string>>>(Prisma.sql`EXPLAIN (ANALYZE, BUFFERS) ${hotelCandidateQuery(tenantId, observation, embedder)}`)
+  return rows.map((row) => Object.values(row)[0]).join('\n')
 }
 
 export { EMBEDDING_MODEL }
