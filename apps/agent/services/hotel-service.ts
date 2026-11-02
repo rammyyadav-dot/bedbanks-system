@@ -1,5 +1,6 @@
 import type { HotelSearchCriteria, HotelSearchResult, OfferRecheckResult } from '../types/hotel.ts'
 import type { AgentRateOffer } from '@bedbanks/domain'
+import { routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from '../lib/api-config.mjs'
 import { announceSessionExpired } from '../lib/session-events.mjs'
 import { isAgencySuspended } from '../lib/agency-suspension.mjs'
@@ -24,7 +25,7 @@ export class ApiHotelService implements HotelService {
       // The timer covers the response body too: a supplier that sends headers and then stalls must not hang the search.
       const timeout = setTimeout(() => controller.abort(), 10_000)
       try {
-        const response = await fetch(`${this.baseUrl}/agent/search`, {
+        const response = await fetch(`${this.baseUrl}${routes.agent.search}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           credentials: 'include',
@@ -64,7 +65,7 @@ export class ApiHotelService implements HotelService {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 7_000)
       try {
-        const response = await fetch(`${this.baseUrl}/agent/rates/recheck`, {
+        const response = await fetch(`${this.baseUrl}${routes.agent.recheck}`, {
           method: 'POST', credentials: 'include', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           body: JSON.stringify({ offerId: rate.offerId, searchId, expectedCurrency: rate.total.currency,

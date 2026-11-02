@@ -1,8 +1,10 @@
 import 'server-only';
 import { routes } from '@bedbanks/contracts';
+import type { AuthenticatedUser } from '@bedbanks/types';
 import { ApiResponseError, type ApiError } from './errors';
 import { apiInternalUrl, apiTrustedOrigin } from './server-env';
 export { ApiResponseError } from './errors';
+export type { AuthenticatedUser, MembershipSummary, SafeUser } from '@bedbanks/types';
 
 async function apiFetch<T>(
   path: string,
@@ -28,24 +30,6 @@ async function apiFetch<T>(
 
   if ((body as { success?: unknown } | null)?.success !== true) throw new Error('Invalid authentication response');
   return { data: (body as { success: true; data: T }).data, response: res };
-}
-
-export interface SafeUser {
-  id: string;
-  email: string;
-  name: string | null;
-  status: 'ACTIVE' | 'SUSPENDED';
-}
-
-export interface MembershipSummary {
-  tenantId: string;
-  tenantName: string;
-  role: string;
-}
-
-export interface AuthenticatedUser {
-  user: SafeUser;
-  memberships: MembershipSummary[];
 }
 
 export const authApi = {
