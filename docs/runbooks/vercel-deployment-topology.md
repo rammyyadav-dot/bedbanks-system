@@ -41,7 +41,7 @@ Protect private portal previews using available Vercel protection; do not protec
 Website's in-memory lead limiter is best effort. Verify an edge rule/shared enforcement before enabling lead delivery. Signing alone does not provide global rate limiting.
 
 ## Production gates and cutover
-The existing deploy.yml is a manual reminder, not a deployment gate. Keep one provider-managed deployment path; do not add a competing auto-deployer.
+`deploy.yml` is the AWS ECS Fargate path after merge to `main` (staging automatically once `STAGING_PIPELINE_ENABLED` is true; production remains dispatch-only). Do not add a competing Vercel auto-deployer.
 Require repository CI, Website production checks and Portal deployment configuration through branch protection/rulesets. Separately verify Vercel's production check enforcement; GitHub branch protection alone does not prove Vercel waits for checks.
 Prepare protected previews first. Do not merge this PR, promote, or reassign production aliases automatically.
 Record serving deployment ID, domains, redirects and configuration. Verify the current Website content before changes. Attach each portal alias only after its dedicated app passes checks and cutover is authorized. Verify www.fbeds.com separately; domain attachment and DNS state were not established by this change.
