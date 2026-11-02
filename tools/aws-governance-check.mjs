@@ -106,6 +106,13 @@ export function checkGovernance(root = process.cwd()) {
   if (!/enabled_cloudwatch_logs_exports\s*=\s*\["postgresql",\s*"upgrade"\]/.test(t('data.tf')) || !/monitoring_interval\s*=\s*[1-9]/.test(t('data.tf'))) fail(`${TF}/data.tf: RDS log exports and Enhanced Monitoring required`)
   if (!/policy\s*=\s*data\.aws_iam_policy_document\.kms_data\.json/.test(t('data.tf'))) fail(`${TF}/data.tf: KMS key policy must be explicit (CloudWatch Logs and alarms)`)
   if (/alias\/aws\/sns/.test(all.replace(/#[^\n]*/g, ''))) fail(`${TF}: SNS topic must not use alias/aws/sns (CloudWatch alarms cannot publish to it)`)
+  if (!/metric_name\s*=\s*"TargetResponseTime"/.test(t('observability.tf'))) fail(`${TF}/observability.tf: API p95 TargetResponseTime alarm missing`)
+  if (!/namespace\s*=\s*"AWS\/ECS"/.test(t('observability.tf')) || !/metric_name\s*=\s*"CPUUtilization"/.test(t('observability.tf')) || !/metric_name\s*=\s*"MemoryUtilization"/.test(t('observability.tf'))) {
+    fail(`${TF}/observability.tf: API ECS CPU and MemoryUtilization alarms missing`)
+  }
+  if (!/metric_name\s*=\s*"DatabaseConnections"/.test(t('observability.tf')) || !/metric_name\s*=\s*"FreeableMemory"/.test(t('observability.tf'))) {
+    fail(`${TF}/observability.tf: RDS DatabaseConnections and FreeableMemory alarms missing`)
+  }
   if (!/resource\s+"aws_flow_log"/.test(t('logging.tf'))) fail(`${TF}/logging.tf: VPC flow logs missing`)
   if ((t('alb.tf').match(/access_logs\s*\{[^}]*enabled\s*=\s*true/g) ?? []).length !== 2) fail(`${TF}/alb.tf: both ALBs need access_logs enabled`)
   const wafLogs = (t('logging.tf') + t('edge.tf')).match(/resource\s+"aws_wafv2_web_acl_logging_configuration"[\s\S]*?\n}\n/g) ?? []
