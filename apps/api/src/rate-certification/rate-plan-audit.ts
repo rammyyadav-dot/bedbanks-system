@@ -9,6 +9,8 @@ import { evaluateContractedStay } from '../supply/contracted-sellability'
 import { hotelToday } from '../supply/rate-plan-expiry'
 import { selectPromotion, type DiscountBase, type PromotionKind, type PromotionRule, type StayWindowMode } from '../supply/promotions'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
+import { supplementNights, supplementsForPlan } from '../supply/supplements'
+import { eventSupplementNights, eventSupplementsForPlan } from '../supply/event-supplements'
 import { codesOutsideContract, parseMarketRules } from '../supply/market-rules'
 import { markupResolverFor, resolveMarkupBasisPoints, type MarkupRuleRow } from '../supply/markup-rules'
 
@@ -322,19 +324,25 @@ export function simulateStay(input: SimulateInput): Omit<SimulationResult, 'gene
     return rate && basis && rate.amountMinor >= 0n ? rate.amountMinor + extra : null
   })
   const allPriced = gross.every((value) => value !== null)
+  const roomBases = input.dates.map((date) => rates.get(date)?.amountMinor ?? 0n)
   const promoRules: PromotionRule[] = [...plan.promotions.map((p) => ({ id: p.id, kind: p.kind as PromotionKind, name: p.name, percentBp: p.percentBp, minLeadDays: p.minLeadDays, maxLeadDays: p.maxLeadDays, minNights: p.minNights, freeNights: p.freeNights, bookFrom: p.bookFrom ? dayOf(p.bookFrom) : null, bookTo: p.bookTo ? dayOf(p.bookTo) : null, stayFrom: p.stayFrom ? dayOf(p.stayFrom) : null, stayTo: p.stayTo ? dayOf(p.stayTo) : null, combinable: p.combinable, stayWindowMode: p.stayWindowMode as StayWindowMode, discountBase: p.discountBase as DiscountBase })), ...plan.dealRules]
-  const selected = allPriced && input.dates.length > 0 ? selectPromotion(promoRules, { today: hotelToday(input.now, plan.roomType.hotel.timeZone), checkIn: input.checkIn, dates: input.dates, currency: plan.currency, markups: input.dates.map((date) => (rates.get(date)?.amountBasis === 'NET' ? resolveMarkupBasisPoints(input.rules, { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date) : null)) }, gross as bigint[]) : null
+  const resolveBp = (date: string) => (rates.get(date)?.amountBasis === 'NET' ? resolveMarkupBasisPoints(input.rules, { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date) : null)
+  const selected = allPriced && input.dates.length > 0 ? selectPromotion(promoRules, { today: hotelToday(input.now, plan.roomType.hotel.timeZone), checkIn: input.checkIn, dates: input.dates, currency: plan.currency, markups: input.dates.map(resolveBp) }, gross as bigint[], roomBases) : null
+  const contractExtras = supplementNights(supplementsForPlan({ id: plan.id, boardBasisId: plan.boardBasisId }, plan.contract.supplements), input.dates, { adults: input.adults, children: input.children })
+  const eventExtras = allPriced ? eventSupplementNights(eventSupplementsForPlan({ id: plan.id }, plan.contract.eventSupplements), input.dates, { adults: input.adults, children: input.children }, roomBases) : { perNight: input.dates.map(() => 0n), applied: [], ambiguous: false }
   let recomputed: bigint | null = 0n
   const nights: SimulatedNight[] = input.dates.map((date, i) => {
     const rate = rates.get(date)
     const basis = rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null
     if (!rate || !basis || rate.amountMinor < 0n) { recomputed = null; return { date, rateMinor: rate ? rate.amountMinor.toString() : null, basis, markupBasisPoints: null, markupMinor: null, sellMinor: null } }
     const before = gross[i]!
-    const net = selected ? selected.nets[i]! : before
+    const afterPromo = selected ? selected.nets[i]! : before
+    const supp = (contractExtras.perNight[i] ?? 0n) + (eventExtras.perNight[i] ?? 0n)
+    const net = afterPromo + supp
     const guestMinor = extra > 0n ? extra.toString() : null
-    const promotionMinor = selected && before !== net ? (before - net).toString() : null
+    const promotionMinor = selected && before !== afterPromo ? (before - afterPromo).toString() : null
     if (basis === 'SELL') { if (recomputed !== null) recomputed += net; return { date, rateMinor: rate.amountMinor.toString(), guestMinor, promotionMinor, basis, markupBasisPoints: null, markupMinor: '0', sellMinor: net.toString() } }
-    const bp = resolveMarkupBasisPoints(input.rules, { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date)
+    const bp = resolveBp(date)
     if (bp === null) { recomputed = null; return { date, rateMinor: rate.amountMinor.toString(), basis, markupBasisPoints: null, markupMinor: null, sellMinor: null } }
     const markup = markupMinor(net, bp)
     if (recomputed !== null) recomputed += net + markup

@@ -72,8 +72,8 @@ export function assessReadiness(input: ReadinessInput): HotelReadinessAssessment
   const outcomes: PlanOutcome[] = assess.plans.map((plan) => {
     const { mapping, roomMapping } = mappingFor(plan, assess)
     const decision = evaluateContractedStay(
-      buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(assess.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId), { adults: criteria.adults }),
-      { checkIn: criteria.checkIn, checkOut: criteria.checkOut, rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: criteria.childAges, currency: criteria.currency, now, buyer: { nationality: criteria.nationality, market: criteria.market } },
+      buildStaySnapshot(plan, mapping, roomMapping, dates, markupResolverFor(assess.markupRules ?? [], plan.contract.supplierId, plan.roomType.hotelId, { agencyId: criteria.agencyId ?? null, market: criteria.market ?? null }), { adults: criteria.adults }),
+      { checkIn: criteria.checkIn, checkOut: criteria.checkOut, rooms: criteria.rooms, adults: criteria.adults, children: criteria.children, childAges: criteria.childAges, currency: criteria.currency, now, buyer: { nationality: criteria.nationality, market: criteria.market, agencyId: criteria.agencyId ?? null } },
     )
     const reasons = [...decision.reasons]
     if (!starOk) reasons.push(HOTEL_STAR_RATING_MISSING)

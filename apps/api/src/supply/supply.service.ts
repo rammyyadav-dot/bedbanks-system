@@ -1837,9 +1837,7 @@ export class SupplyService {
   async upsertContractMarketValidity(tenantId: string, userId: string, contractId: string, input: any, requestId?: string) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BadRequestException('Invalid market validity payload')
     return this.write<any>(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.updated', 'contract', requestId, async tx => {
-      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, status: true } })
-      if (!contract) throw new NotFoundException('Contract not found')
-      if (contract.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
+      await this.lockEditableContract(tx, tenantId, contractId)
 
       if (Array.isArray(input.rules)) {
         if (input.rules.length > 200) throw new BadRequestException({ code: 'MARKET_VALIDITY_RULE_LIMIT', message: 'A contract holds at most 200 market validity rules.' })
@@ -1908,9 +1906,7 @@ export class SupplyService {
 
   async deleteContractMarketValidityRule(tenantId: string, userId: string, contractId: string, ruleId: string, requestId?: string) {
     return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.market_validity.deleted', 'market_validity_rule', requestId, async tx => {
-      const contract = await tx.contract.findFirst({ where: { id: contractId, tenantId }, select: { id: true, status: true } })
-      if (!contract) throw new NotFoundException('Contract not found')
-      if (contract.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
+      await this.lockEditableContract(tx, tenantId, contractId)
       const existing = await tx.marketValidityRule.findFirst({ where: { id: ruleId, tenantId, contractId } })
       if (!existing) throw new NotFoundException('Market validity rule not found')
       await tx.marketValidityRule.delete({ where: { id: existing.id, tenantId } })

@@ -141,4 +141,18 @@ describe('unified hotel readiness (explicit criteria)', () => {
     expect(a.scope).toMatch(/stated stay, occupancy, nationality, agency and currency/); expect(a.limitations[0]).toMatch(/does not imply availability on other dates/)
     expect(gate(a, 'CONTRACT').criteriaApplied.join(' ')).toContain('2030-06-01 to 2030-06-06')
   })
+
+  it('HR-17: resolves client-tier markup rules when agencyId is supplied in criteria', () => {
+    const netPlan = plan({ basis: 'NET' })
+    const withClientMarkup: AssessHotelInput = {
+      ...assess({ plans: [netPlan] }),
+      markupRules: [{ scope: 'TENANT_DEFAULT', supplierId: null, hotelId: null, basisPoints: 1200, validFrom: '2030-01-01', validTo: null, agencyId: 'ag1', market: null }],
+    }
+    const withoutAgency = run({ assess: withClientMarkup, c: { agencyId: null } })
+    expect(gate(withoutAgency, 'RATE').outcome).toBe('FAIL')
+    expect(gate(withoutAgency, 'RATE').blockers.map((b) => b.code)).toContain('NET_RATE_MARKUP_UNAVAILABLE')
+    const withAgency = run({ assess: withClientMarkup, agency: agency({ id: 'ag1' }), c: { agencyId: 'ag1' } })
+    expect(gate(withAgency, 'RATE').outcome).toBe('PASS')
+    expect(withAgency.predictedOffers).toBe(1)
+  })
 })

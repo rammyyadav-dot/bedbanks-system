@@ -233,12 +233,31 @@ describe('price simulator (RC)', () => {
   })
 
   it('RC-S10: a promotion comes off the net before the markup, and the simulator reconciles and names it (ADR 0058)', () => {
-    const promo = { id: 'pr1', kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1000, minLeadDays: 1, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null }
+    const promo = { id: 'pr1', kind: 'EARLY_BIRD', name: 'Book early', percentBp: 1000, minLeadDays: 1, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, combinable: false, stayWindowMode: 'WHOLE_STAY', discountBase: 'ROOM_AND_GUESTS' }
     const p = { ...plan({ basis: 'NET', amount: 30_005n }), promotions: [promo] } as AuditPlan
     const r = base(p, [NET_RULE])
     // discount (30005 * 1000 + 5000) / 10000 = 3001 half up -> net 27004; markup 10% = 2700.4 -> 2700; sell 29704
     expect(r.nights[0]).toMatchObject({ rateMinor: '30005', promotionMinor: '3001', markupMinor: '2700', sellMinor: '29704' })
     expect(r).toMatchObject({ eligible: true, totalMinor: String(3 * 29_704), reconciles: true, promotion: { name: 'Book early', kind: 'EARLY_BIRD', savingMinor: String(3 * 3001) } })
+  })
+
+  it('RC-S10b: simulateStay reconciles with ROOM_ONLY discount base, guest lines, contract supplements, and event supplements', () => {
+    const promo = { id: 'pr-room-only', kind: 'EARLY_BIRD', name: 'Room only 10%', percentBp: 1000, minLeadDays: 1, maxLeadDays: null, minNights: null, freeNights: null, bookFrom: null, bookTo: null, stayFrom: null, stayTo: null, combinable: false, stayWindowMode: 'WHOLE_STAY', discountBase: 'ROOM_ONLY' }
+    const p = {
+      ...plan({ basis: 'NET', amount: 30_000n, maxOccupancy: 4 }),
+      roomType: { ...plan().roomType, maxAdults: 3, maxChildren: 2, maxOccupancy: 4 },
+      guestPrices: [{ kind: 'CHILD', minAge: 3, maxAge: 11, amountMinor: 5_000n, amountBasis: 'NET', currency: 'AED' }],
+      promotions: [promo],
+      contract: {
+        ...plan().contract,
+        supplements: [{ kind: 'COMPULSORY', name: 'Gala', boardBasisId: null, ratePlanId: null, basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: 2_000n, currency: 'AED', stayFrom: null, stayTo: null }],
+        eventSupplements: [{ id: 'es1', roomEventId: 'ev1', roomEvent: { name: 'Expo' }, ratePlanId: null, amountKind: 'PERCENTAGE', basis: null, frequency: null, amountMinor: null, percentBp: 500, currency: 'AED', validFrom: at('2030-01-01'), validTo: at('2031-01-01'), stackable: true, priority: 1 }],
+      },
+    } as AuditPlan
+    const r = base(p, [NET_RULE], { children: 1, childAges: [5] })
+    // Room 30,000 + Child 5,000 = 35,000 before promo; ROOM_ONLY 10% off 30,000 = 3,000 -> 32,000 after promo;
+    // + Compulsory 2,000 + Event 5% of 30,000 (1,500) = 35,500 net; + 10% markup (3,550) = 39,050 sell per night * 3 nights = 117,150
+    expect(r).toMatchObject({ eligible: true, totalMinor: String(3 * 39_050), recomputedTotalMinor: String(3 * 39_050), reconciles: true })
   })
 
   it('RC-19: NET markup is half-up per night and rooms multiply the total, without floating point', () => {
