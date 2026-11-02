@@ -1,6 +1,14 @@
 /** Platform permissions never follow from tenant ownership. */
 export const tenantControlPermissions = ['platform.tenants.read', 'platform.tenants.access', 'platform.tenants.create', 'platform.tenants.manage', 'platform.tenants.memberships.manage', 'platform.tenants.lifecycle.request', 'platform.tenants.lifecycle.approve', 'platform.tenants.compliance.approve', 'platform.tenants.audit.read'] as const
 export type TenantControlPermission = typeof tenantControlPermissions[number]
+
+export const TENANT_CONTROL_STAGES = ['DRAFT', 'REVIEW', 'APPROVED'] as const
+export type TenantControlStage = (typeof TENANT_CONTROL_STAGES)[number]
+
+/** Canonical membership mutations. Formal agent-portal permission bundles are a separate RBAC workflow. */
+export const TENANT_MEMBERSHIP_ACTIONS = ['owner', 'member', 'revoke'] as const
+export type TenantMembershipAction = (typeof TENANT_MEMBERSHIP_ACTIONS)[number]
+
 export interface TenantBusiness {
   name: string; tradingName?: string; classification: 'BUYER' | 'SUPPLIER' | 'HYBRID'; country: string
   address: string; city: string; province?: string; postalCode?: string; website?: string
@@ -18,6 +26,13 @@ export interface TenantDirectory {
   metrics: { total: number; active: number; pendingReview: number | null; suspended: number; newThisMonth: number; incomplete: number | null }
   permissions: TenantControlPermission[]; authoringConfigured: boolean
 }
+export interface TenantControlMembership {
+  id: string
+  role: string
+  revokedAt: string | null
+  user: { id: string; name: string | null; email: string; status: 'ACTIVE' | 'SUSPENDED'; lastLoginAt: string | null }
+  permissions: string[]
+}
 export interface TenantControlDetail {
   platformContext: { permission: 'platform.tenants.access'; targetTenantId: string }
   tenant: { id: string; name: string; slug: string; status: 'ACTIVE' | 'SUSPENDED'; createdAt: string }
@@ -25,7 +40,7 @@ export interface TenantControlDetail {
   counts: Record<string, number | null>
   readiness: { key: string; label: string; ready: boolean; remediation: string }[]
   permissions: TenantControlPermission[]
-  memberships: { id: string; role: string; revokedAt: string | null; user: { id: string; name: string | null; email: string; lastLoginAt: string | null }; permissions: string[] }[]
+  memberships: TenantControlMembership[]
   approvals: { id: string; status: string; reason: string; requestedById: string; proposedState: unknown; createdAt: string }[]
   commercial: { contracts: number; restrictions: number; markupPolicies: number; supplierConnections: number }
   finance: { status: 'not_readable'; message: string }

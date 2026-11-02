@@ -77,9 +77,9 @@ export class TenantControlService {
         ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { slug: { contains: query.search, mode: 'insensitive' } }] } : {}),
         ...(query.status ? { status: query.status } : {}),
         ...(query.createdFrom || query.createdTo ? { createdAt: { ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}), ...(query.createdTo ? { lte: inclusiveDate(query.createdTo) } : {}) } } : {}),
-        ...(query.country || query.classification ? { controlProfile: { is: { ...(query.country ? { country: query.country } : {}), ...(query.classification ? { classification: query.classification } : {}) } } } : {}),
+        ...(query.country || query.classification || query.stage ? { controlProfile: { is: { ...(query.country ? { country: query.country } : {}), ...(query.classification ? { classification: query.classification } : {}), ...(query.stage ? { stage: query.stage } : {}) } } } : {}),
       }
-      if (!configured && (query.country || query.classification)) throw new BadRequestException('Business profile filters require tenant control configuration')
+      if (!configured && (query.country || query.classification || query.stage)) throw new BadRequestException('Business profile filters require tenant control configuration')
       const start = new Date(); start.setUTCDate(1); start.setUTCHours(0,0,0,0)
       const [rows, total, all, active, suspended, newThisMonth, pendingReview, incomplete] = await Promise.all([
         tx.tenant.findMany({ where, select: { ...tenantSelect, ...(configured ? { controlProfile: { select: { classification: true, country: true, stage: true } } } : {}) }, orderBy: [{ [query.sort ?? 'name']: query.order ?? 'asc' }, { id: 'asc' }], skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
@@ -121,7 +121,7 @@ export class TenantControlService {
         tenant: { ...tenant, createdAt: tenant.createdAt.toISOString() }, profile: profile ? { business: profile.business as unknown as TenantBusiness, stage: profile.stage, complianceStatus: profile.complianceStatus, version: profile.version } : null,
         counts: { members: await tx.membership.count({ where: { tenantId, revokedAt: null } }), agencies, suppliers, hotels, contracts, ratePlans: rates, bookings: null, pendingApprovals: await tx.approvalRequest.count({ where: { tenantId, status: 'PENDING' } }) },
         readiness: tenantReadiness(profile, owners), permissions: await this.permissions(operator, tx),
-        memberships: members.map(m => ({ ...m, revokedAt: m.revokedAt?.toISOString() ?? null, user: { id: m.user.id, email: m.user.email, name: m.user.name, lastLoginAt: m.user.lastLoginAt?.toISOString() ?? null }, permissions: roleAssignments.filter(a => a.userId === m.user.id).flatMap(a => a.role.permissions.map(p => p.permission.key)) })),
+        memberships: members.map(m => ({ ...m, revokedAt: m.revokedAt?.toISOString() ?? null, user: { id: m.user.id, email: m.user.email, name: m.user.name, status: m.user.status, lastLoginAt: m.user.lastLoginAt?.toISOString() ?? null }, permissions: roleAssignments.filter(a => a.userId === m.user.id).flatMap(a => a.role.permissions.map(p => p.permission.key)) })),
         approvals: approvals.map(a => ({ id: a.id, status: a.status, reason: a.reason, requestedById: a.requestedById, proposedState: a.proposedState, createdAt: a.createdAt.toISOString() })),
         commercial: { contracts, restrictions, markupPolicies: policies, supplierConnections: connections },
         finance: { status: 'not_readable', message: 'Financial positions remain in the canonical finance workflow. Tenant authoring has no wallet or ledger grants.' },
