@@ -1,8 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { canSpend } from '@bedbanks/money'
-import { accountCreditLineMinor } from './agency-account'
-import { appendLedgerEntry, walletBalanceMinor } from '../ledger/ledger-core'
+import { appendLedgerEntry } from '../ledger/ledger-core'
+import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
 import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 
@@ -27,14 +26,8 @@ export class BookingFinancialAuthorizationService {
 
     try {
       return await this.prisma.withTenant(command.tenantId, async tx => {
-        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-          SELECT "id"
-            FROM "Wallet"
-           WHERE "id" = ${command.walletId}
-             AND "tenant_id" = ${command.tenantId}
-           FOR UPDATE
-        `)
-        if (locked.length !== 1) throw new ForbiddenException('Wallet is unavailable')
+        // The HOLD is the credit decrement. The row lock covers the balance read and the append (ADR 0110).
+        await lockWalletRow(tx, command.tenantId, command.walletId)
 
         const wallet = await tx.wallet.findFirst({ where: { id: command.walletId, tenantId: command.tenantId } })
         if (!wallet) throw new ForbiddenException('Wallet is unavailable')
@@ -46,9 +39,7 @@ export class BookingFinancialAuthorizationService {
           return existing
         }
 
-        const durableBalance = await walletBalanceMinor(tx, command.tenantId, command.walletId, command.currency)
-        // ADR 0028 slice 3: an agency account spends its balance plus the agency's credit line (none = prepaid).
-        if (!canSpend({ balanceMinor: durableBalance, creditLineMinor: await accountCreditLineMinor(tx, wallet) }, command.amountMinor)) throw new ConflictException('Insufficient wallet credit')
+        await assertSpendableUnderLock(tx, wallet, command.amountMinor)
 
         const entry = await appendLedgerEntry(tx, {
           tenantId: command.tenantId, walletId: command.walletId, type: 'HOLD', amountMinor: -command.amountMinor,
@@ -88,12 +79,7 @@ export class BookingFinancialAuthorizationService {
 
     try {
       return await this.prisma.withTenant(command.tenantId, async tx => {
-        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-          SELECT "id" FROM "Wallet"
-           WHERE "id" = ${command.walletId} AND "tenant_id" = ${command.tenantId}
-           FOR UPDATE
-        `)
-        if (locked.length !== 1) throw new ForbiddenException('Wallet is unavailable')
+        await lockWalletRow(tx, command.tenantId, command.walletId)
 
         const authorization = await tx.ledgerEntry.findUnique({ where: authorizationKey })
         if (!authorization) throw new ConflictException('Financial authorization is unavailable')

@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 import { refundWithin } from '@bedbanks/money'
 import { appendLedgerEntry, assertValidAppend, referenceSumMinor, walletBalanceMinor } from '../ledger/ledger-core'
+import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
 
 @Injectable()
 export class LedgerService {
@@ -23,11 +24,18 @@ export class LedgerService {
         if (!wallet) throw new ForbiddenException('Wallet is unavailable')
         if (wallet.currency !== input.currency) throw new ConflictException('Wallet currency mismatch')
 
+        // A negative entry is a credit decrement. Lock the wallet before the idempotency read so a concurrent
+        // debit waits, then re-checks what remains (ADR 0110). A replay of the same key does not spend again.
+        const decreasesCredit = input.amountMinor < 0n
+        if (decreasesCredit) await lockWalletRow(tx, input.tenantId, wallet.id)
+
         const existing = await tx.ledgerEntry.findUnique({ where: key })
         if (existing) {
           this.assertSameIntent(existing, input)
           return existing
         }
+
+        if (decreasesCredit) await assertSpendableUnderLock(tx, wallet, -input.amountMinor)
 
         return appendLedgerEntry(tx, input)
       })
@@ -89,13 +97,7 @@ export class LedgerService {
       if (!wallet) throw new ForbiddenException('Wallet is unavailable for tenant and currency')
       if (wallet.currency !== input.currency) throw new ConflictException('Wallet currency mismatch')
 
-      await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT "id"
-          FROM "Wallet"
-         WHERE "id" = ${wallet.id}
-           AND "tenant_id" = ${input.tenantId}
-         FOR UPDATE
-      `)
+      await lockWalletRow(tx, input.tenantId, wallet.id)
 
       const key = { walletId_idempotencyKey: { walletId: wallet.id, idempotencyKey }, tenantId: input.tenantId }
       const existing = await tx.ledgerEntry.findUnique({ where: key })

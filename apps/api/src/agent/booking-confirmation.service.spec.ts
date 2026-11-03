@@ -59,6 +59,7 @@ function setup(opts: {
     ledgerEntry: {
       findFirst: jest.fn()
         .mockResolvedValueOnce(reservation)
+        .mockResolvedValueOnce(reservation)
         .mockResolvedValueOnce(opts.released ? { id: 'release-a' } : null),
     },
     inventoryHoldNight: { findMany: jest.fn().mockResolvedValue(opts.nights ?? nights) },

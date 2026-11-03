@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { BookingFinanceEventType } from '@bedbanks/contracts'
 import { accountLockKey } from '../agent/agency-account'
 import { appendLedgerEntry, referenceSumMinor } from '../ledger/ledger-core'
+import { lockWalletRow } from '../ledger/wallet-lock'
 import { BookingFinancePostingDatabase } from './booking-finance-posting.database'
 import { agencyEffect, bookingReference, holdKey, refundsOf, salesOf, planPosting, releaseKey, settleDebitKey, settleReleaseKey, type PaymentMode, type PostingEvent, type PostingFacts, type PostingPlan, type ReviewReason } from './posting-plan'
 
@@ -97,20 +98,25 @@ export class BookingFinancePostingService {
     // complete a booking (set its payment mode or its cost) and the retry then posts; an event that stays unknown stays in review.
     const event: PostingEvent = { ...found, type: found.type as BookingFinanceEventType, paymentMode: (found.paymentMode ?? booking.paymentMode) as PaymentMode | null, netMinor: found.netMinor ?? booking.netMinor }
     // The agency account: found by its agency and currency, or the one an earlier entry of this booking already used. Never opened here (ADR 0028).
-    const [hold, released, settleReleased, debit, account] = await Promise.all([
-      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: holdKey(booking.id), type: 'HOLD' }, select: { walletId: true, amountMinor: true } }),
-      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: releaseKey(booking.id), type: 'RELEASE' }, select: { id: true } }),
-      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: settleReleaseKey(booking.id), type: 'RELEASE' }, select: { id: true } }),
-      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: settleDebitKey(booking.id), type: 'DEBIT' }, select: { walletId: true, amountMinor: true } }),
-      booking.agencyId ? tx.wallet.findFirst({ where: { tenantId, agencyId: booking.agencyId, currency: booking.currency }, select: { id: true } }) : null,
-    ])
-    const walletId = debit?.walletId ?? hold?.walletId ?? account?.id ?? null
+    const account = booking.agencyId ? await tx.wallet.findFirst({ where: { tenantId, agencyId: booking.agencyId, currency: booking.currency }, select: { id: true } }) : null
+    let snap = await this.ledgerSnapshot(tx, tenantId, booking.id)
+    let walletId = snap.debit?.walletId ?? snap.hold?.walletId ?? account?.id ?? null
     if (booking.agencyId && walletId) {
-      // The same two locks, in the same order, as the Agent flow's account paths: the account advisory lock, then the wallet row.
+      // Advisory lock, then the wallet row, the order the Agent account paths use. The snapshot is read again under that
+      // lock so the hold or debit is planned from entries that can no longer change (ADR 0110).
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${accountLockKey(booking.agencyId, booking.currency)}, 0))`)
-      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Wallet" WHERE "id" = ${walletId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
-      if (locked.length !== 1) return this.recordReview(tx, tenantId, eventId, 'NO_WALLET', found)
+      try {
+        await lockWalletRow(tx, tenantId, walletId)
+      } catch (error) {
+        if (!(error instanceof ForbiddenException)) throw error
+        return this.recordReview(tx, tenantId, eventId, 'NO_WALLET', found)
+      }
+      snap = await this.ledgerSnapshot(tx, tenantId, booking.id)
+      const seen = snap.debit?.walletId ?? snap.hold?.walletId ?? account?.id ?? null
+      if (seen && seen !== walletId) return this.recordReview(tx, tenantId, eventId, 'NO_WALLET', found)
+      walletId = seen
     }
+    const { hold, released, settleReleased, debit } = snap
 
     const [refunded, payable, cancellation] = await Promise.all([
       walletId ? referenceSumMinor(tx, tenantId, walletId, bookingReference(booking.id), 'REFUND') : Promise.resolve(0n),
@@ -131,6 +137,16 @@ export class BookingFinancePostingService {
     if (plan.kind === 'REVIEW') return this.recordReview(tx, tenantId, eventId, plan.reason, found, walletId)
     if (plan.kind === 'SKIP') return this.record(tx, { tenantId, event: found, status: 'SKIPPED', reason: plan.reason, walletId, agencyEffect: 0n, payableEffect: 0n })
     return this.post(tx, { tenantId, event: found, bookingId: booking.id, supplierId: booking.supplierId, walletId, plan })
+  }
+
+  /** The booking's hold, release and charge, read together so a lock can be taken and the facts read again underneath it. */
+  private ledgerSnapshot(tx: Prisma.TransactionClient, tenantId: string, bookingId: string) {
+    return Promise.all([
+      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: holdKey(bookingId), type: 'HOLD' }, select: { walletId: true, amountMinor: true } }),
+      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: releaseKey(bookingId), type: 'RELEASE' }, select: { id: true } }),
+      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: settleReleaseKey(bookingId), type: 'RELEASE' }, select: { id: true } }),
+      tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: settleDebitKey(bookingId), type: 'DEBIT' }, select: { walletId: true, amountMinor: true } }),
+    ]).then(([hold, released, settleReleased, debit]) => ({ hold, released, settleReleased, debit }))
   }
 
   private async post(tx: Prisma.TransactionClient, input: { tenantId: string; event: PostedEvent; bookingId: string; supplierId: string | null; walletId: string | null; plan: Extract<PostingPlan, { kind: 'POST' }> }): Promise<PostingOutcome> {

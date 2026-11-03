@@ -9,6 +9,7 @@ function tx(f: Fake): Prisma.TransactionClient {
   return {
     agencyMember: { findFirst: async () => { boom('member'); return f.member ?? null }, findMany: async () => [{ userId: 'u1' }] },
     $executeRaw: async () => 1,
+    $queryRaw: async () => [{ id: 'w-a' }],
     wallet: { findFirst: async () => f.account ?? null },
     ledgerEntry: { aggregate: async () => { boom('ledger'); return { _sum: { amountMinor: f.balance ?? null } } }, findMany: async () => f.entries ?? [] },
     agencyCreditLimit: { findFirst: async () => { boom('limit'); return f.limit ?? null } },
