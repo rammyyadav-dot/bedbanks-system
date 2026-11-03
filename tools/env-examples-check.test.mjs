@@ -14,9 +14,10 @@ NEXT_PUBLIC_CONTACT_EMAIL=book@fabbeds.io
 })
 
 test('rejects embedded passwords, remote hosts and token-like values', () => {
-  assert.equal(check('x', 'DATABASE_URL=postgresql://u:Xk9fQ2mPz7Lw4Rt8@ep-1.neon.tech/db').length, 1)
+  // Low-entropy stand-ins: they still fail this checker, and they must not be detectable secrets (gitleaks scans this file).
+  assert.equal(check('x', 'DATABASE_URL=postgresql://u:pw@ep-1.neon.tech/db').length, 1)
   assert.equal(check('x', 'API_URL=https://api.supplier.com/v1').length, 1)
-  assert.equal(check('x', 'SOME_KEY=k3j4h5g6f7d8s9a0q1w2e3r4t5y6').length, 1)
+  assert.equal(check('x', `SOME_KEY=${'a'.repeat(24)}`).length, 1)
   assert.equal(check('x', 'SESSION_SECRET=hunter2').length, 1)
-  assert.equal(check('x', '# LEDGER_TOKEN=Zq8vN3xLp0TmR7cYb2WkD5hGs9FjA1eU').length, 1)
+  assert.equal(check('x', `# LEDGER_TOKEN=${'b'.repeat(24)}`).length, 1)
 })
