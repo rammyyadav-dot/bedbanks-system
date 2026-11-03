@@ -230,7 +230,8 @@ async function seedTenantA(
     const editorRole = await ensureRole(tx, tenantId, 'Preview supplier editor', ids(EDITOR_PERMISSIONS))
     const readerRole = await ensureRole(tx, tenantId, 'Preview supplier reader', ids(READER_PERMISSIONS))
     await ensureAssignment(tx, tenantId, users.admin.id, adminRole.id, 'admin')
-    await ensureAssignment(tx, tenantId, users.restricted.id, restrictedRole.id, 'staff')
+    // Console admission and API permissions are separate: this Admin has an empty permission role.
+    await ensureAssignment(tx, tenantId, users.restricted.id, restrictedRole.id, 'admin')
     await ensureAssignment(tx, tenantId, users.agent.id, agentRole.id, 'agent')
     await ensureAssignment(tx, tenantId, users.supplierEditor.id, editorRole.id, 'member')
     await ensureAssignment(tx, tenantId, users.supplierReader.id, readerRole.id, 'member')
