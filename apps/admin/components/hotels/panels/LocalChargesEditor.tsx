@@ -38,7 +38,7 @@ export function LocalChargesEditor({ hotelId, setup, otherSaving, onSaving, onSa
   const [busy, setBusy] = useState(false); const inFlight = useRef(false); const key = useRef<string | null>(null)
   const [error, setError] = useState<SaveFailure | null>(null)
   useUnsavedChanges(state.dirty)
-  const recovery = useDraftRecovery<ChargeDraft>({ scope: 'local-charges', hotelId, base: baseline, value: state.draft, dirty: state.dirty, valid: isChargeDraft, onRestore: (r) => state.restore(r.base, r.value) })
+  const recovery = useDraftRecovery<ChargeDraft>({ scope: 'local-charges', recordId: hotelId, base: baseline, value: state.draft, dirty: state.dirty, valid: isChargeDraft, onRestore: (r) => state.restore(r.base, r.value) })
   const setRows = (change: (r: Row[]) => Row[]) => { key.current = null; state.setDraft((d) => ({ rows: change(d.rows) })) }
   const update = (i: number, patch: Partial<Row>) => setRows((r) => r.map((row, j) => (j === i ? { ...row, ...patch } : row)))
   const discard = () => { key.current = null; setError(null); recovery.dismiss(); state.reset() }

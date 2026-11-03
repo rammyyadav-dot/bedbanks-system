@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useVirtualWindow } from '@bedbanks/ui/use-virtual-window'
 import {
   BOOKING_OPS_PRIORITIES, BOOKING_OPS_PRIORITY_LABEL, BOOKING_OPS_REASON_LABEL, BOOKING_OPS_REASONS, BOOKING_OPS_SAFE_ACTION_LABEL, BOOKING_OPS_SLA_LABEL, BOOKING_OPS_SLA_STATES, BOOKING_OPS_TAB_LABEL, BOOKING_OPS_TABS,
   type BookingOpsQueueItem, type BookingOpsQueuePage, type BookingOpsQueueQuery, type BookingOpsTab,
@@ -36,6 +37,10 @@ export function OpsQueueWorkspace() {
   if (state.status === 'ready' && last !== state.data) setLast(state.data)
   const go = (patch: Partial<BookingOpsQueueQuery>) => router.replace(`/bookings/queue${opsQueryString(withOpsFilters(query, patch))}`, { scroll: false })
   const tab: BookingOpsTab = query.tab ?? 'active'
+  const queueCount = state.status === 'ready' ? state.data.items.length : 0
+  const virtualizeQueue = queueCount > 25
+  const queueScroll = useRef<HTMLDivElement>(null)
+  const queueWindow = useVirtualWindow(queueCount, 160, queueScroll, 4, virtualizeQueue)
 
   return (
     <div className="admin-page">
@@ -54,13 +59,17 @@ export function OpsQueueWorkspace() {
         {(data) => (
           <>
             {data.scanCapped && <p role="status" style={{ fontSize: 12, color: 'var(--c-2a2a2a)' }}>More bookings need attention than the {2000} the queue reads at once: counts and order cover the most recently active.</p>}
-            <div className="workspace-panel" style={{ overflowX: 'auto' }} role="region" aria-label="Operations queue table" tabIndex={0}>
+            <div ref={queueScroll} className="workspace-panel" style={{ overflow: 'auto', maxHeight: virtualizeQueue ? 640 : undefined }} role="region" aria-label="Operations queue table" tabIndex={0}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }} aria-label="Operations queue" data-testid="queue-table">
                 <thead><tr>
                   <th style={th} scope="col">Priority</th><th style={th} scope="col">Booking</th><th style={th} scope="col">Why</th><th style={th} scope="col">SLA</th><th style={th} scope="col">Booking status</th><th style={th} scope="col">Supplier</th>
                   <th style={th} scope="col">Owner</th><th style={th} scope="col">Last supplier activity</th><th style={th} scope="col">Next safe step</th><th style={th} scope="col"><span className="sr-only">Actions</span></th>
                 </tr></thead>
-                <tbody>{data.items.map((i) => <Row key={i.bookingId} item={i} page={data} onChanged={(m) => { setNotice(m); reload() }} />)}</tbody>
+                <tbody>
+                  {queueWindow.padTop > 0 && <tr aria-hidden="true"><td colSpan={10} style={{ height: queueWindow.padTop, padding: 0, border: 0 }} /></tr>}
+                  {data.items.slice(queueWindow.start, queueWindow.end).map((i) => <Row key={i.bookingId} item={i} page={data} fixedHeight={virtualizeQueue} onChanged={(m) => { setNotice(m); reload() }} />)}
+                  {queueWindow.padBottom > 0 && <tr aria-hidden="true"><td colSpan={10} style={{ height: queueWindow.padBottom, padding: 0, border: 0 }} /></tr>}
+                </tbody>
               </table>
             </div>
             <Pager page={data.page} pageSize={data.pageSize} total={data.total} onPage={(page) => go({ page })} />
@@ -72,7 +81,7 @@ export function OpsQueueWorkspace() {
   )
 }
 
-function Row({ item: i, page, onChanged }: { item: BookingOpsQueueItem; page: BookingOpsQueuePage; onChanged: (message: string) => void }) {
+function Row({ item: i, page, onChanged, fixedHeight = false }: { item: BookingOpsQueueItem; page: BookingOpsQueuePage; onChanged: (message: string) => void; fixedHeight?: boolean }) {
   const [busy, setBusy] = useState(false); const [key] = useState(newIdempotencyKey); const [error, setError] = useState<string | null>(null)
   const mine = i.assignee?.id === page.viewer.id
   async function claim() {
@@ -80,7 +89,7 @@ function Row({ item: i, page, onChanged }: { item: BookingOpsQueueItem; page: Bo
     try { await assignOpsCase(i.bookingId, { assigneeUserId: page.viewer.id, expectedVersion: i.opsVersion }, key); onChanged(`${i.reference} is now yours.`) } catch (e) { const d = describeActionError(e); setError(d.message); setBusy(false) }
   }
   return (
-    <tr data-testid="queue-row" data-reference={i.reference} data-priority={i.priority} data-sla={i.slaState ?? ''}>
+    <tr data-testid="queue-row" data-reference={i.reference} data-priority={i.priority} data-sla={i.slaState ?? ''} style={fixedHeight ? { height: 160 } : undefined}>
       <td style={td}><Tag tone={priorityTone(i.priority)}>{BOOKING_OPS_PRIORITY_LABEL[i.priority].toUpperCase()}</Tag></td>
       <td style={td}><Link href={`/bookings/${i.bookingId}?tab=operations`} aria-label={`Open ${i.reference}`}>{i.reference}</Link><div style={{ color: 'var(--c-444444)', fontSize: 11 }}>{i.agency?.name ?? 'Unassigned agency'} · {i.hotel.name ?? '—'}{i.checkIn ? ` · check-in ${i.checkIn}` : ''}</div></td>
       <td style={td}>

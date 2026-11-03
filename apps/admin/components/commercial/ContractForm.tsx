@@ -120,6 +120,8 @@ export function ContractForm({ contractId }: { contractId?: string }) {
     if (!/^\d{1,3}$/.test(form.renewalReminderDays.trim()) || Number(form.renewalReminderDays) < 1 || Number(form.renewalReminderDays) > 365) return setMessage({ kind: 'error', text: 'Renewal reminder: a whole number of days from 1 to 365.' })
     const governance = { ownerUserId: form.ownerUserId.trim() || null, renewalReminderDays: Number(form.renewalReminderDays) }
     const body = { ...header, ...governance, supplierId: form.supplierId, supplierHotelMappingId: form.supplierHotelMappingId || null, code: form.code.trim(), validFrom: form.validFrom, validTo: form.validTo, settlementCurrency: form.settlementCurrency.toUpperCase(), salesMarkets: list(form.salesMarkets), nationalities: list(form.nationalities) }
+    const loadedAt = detail?.updatedAt
+    const stamped = <T extends object>(payload: T) => (loadedAt ? { ...payload, expectedUpdatedAt: loadedAt } : payload)
     setSaving(true)
     try {
       if (contractId && lifecycle?.status === 'ACTIVE' && detail) {
@@ -131,16 +133,16 @@ export function ContractForm({ contractId }: { contractId?: string }) {
         const governanceChanged = governance.ownerUserId !== (saved.ownerUserId || null) || String(governance.renewalReminderDays) !== saved.renewalReminderDays
         if (Object.keys(changes).length === 0) {
           if (!governanceChanged) { setMessage({ kind: 'error', text: 'Nothing changed. Edit a term first.' }); return }
-          await updateContract(contractId, governance); setMessage({ kind: 'ok', text: 'Owner and renewal reminder saved.' }); await reload(); return
+          await updateContract(contractId, stamped(governance)); setMessage({ kind: 'ok', text: 'Owner and renewal reminder saved.' }); await reload(); return
         }
-        if (governanceChanged) await updateContract(contractId, governance)
+        if (governanceChanged) await updateContract(contractId, stamped(governance))
         if (amendReason.trim().length < 3) { setMessage({ kind: 'error', text: 'Give the approver a reason for the amendment.' }); return }
         await requestContractAmendment(contractId, { requestId: amendRequestId, reason: amendReason.trim(), expectedFingerprint: lifecycle.fingerprint, changes })
         setAmendReason(''); setAmendRequestId(newContractRequestId())
         setMessage({ kind: 'ok', text: `Amendment requested: ${describeChanges(changes, current).join('; ')}. It applies once a second person approves it.` })
         await reload()
       } else if (contractId) {
-        await updateContract(contractId, body)
+        await updateContract(contractId, stamped(body))
         setMessage({ kind: 'ok', text: 'Contract saved.' })
         await reload()
       } else {

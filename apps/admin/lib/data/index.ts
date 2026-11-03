@@ -99,6 +99,8 @@ export async function updateBoardBasis(id: string, input: { name?: string; descr
 const json = { 'Content-Type': 'application/json' }
 export interface AdminContract {
   id: string; code: string; validFrom: string; validTo: string; settlementCurrency: string; status: string; supplierId: string; supplierHotelMappingId: string | null;
+  /** Present on a contract read from the API. Sent back as expectedUpdatedAt so a save cannot overwrite a newer version. */
+  updatedAt?: string;
   salesMarkets?: string[]; nationalities?: string[]; paymentPolicyRef?: string | null;
   supplier: { id: string; displayName: string };
   supplierHotelMapping?: { id: string; hotelId: string; status: string } | null;
@@ -134,7 +136,7 @@ export async function getContractPortfolio(params: Record<string, string | numbe
 }
 export async function getContract(id: string) { return apiRequest<AdminContractDetail>(`/supply/contracts/${id}`); }
 export async function createContract(input: ContractInput) { return apiRequest<AdminContract>('/supply/contracts', { method: 'POST', headers: json, body: JSON.stringify(input) }); }
-export async function updateContract(id: string, input: Partial<ContractInput>) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
+export async function updateContract(id: string, input: Partial<ContractInput> & { expectedUpdatedAt?: string }) { return apiRequest<AdminContract>(`/supply/contracts/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(input) }); }
 export async function createCancellationPolicy(contractId: string, input: { kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyNights?: number; currency?: string; policySet?: string | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/cancellation`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function createChildPolicy(contractId: string, input: { minAge: number; maxAge: number; extraBedAllowed: boolean; supplementMinor?: string; currency?: string }) { return apiRequest(`/supply/contracts/${contractId}/policies/child`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }
 export async function setLeadTimeRule(contractId: string, input: { minLeadHours: number; maxLeadDays?: number | null }) { return apiRequest(`/supply/contracts/${contractId}/policies/lead-time`, { method: 'POST', headers: json, body: JSON.stringify(input) }); }

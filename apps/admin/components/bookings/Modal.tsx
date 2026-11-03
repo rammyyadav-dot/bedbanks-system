@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { dialogTabTarget } from '@bedbanks/ui/dialog-key'
 
 /** A modal that traps Tab, closes on Escape and returns focus to the control that opened it. */
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -13,9 +14,8 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
       if (e.key !== 'Tab' || !ref.current) return
       const items = Array.from(ref.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled])'))
-      if (items.length === 0) return
-      const a = items[0]; const z = items[items.length - 1]
-      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus() } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus() }
+      const next = dialogTabTarget(e.shiftKey, items.indexOf(document.activeElement as HTMLElement), items.length)
+      if (next !== null) { e.preventDefault(); items[next]?.focus() }
     }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey); opener?.focus?.() }

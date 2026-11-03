@@ -1,6 +1,7 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useRef, useState } from 'react'
+import { useVirtualWindow } from '@bedbanks/ui/use-virtual-window'
 import type { HotelMappingSuggestion, HotelMappingSuggestions } from '@bedbanks/contracts'
 import { apiRequest } from '@/lib/api/client'
 import { ApiResponseError } from '@/lib/api/errors'
@@ -17,6 +18,9 @@ export function HotelSuggestionPanel({ onUse }: Props) {
   const [view, setView] = useState<SuggestionView | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const matches = view?.kind === 'matches' ? view.suggestions : []
+  const listScroll = useRef<HTMLDivElement>(null)
+  const listWindow = useVirtualWindow(matches.length, 104, listScroll, 3, matches.length > 8)
 
   async function search(event: FormEvent) {
     event.preventDefault()
@@ -45,15 +49,19 @@ export function HotelSuggestionPanel({ onUse }: Props) {
       {view?.kind === 'index-empty' && <p>The hotel search index has not been built for this tenant yet, so no suggestions can be made. Ask an operator to run the hotel search reindex, or choose the hotel manually below.</p>}
       {view?.kind === 'none' && <p>No close match in your catalogue. Choose the hotel manually below, or create the hotel first.</p>}
     </div>
-    {view?.kind === 'matches' && <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
-      {view.suggestions.map(item => <li key={item.hotelId} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', borderTop: '1px solid var(--c-e4e4e0)', padding: '12px 0' }}>
-        <div>
-          <strong>{item.name}</strong> · {item.city}, {item.countryCode}
-          <div style={{ fontWeight: 600 }}>{TIER_LABEL[item.tier]} · score {item.confidence}/100</div>
-          {item.reasons.length > 0 && <div style={{ fontSize: 13 }}>{item.reasons.map(reasonLabel).join(' · ')}</div>}
-        </div>
-        <button type="button" className="button" onClick={() => onUse(item)} aria-label={`Use ${item.name}`}>Use this hotel</button>
-      </li>)}
-    </ul>}
+    {view?.kind === 'matches' && <div ref={listScroll} role="region" aria-label="Suggested hotels" tabIndex={0} style={{ overflow: 'auto', maxHeight: matches.length > 8 ? 420 : undefined, marginTop: 12 }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        {listWindow.padTop > 0 && <li aria-hidden="true" style={{ height: listWindow.padTop }} />}
+        {matches.slice(listWindow.start, listWindow.end).map(item => <li key={item.hotelId} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', borderTop: '1px solid var(--c-e4e4e0)', padding: '12px 0', height: matches.length > 8 ? 104 : undefined, boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div>
+            <strong>{item.name}</strong> · {item.city}, {item.countryCode}
+            <div style={{ fontWeight: 600 }}>{TIER_LABEL[item.tier]} · score {item.confidence}/100</div>
+            {item.reasons.length > 0 && <div style={{ fontSize: 13 }}>{item.reasons.map(reasonLabel).join(' · ')}</div>}
+          </div>
+          <button type="button" className="button" onClick={() => onUse(item)} aria-label={`Use ${item.name}`}>Use this hotel</button>
+        </li>)}
+        {listWindow.padBottom > 0 && <li aria-hidden="true" style={{ height: listWindow.padBottom }} />}
+      </ul>
+    </div>}
   </div>
 }

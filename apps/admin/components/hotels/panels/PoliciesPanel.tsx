@@ -72,7 +72,7 @@ function HotelPolicies({ hotelId, setup, otherSaving, onSaving, onSaved, onLoadL
   const [busy, setBusy] = useState(false); const inFlight = useRef(false); const key = useRef<string | null>(null)
   const [error, setError] = useState<SaveFailure | null>(null)
   useUnsavedChanges(draft.dirty)
-  const recovery = useDraftRecovery<PolicyDraft>({ scope: 'policies', hotelId, base: baseline, value: draft.draft, dirty: draft.dirty, valid: isPolicyDraft, onRestore: (r) => draft.restore(r.base, r.value) })
+  const recovery = useDraftRecovery<PolicyDraft>({ scope: 'policies', recordId: hotelId, base: baseline, value: draft.draft, dirty: draft.dirty, valid: isPolicyDraft, onRestore: (r) => draft.restore(r.base, r.value) })
   const edit = (k: HotelPolicyKey, text: string) => { key.current = null; draft.setDraft((d) => ({ ...d, [k]: text })) }
   const discard = () => { key.current = null; setError(null); recovery.dismiss(); draft.reset() }
 
