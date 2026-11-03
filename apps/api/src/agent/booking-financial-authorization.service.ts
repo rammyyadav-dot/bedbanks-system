@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { lockAgencyCredit } from './agency-account'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
 import { PrismaService } from '../database/prisma.service'
@@ -26,6 +27,9 @@ export class BookingFinancialAuthorizationService {
 
     try {
       return await this.prisma.withTenant(command.tenantId, async tx => {
+        // Match inventory holds: agency credit lock before wallet row lock, never the reverse.
+        const preview = await tx.wallet.findFirst({ where: { id: command.walletId, tenantId: command.tenantId }, select: { agencyId: true } })
+        if (preview?.agencyId) await lockAgencyCredit(tx, preview.agencyId)
         // The HOLD is the credit decrement. The row lock covers the balance read and the append (ADR 0110).
         await lockWalletRow(tx, command.tenantId, command.walletId)
 

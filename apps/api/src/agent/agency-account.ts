@@ -20,6 +20,11 @@ const PENDING_STATUSES = ['HOLD_PENDING', 'HELD'] as const
 
 export const accountLockKey = (agencyId: string, currency: string) => `agency-account:${agencyId}:${currency}`
 
+/** Serializes holds, booking authorization and limit changes, including a prepaid agency with no limit row. */
+export async function lockAgencyCredit(tx: Prisma.TransactionClient, agencyId: string): Promise<void> {
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agency-credit:${agencyId}`}, 0))`)
+}
+
 export async function agencyCreditLineMinor(tx: Prisma.TransactionClient, tenantId: string, agencyId: string, currency: string): Promise<bigint> {
   const limit = await tx.agencyCreditLimit.findFirst({ where: { tenantId, agencyId }, select: { currency: true, limitMinor: true } })
   return limit && limit.currency === currency ? limit.limitMinor : 0n

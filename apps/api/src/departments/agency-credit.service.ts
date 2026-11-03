@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { AGENCY_CREDIT_NEAR_LIMIT_PERCENT, type AgencyCreditApprovalView, AgencyCreditDecision, AgencyCreditLimitRequest, AgencyCreditResult, AgencyCreditView, AgencyPage, AgencyView } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
 import { AgentAuditService } from '../agent/audit.service'
-import { accountAging, agencyPosition, overdueView, type AgencyPosition } from '../agent/agency-account'
+import { accountAging, agencyPosition, lockAgencyCredit, overdueView, type AgencyPosition } from '../agent/agency-account'
 import type { Aging } from '../agent/credit-aging'
 import { defaultSettlementCurrency } from '../agent/currency'
 import { ApprovalService, type ApprovalView } from '../approvals/approval.service'
@@ -128,6 +128,8 @@ export class AgencyCreditService {
       return this.prisma.withTenant(tenantId, async (tx) => {
         const agency = await tx.agency.findFirst({ where: { id: approval.entityId, tenantId }, select: { id: true } })
         if (!agency) throw new NotFoundException('Agency not found')
+        // The same transaction lock as holds and financial authorization also protects first creation/removal.
+        await lockAgencyCredit(tx, agency.id)
         const current = await tx.agencyCreditLimit.findFirst({ where: { tenantId, agencyId: agency.id } })
         const now: Stored = current ? { currency: current.currency, limitMinor: current.limitMinor.toString() } : { currency: null, limitMinor: null }
         if (now.currency !== before.currency || now.limitMinor !== before.limitMinor) throw new ConflictException({ message: 'The credit limit changed after this request was made. Make a new request.', code: 'AGENCY_CREDIT_CHANGED_AFTER_REQUEST' })

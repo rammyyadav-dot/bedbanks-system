@@ -33,9 +33,10 @@ mock_provider "aws" {
 }
 
 variables {
-  region         = "ap-south-1"
-  domain_name    = "example.test"
-  hosted_zone_id = "Z0000000000000000000"
+  region                  = "ap-south-1"
+  availability_zone_names = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+  domain_name             = "example.test"
+  hosted_zone_id          = "Z0000000000000000000"
 }
 
 run "staging_restricted_plans" {

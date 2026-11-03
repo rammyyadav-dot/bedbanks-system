@@ -2,7 +2,7 @@ name: Tenant isolation checks
 
 on:
   pull_request:
-    paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts', 'tools/tenant-filter-check*', 'package.json']
+    paths: ['apps/api/**', 'e2e/tenancy-isolation.spec.ts', 'tools/tenant-filter-check*', 'package.json', 'packages/money/**', 'packages/contracts/**', '.github/workflows/tenancy-check.yml']
 
 permissions:
   contents: read
@@ -23,3 +23,35 @@ jobs:
       - run: node --import tsx --test tools/tenant-filter-check.test.ts
       - run: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/fbeds_ci pnpm --filter @bedbanks/api prisma:generate
       - run: pnpm --filter @bedbanks/api exec jest --runInBand src/agent/tenant-context.guard.spec.ts
+
+  credit-postgres:
+    name: Credit concurrency and forced RLS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: credit_integration
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d credit_integration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/credit_integration
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @bedbanks/api prisma:generate
+      - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
+      - run: pnpm --filter @bedbanks/api test:credit:postgres
