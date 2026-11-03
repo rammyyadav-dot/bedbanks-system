@@ -30,7 +30,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs tools/framework-peer-check.test.mjs tools/env-examples-check.test.mjs
+      - run: node --test tools/dependency-audit-check.test.mjs tools/workflow-permissions-check.test.mjs tools/framework-peer-check.test.mjs tools/env-examples-check.test.mjs tools/runtime-env-leak-check.test.mjs tools/secret-scan-gate-check.test.mjs
       - name: Workflow pinning and permissions
         run: tools/ci-step-summary.sh "Workflow pinning and permissions" "Pin every third-party action to a full 40-character commit SHA (keep the version in a trailing comment), declare top-level permissions, and set timeout-minutes on every job." node tools/workflow-permissions-check.mjs
       # Fails on any unaccepted high or critical advisory; accepted ones live in security/audit-allowlist.json with a reason and expiry.
@@ -66,6 +66,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
       - name: Install gitleaks (checksum verified)
         run: |
           set -euo pipefail
@@ -74,17 +78,35 @@ jobs:
           curl -sSfL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o checksums.txt
           sha256sum --check --ignore-missing checksums.txt
           tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
-      - name: Rule self-test (custom rules still detect what they should)
+      - name: Runtime env policy
+        run: node tools/runtime-env-leak-check.mjs && node tools/secret-scan-gate-check.mjs
+      - name: Rule self-test (every custom rule still detects what it should)
         run: |
           set -euo pipefail
           probe="$RUNNER_TEMP/gitleaks-probe"; mkdir -p "$probe"
           # Synthetic, non-functional values assembled at runtime so this workflow file never contains a matching literal.
+          # tools/secret-scan-gate-check.mjs requires each id below to stay listed here.
+          expected_rules=(
+            fbeds-database-url-credentials
+            fbeds-neon-api-key
+            fbeds-aws-secret-access-key
+            fbeds-aws-session-token
+            fbeds-jwt-signing-secret
+            fbeds-supplier-credential
+            fbeds-authorization-header-literal
+          )
           p1='postgresql://neondb_owner:'; p2='Xk9fQ2mPz7Lw4Rt8@ep-cool-darkness-123456.us-east-2.aws.neon.tech/neondb'
-          printf "const a = '%s%s'\nconst b = 'napi_%s'\nconst awsSecretAccessKey = '%s'\nconst jwtSecret = '%s'\nconst hotelbedsApiKey = '%s'\n" \
-            "$p1" "$p2" "k3j4h5g6f7d8s9a0q1w2e3r4t5y6u7i8o9p0a1s2d3f4g5h6j7k8l9" "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQvZ8mN2pA" "Zq8vN3xLp0TmR7cYb2WkD5hGs9FjA1eU" "f3a9c1d27be84a65b0d1e9f742c8a3b6" > "$probe/probe.ts"
+          session="$(printf 'mK9%s' {1..30})"
+          supplier='f3a9c1d27be84a65b0d1e9f742c8a3b6'
+          printf "const a = '%s%s'\nconst b = 'napi_%s'\nconst awsSecretAccessKey = '%s'\nconst awsSessionToken = '%s'\nconst jwtSecret = '%s'\nconst hotelbedsApiKey = '%s'\nconst authorization = \"Bearer %s\"\n" \
+            "$p1" "$p2" "k3j4h5g6f7d8s9a0q1w2e3r4t5y6u7i8o9p0a1s2d3f4g5h6j7k8l9" "wJalrXUtnFEMI/K7MDENG/bPxRfiCYzQvZ8mN2pA" "$session" "Zq8vN3xLp0TmR7cYb2WkD5hGs9FjA1eU" "$supplier" "$supplier" > "$probe/probe.ts"
           ./gitleaks detect --source "$probe" --config .gitleaks.toml --no-git --no-banner --redact --report-format json --report-path "$probe/out.json" || true
-          found=$(jq -r '[.[].RuleID] | unique | length' "$probe/out.json")
-          if [ "$found" -lt 5 ]; then echo "::error title=gitleaks self-test::only $found of 5 expected custom rules fired; .gitleaks.toml lost coverage"; exit 1; fi
+          mapfile -t found < <(jq -r '.[].RuleID' "$probe/out.json" | sort -u)
+          missing=()
+          for id in "${expected_rules[@]}"; do
+            if ! printf '%s\n' "${found[@]}" | grep -qx "$id"; then missing+=("$id"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then echo "::error title=gitleaks self-test::custom rules did not fire: ${missing[*]}"; exit 1; fi
       - name: Scan for secrets
         env:
           EVENT: ${{ github.event_name }}

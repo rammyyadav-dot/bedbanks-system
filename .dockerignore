@@ -19,11 +19,11 @@
 **/prisma/*.db
 **/prisma/*.db-journal
 
-# Secrets and local environment. Committed examples stay. Nothing secret is ever a build input (ADR 0055).
+# Secrets and local environment. Nothing secret is a build input (ADR 0055).
+# Templates stay out of the context too: a filled-in .env.example must not be able to reach an image layer (ADR 0110).
 .env
 **/.env
 **/.env.*
-!**/.env.example
 **/*.pem
 **/*.key
 **/.npmrc.local
