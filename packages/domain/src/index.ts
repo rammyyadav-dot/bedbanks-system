@@ -262,3 +262,4 @@ export type BookingTransactionState =
   | 'FAILED'
   | 'UNKNOWN'
 export * from './smart-search'
+export * from './booking-notifications'
