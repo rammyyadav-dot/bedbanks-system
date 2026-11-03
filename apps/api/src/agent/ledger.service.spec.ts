@@ -58,6 +58,39 @@ describe('LedgerService financial safety', () => {
     await expect(mismatch.service.post(input)).rejects.toBeInstanceOf(ConflictException)
   })
 
+  it('locks the wallet and refuses a debit the credit line does not cover', async () => {
+    const { service, tx } = setup({
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'w1' }]),
+      wallet: { findFirst: jest.fn().mockResolvedValue({ id: 'w1', tenantId: 't1', currency: 'AED', agencyId: null, creditLimit: 1000n }) },
+      ledgerEntry: { findUnique: jest.fn().mockResolvedValue(null), aggregate: jest.fn().mockResolvedValue({ _sum: { amountMinor: 0n } }), create: jest.fn() },
+    })
+    await expect(service.post({ ...input, type: 'DEBIT', amountMinor: -1001n })).rejects.toBeInstanceOf(ConflictException)
+    const row = tx as unknown as { $queryRaw: jest.Mock; ledgerEntry: { aggregate: jest.Mock; create: jest.Mock } }
+    expect(row.$queryRaw).toHaveBeenCalledTimes(1)
+    expect(row.ledgerEntry.aggregate).toHaveBeenCalledTimes(1)
+    expect(row.ledgerEntry.create).not.toHaveBeenCalled()
+  })
+
+  it('appends one debit when the locked balance covers it, and a replay does not spend again', async () => {
+    const created = { ...entry, type: 'DEBIT' as const, amountMinor: -400n, idempotencyKey: 'debit:1' }
+    const { service, tx } = setup({
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'w1' }]),
+      wallet: { findFirst: jest.fn().mockResolvedValue({ id: 'w1', tenantId: 't1', currency: 'AED', agencyId: null, creditLimit: 1000n }) },
+      ledgerEntry: {
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(created),
+        aggregate: jest.fn().mockResolvedValue({ _sum: { amountMinor: 0n } }),
+        create: jest.fn().mockResolvedValue(created),
+      },
+    })
+    const debit = { ...input, type: 'DEBIT' as const, amountMinor: -400n, idempotencyKey: 'debit:1' }
+    const row = tx as unknown as { ledgerEntry: { aggregate: jest.Mock; create: jest.Mock } }
+    await expect(service.post(debit)).resolves.toEqual(created)
+    expect(row.ledgerEntry.create).toHaveBeenCalledTimes(1)
+    await expect(service.post(debit)).resolves.toEqual(created)
+    expect(row.ledgerEntry.aggregate).toHaveBeenCalledTimes(1)
+    expect(row.ledgerEntry.create).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects zero-value postings and empty idempotency keys', async () => {
     const { service } = setup()
     await expect(service.post({ ...input, amountMinor: 0n })).rejects.toBeInstanceOf(BadRequestException)

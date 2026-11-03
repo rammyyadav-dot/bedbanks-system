@@ -1,8 +1,9 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
 import { appendLedgerEntry } from '../ledger/ledger-core'
+import { lockWalletRow } from '../ledger/wallet-lock'
 import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
@@ -53,13 +54,18 @@ export class BookingConfirmationService {
       if (heldRows.length !== 1 || heldRows[0].status !== 'PROCESSING') throw new ConflictException('Inventory hold is no longer active')
 
       const authorizationKey = `booking:${bookingId}:authorize`
-      const reservation = await tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: authorizationKey, type: 'HOLD' } })
+      const preview = await tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: authorizationKey, type: 'HOLD' } })
+      if (!preview) throw new ConflictException('Financial authorization is unavailable')
+      const previewAmount = -preview.amountMinor
+      if (previewAmount !== booking.totalMinor || preview.currency !== booking.currency) throw new ConflictException('Financial authorization does not match the booking')
+      // The debit is appended under the wallet row lock, after the reservation is read again. A release that
+      // committed while this confirmation waited is visible here, so the charge cannot land on a returned hold (ADR 0110).
+      await lockWalletRow(tx, tenantId, preview.walletId)
+      const reservation = await tx.ledgerEntry.findFirst({ where: { tenantId, walletId: preview.walletId, idempotencyKey: authorizationKey, type: 'HOLD' } })
       if (!reservation) throw new ConflictException('Financial authorization is unavailable')
       const amountMinor = -reservation.amountMinor
       if (amountMinor !== booking.totalMinor || reservation.currency !== booking.currency) throw new ConflictException('Financial authorization does not match the booking')
-      const walletRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Wallet" WHERE "id" = ${reservation.walletId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
-      if (walletRows.length !== 1) throw new ForbiddenException('Wallet is unavailable')
-      // ADR 0068 F2: a reservation already returned by compensation or reconciliation cannot also be settled (read under the wallet lock that release() also takes), or the confirmed stay would net to zero.
+      // ADR 0068 F2: a reservation already returned by compensation or reconciliation cannot also be settled, or the confirmed stay would net to zero.
       const released = await tx.ledgerEntry.findFirst({ where: { tenantId, walletId: reservation.walletId, idempotencyKey: `${authorizationKey}:release` }, select: { id: true } })
       if (released) throw new ConflictException('Financial authorization was released')
 
