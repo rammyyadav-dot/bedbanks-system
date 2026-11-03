@@ -77,4 +77,13 @@ describe('assessConnectionBudget', () => {
     const report = assessConnectionBudget({ ...base, urls: { API: url(), BAD: 'not a url' } });
     expect(JSON.stringify(report)).not.toMatch(/secret-pw|db\.internal/);
   });
+
+  it('counts the fixed Drizzle tenant pool toward the worst case', () => {
+    const within = assessConnectionBudget({ tasks: 4, maxConnections: 100, reserved: 10, urls: { API: url(10) }, extraPerTask: 2 });
+    expect(within).toMatchObject({ verdict: 'WITHIN_BUDGET', perTask: 12, worstCase: 48 });
+    const over = assessConnectionBudget({ tasks: 4, maxConnections: 50, reserved: 0, urls: { API: url(11) }, extraPerTask: 2 });
+    expect(over.verdict).toBe('OVER_BUDGET');
+    expect(over.worstCase).toBe(52);
+    expect(assessConnectionBudget({ ...base, urls: { API: url(5) }, extraPerTask: 1.5 }).verdict).toBe('UNPROVEN');
+  });
 });

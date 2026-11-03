@@ -7,7 +7,7 @@
  * Reads every role URL a task opens from the environment (the same variables the service receives), prints role labels and numbers only,
  * never a URL, and exits 1 unless the verdict is WITHIN_BUDGET.
  */
-import { assessConnectionBudget } from './pool-config'
+import { assessConnectionBudget, TENANT_DRIZZLE_POOL_MAX } from './pool-config'
 
 /** Owner and provisioning credentials are used by one-shot jobs, not by running tasks. */
 const NOT_A_TASK_POOL = /^(PROVISION|MIGRATION|OWNER)_/
@@ -34,8 +34,10 @@ function main(): void {
     maxConnections: numberFlag(args, 'max-connections'),
     reserved: numberFlag(args, 'reserved', 10),
     urls,
+    extraPerTask: urls.DATABASE_URL ? TENANT_DRIZZLE_POOL_MAX : 0,
   })
   for (const pool of report.pools) console.log(`${pool.label}: connection_limit=${pool.connectionLimit ?? 'unset'}${pool.pooledHost ? ' (pooled endpoint)' : ''}`);
+  if (urls.DATABASE_URL) console.log(`DRIZZLE tenant pool: connection_limit=${TENANT_DRIZZLE_POOL_MAX} (fixed cap on DATABASE_URL)`);
   console.log(`per task ${report.perTask}, worst case ${report.worstCase}, available ${report.available}`);
   for (const finding of report.findings) console.log(`- ${finding}`);
   console.log(`Verdict: ${report.verdict}`);
