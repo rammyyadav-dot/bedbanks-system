@@ -41,7 +41,7 @@ Open the pull request, select **Checks**, and open the red **CI** job. The first
 
 - **Dependency audit** — fails on any unaccepted high or critical production advisory (`security/audit-allowlist.json` holds reviewed, expiring exceptions) and on any action not pinned to a full commit SHA, floating runner image, missing `permissions` block or missing job timeout.
 - **CodeQL** — `security-extended` queries for JavaScript and TypeScript.
-- **Secret scan** — gitleaks with `.gitleaks.toml`. Pull requests and branch pushes scan only the commits they add; `main`, tags and the weekly run scan the full history. A rule self-test fails the job if the custom rules stop detecting synthetic secrets. A failure lists rule, file, line and commit in the job summary (never the secret) and says to rotate first.
+- **Secret scan** — gitleaks with `.gitleaks.toml` on every pull request (no path filter). Pull requests and branch pushes scan the commits they add; `main`, tags and the weekly run scan the full history. The self-test fails the job unless every custom rule fires, including database URLs, Neon API keys and AWS credentials (ADR 0110). The same job rejects a tracked runtime env file and a Neon, AWS or remote-database credential in any workspace dotenv file. A failure lists rule, file, line and commit in the job summary (never the secret) and says to rotate first.
 
 `contract-check.yml` runs when apps, packages, tools, security data or the lint config change:
 

@@ -3,6 +3,8 @@
 # Scans staged changes with the repo gitleaks config; CI (security.yml) remains the enforcing gate.
 set -e
 node tools/env-examples-check.mjs
+node tools/runtime-env-leak-check.mjs
+node tools/secret-scan-gate-check.mjs
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks protect --staged --config .gitleaks.toml --redact --no-banner
 else

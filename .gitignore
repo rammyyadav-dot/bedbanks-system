@@ -12,12 +12,11 @@ packages/**/dist/
 coverage/
 .turbo/
 
-# Environment and hosting
+# Environment and hosting. Runtime dotenv files stay untracked.
+# .env.example is the only template that may be committed, so the negation has to follow .env.*
 .env
-.env.local
-.env.*.local
-.env.production
-.env.staging
+.env.*
+!.env.example
 .vercel/
 clone-certification-evidence/
 staging-migration-evidence/
