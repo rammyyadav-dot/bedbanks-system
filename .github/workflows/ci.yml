@@ -120,6 +120,8 @@ jobs:
         run: pnpm --filter @bedbanks/api exec node --no-experimental-strip-types -r @swc-node/register scripts/certify-disposable-runtime-role.cjs --rotate-owner
       - run: pnpm --filter @bedbanks/api prisma:migrate:deploy
       - run: pnpm --filter @bedbanks/api prisma:migrate:status
+      - name: PostgreSQL credit concurrency and forced RLS
+        run: pnpm --filter @bedbanks/api test:credit:postgres
       - run: pnpm --filter @bedbanks/api prisma:migrate:drift
       - run: pnpm --filter @bedbanks/api type-check
       - name: Certify disposable target, strict login and forced RLS

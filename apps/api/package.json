@@ -57,7 +57,8 @@
     "ops:certify-tenant-control": "node --no-experimental-strip-types -r @swc-node/register src/database/certify-tenant-control.cli.ts",
     "ops:certify-runtime-db-identity": "node --no-experimental-strip-types -r @swc-node/register scripts/certify-runtime-db-identity.cjs",
     "ops:compliance": "node --no-experimental-strip-types -r @swc-node/register src/compliance/compliance-ops.cli.ts",
-    "ops:provision-tenant-control-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-tenant-control-role.cli.ts"
+    "ops:provision-tenant-control-role": "node --no-experimental-strip-types -r @swc-node/register src/database/provision-tenant-control-role.cli.ts",
+    "test:credit:postgres": "ALLOW_DISPOSABLE_CREDIT_TESTS=true jest --config ./test/jest-e2e.json --runInBand credit-concurrency-rls.e2e-spec.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

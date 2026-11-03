@@ -10,11 +10,13 @@ const entry = {
   currency: 'AED', reference: 'booking:booking-a', idempotencyKey: 'booking-auth-123',
 }
 
-function setup(input: { locked?: boolean; currency?: string; creditLimit?: bigint; balance?: bigint; existing?: any } = {}) {
+function setup(input: { locked?: boolean; currency?: string; creditLimit?: bigint; balance?: bigint; existing?: any; agencyId?: string } = {}) {
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    agencyCreditLimit: { findFirst: jest.fn().mockResolvedValue({ currency: 'AED', limitMinor: 10000n }) },
     $queryRaw: jest.fn().mockResolvedValue(input.locked === false ? [] : [{ id: 'wallet-a' }]),
     wallet: { findFirst: jest.fn().mockResolvedValue(input.locked === false ? null : {
-      id: 'wallet-a', tenantId: 'tenant-a', currency: input.currency ?? 'AED', creditLimit: input.creditLimit ?? 10000n,
+      id: 'wallet-a', tenantId: 'tenant-a', agencyId: input.agencyId ?? null, currency: input.currency ?? 'AED', creditLimit: input.creditLimit ?? 10000n,
     }) },
     ledgerEntry: {
       findUnique: jest.fn().mockResolvedValue(input.existing ?? null),
@@ -37,6 +39,27 @@ describe('BookingFinancialAuthorizationService', () => {
       type: 'HOLD', amountMinor: -6000n, currency: 'AED', reference: 'booking:booking-a',
     }) })
     expect(tx.auditEvent.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for an in-flight agency limit change before reading credit or posting a hold', async () => {
+    const { service, tx } = setup({ agencyId: 'agency-a' })
+    let unlock!: () => void
+    let entered!: () => void
+    const waiting = new Promise<void>(resolve => { entered = resolve })
+    tx.$executeRaw.mockImplementationOnce(() => {
+      entered()
+      return new Promise<number>(resolve => { unlock = () => resolve(1) })
+    })
+    const result = service.authorize(command)
+    await waiting
+    expect(tx.ledgerEntry.aggregate).not.toHaveBeenCalled()
+    expect(tx.agencyCreditLimit.findFirst).not.toHaveBeenCalled()
+    expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
+    // A concurrent approved reduction commits before releasing the shared lock.
+    tx.agencyCreditLimit.findFirst.mockResolvedValue({ currency: 'AED', limitMinor: 5000n })
+    unlock()
+    await expect(result).rejects.toBeInstanceOf(ConflictException)
+    expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
   })
 
   it('rejects insufficient credit without creating a financial effect', async () => {

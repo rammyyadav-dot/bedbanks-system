@@ -1,8 +1,8 @@
+import type { Prisma } from '@prisma/client'
 import { ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
-import { Prisma } from '@prisma/client'
 import { AGENCY_CREDIT_LIMIT_EXCEEDED_CODE, AGENCY_CREDIT_UNAVAILABLE_CODE } from '@bedbanks/contracts'
 import { lockWalletRow } from '../ledger/wallet-lock'
-import { accountAging, agencyPosition, assertNotOverdue, enforceCreditRisk } from './agency-account'
+import { accountAging, agencyPosition, assertNotOverdue, enforceCreditRisk, lockAgencyCredit } from './agency-account'
 
 /**
  * Refuses a new hold the caller's agency cannot pay for (ADR 0028 slice 3): available = balance + credit line - pending holds.
@@ -18,7 +18,7 @@ export async function assertAgencyCredit(tx: Prisma.TransactionClient, tenantId:
   try {
     const member = await tx.agencyMember.findFirst({ where: { tenantId, userId }, select: { agencyId: true } })
     if (!member) return
-    await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agency-credit:${member.agencyId}`}, 0))`)
+    await lockAgencyCredit(tx, member.agencyId)
     const account = await tx.wallet.findFirst({ where: { tenantId, agencyId: member.agencyId, currency }, select: { id: true } })
     if (account) await lockWalletRow(tx, tenantId, account.id)
     const position = await agencyPosition(tx, tenantId, member.agencyId, currency)

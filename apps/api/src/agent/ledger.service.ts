@@ -5,6 +5,7 @@ import { PrismaService } from '../database/prisma.service'
 import { assertSupportedSettlementCurrency } from './currency'
 import { refundWithin } from '@bedbanks/money'
 import { appendLedgerEntry, assertValidAppend, referenceSumMinor, walletBalanceMinor } from '../ledger/ledger-core'
+import { lockAgencyCredit } from './agency-account'
 import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
 
 @Injectable()
@@ -27,7 +28,10 @@ export class LedgerService {
         // A negative entry is a credit decrement. Lock the wallet before the idempotency read so a concurrent
         // debit waits, then re-checks what remains (ADR 0110). A replay of the same key does not spend again.
         const decreasesCredit = input.amountMinor < 0n
-        if (decreasesCredit) await lockWalletRow(tx, input.tenantId, wallet.id)
+        if (decreasesCredit) {
+          if (wallet.agencyId) await lockAgencyCredit(tx, wallet.agencyId)
+          await lockWalletRow(tx, input.tenantId, wallet.id)
+        }
 
         const existing = await tx.ledgerEntry.findUnique({ where: key })
         if (existing) {
