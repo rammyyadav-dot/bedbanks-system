@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AgentAuditService } from './agent/audit.service';
 import { DatabaseDenialInterceptor } from './database/database-denial.interceptor';
+import { TenantRlsInterceptor } from './database/tenant-rls.interceptor';
 import { CrossSiteRequestGuard } from './common/guards/cross-site-request.guard';
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
@@ -69,7 +70,12 @@ import { DistributionModule } from './distribution/distribution.module';
     SupplierExtranetModule,
     DistributionModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: CrossSiteRequestGuard }, AgentAuditService, { provide: APP_INTERCEPTOR, useClass: DatabaseDenialInterceptor }],
+  providers: [
+    { provide: APP_GUARD, useClass: CrossSiteRequestGuard },
+    AgentAuditService,
+    { provide: APP_INTERCEPTOR, useClass: DatabaseDenialInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: TenantRlsInterceptor },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

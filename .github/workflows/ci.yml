@@ -70,6 +70,7 @@ jobs:
         run: node tools/migration-ledger-check.mjs chain
       - run: node --import tsx --test tools/runtime-db-role-check.test.ts
       - run: node --import tsx --test tools/tenant-filter-check.test.ts
+      - run: node --import tsx --test tools/drizzle-tenant-check.test.ts
       - run: node --test tools/ci-path-filter.test.mjs
 
   prisma-migration-certification:

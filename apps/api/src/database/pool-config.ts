@@ -43,6 +43,12 @@ export function inspectPoolConfig(url: string | undefined): PoolConfigReport {
   return report;
 }
 
+/**
+ * ADR 0110: Drizzle checks out the same `DATABASE_URL` through its own pool.
+ * The cap is fixed in code; it is not Prisma's `connection_limit`.
+ */
+export const TENANT_DRIZZLE_POOL_MAX = 2;
+
 export interface ConnectionBudgetInput {
   /** Running API tasks, at the autoscaling maximum when that is what must be survived. */
   tasks: number;
@@ -52,6 +58,8 @@ export interface ConnectionBudgetInput {
   reserved: number;
   /** Role label to connection URL, one entry per pool a task opens. */
   urls: Record<string, string | undefined>;
+  /** Extra checkouts a task holds that are not expressed as a URL `connection_limit`. */
+  extraPerTask?: number;
 }
 
 export interface ConnectionBudgetReport {
@@ -66,13 +74,15 @@ export interface ConnectionBudgetReport {
 }
 
 /**
- * ADR 0067 / 0075: worst case is `tasks × Σ connection_limit` and must stay at or below
+ * ADR 0067 / 0075 / 0110: worst case is `tasks × (Σ connection_limit + extraPerTask)` and must stay at or below
  * `max_connections - reserved`. A pool without an explicit limit cannot be bounded
  * (Prisma defaults to num_cpus * 2 + 1, and a container may see the host's cores), so the
- * verdict is UNPROVEN rather than a guessed number.
+ * verdict is UNPROVEN rather than a guessed number. `extraPerTask` is the fixed Drizzle cap.
  */
 export function assessConnectionBudget(input: ConnectionBudgetInput): ConnectionBudgetReport {
   const findings: string[] = [];
+  const extra = input.extraPerTask ?? 0;
+  if (!Number.isInteger(extra) || extra < 0) findings.push('extraPerTask must be a whole number of zero or more');
   const pools = Object.entries(input.urls)
     .filter(([, url]) => url !== undefined && url !== '')
     .map(([label, url]) => {
@@ -82,7 +92,7 @@ export function assessConnectionBudget(input: ConnectionBudgetInput): Connection
 
   const valid = Number.isInteger(input.tasks) && input.tasks >= 1 && Number.isInteger(input.maxConnections) && input.maxConnections >= 1 && Number.isInteger(input.reserved) && input.reserved >= 0;
   const available = valid ? input.maxConnections - input.reserved : 0;
-  const perTask = pools.reduce((sum, pool) => sum + (pool.connectionLimit ?? 0), 0);
+  const perTask = pools.reduce((sum, pool) => sum + (pool.connectionLimit ?? 0), 0) + (Number.isInteger(extra) && extra > 0 ? extra : 0);
   const worstCase = valid ? input.tasks * perTask : 0;
 
   if (!valid) findings.push('tasks, max-connections and reserved must be whole numbers (tasks and max-connections at least 1)');
@@ -92,7 +102,7 @@ export function assessConnectionBudget(input: ConnectionBudgetInput): Connection
     if (pool.connectionLimit === null) findings.push(`${pool.label}: connection_limit is missing or invalid, so its share of the budget is unbounded`);
   }
 
-  const unproven = !valid || pools.length === 0 || pools.some((pool) => pool.connectionLimit === null);
+  const unproven = !valid || !Number.isInteger(extra) || extra < 0 || pools.length === 0 || pools.some((pool) => pool.connectionLimit === null);
   const verdict = unproven ? 'UNPROVEN' : worstCase > available ? 'OVER_BUDGET' : 'WITHIN_BUDGET';
   if (verdict === 'OVER_BUDGET') findings.push(`worst case ${input.tasks} tasks x ${perTask} = ${worstCase} exceeds the ${available} connections available`);
 

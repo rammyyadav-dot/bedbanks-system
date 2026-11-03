@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { TenantControlDatabase } from '../platform-admin/tenant-control.database';
 import { PrismaService } from './prisma.service';
+import { TenantDrizzleService } from './tenant-drizzle.service';
 
 /**
  * @Global so PrismaService is injectable anywhere without every future
@@ -10,7 +11,7 @@ import { PrismaService } from './prisma.service';
  */
 @Global()
 @Module({
-  providers: [PrismaService, TenantControlDatabase],
-  exports: [PrismaService, TenantControlDatabase],
+  providers: [PrismaService, TenantControlDatabase, TenantDrizzleService],
+  exports: [PrismaService, TenantControlDatabase, TenantDrizzleService],
 })
 export class DatabaseModule {}
