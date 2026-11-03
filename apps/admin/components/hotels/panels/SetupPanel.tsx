@@ -153,7 +153,7 @@ function SetupForm({ hotelId, setup, onSaved, onLoadLatest }: { hotelId: string;
   useUnsavedChanges(dirty)
   // Private contacts are never copied into browser storage: a recovered draft restores everything else and leaves the contacts as stored.
   const recovery = useDraftRecovery<Omit<Form, 'contacts'>>({
-    scope: 'setup', hotelId, base: omitContacts(initial), value: omitContacts(form), dirty, valid: isFormDraft,
+    scope: 'setup', recordId: hotelId, base: omitContacts(initial), value: omitContacts(form), dirty, valid: isFormDraft,
     onRestore: (r) => draft.restore({ ...r.base, contacts: initial.contacts }, { ...r.value, contacts: initial.contacts }),
   })
   const set = <K extends keyof Form>(key: K, value: Form[K]) => { pendingKey.current = null; draft.setDraft((f) => ({ ...f, [key]: value })) }

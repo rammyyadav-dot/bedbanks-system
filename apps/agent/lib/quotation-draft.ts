@@ -30,6 +30,12 @@ function reduce(state: QuotationDraft, action: Action): QuotationDraft {
   }
 }
 
+export function isQuotationDraft(value: unknown): value is QuotationDraft {
+  if (!value || typeof value !== 'object') return false
+  const draft = value as Partial<QuotationDraft>
+  return typeof draft.currency === 'string' && draft.currency.length === 3 && !!draft.branding && typeof draft.branding === 'object' && Array.isArray(draft.lineItems)
+}
+
 export function useQuotationDraft(currency: string, initial?: Partial<QuotationDraft>) {
   const [draft, dispatch] = useReducer(reduce, {
     currency,

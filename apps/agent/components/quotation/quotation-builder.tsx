@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Quotation, QuotationLineItemInput } from '@bedbanks/contracts/agent'
+import { mergeDraft } from '@bedbanks/ui/merge-draft'
+import { useDraftRecovery } from '@bedbanks/ui/use-draft-recovery'
 import { createQuotation, updateQuotation } from '@/lib/api-client'
 import { formatMinorAmount } from '@/lib/format'
-import { previewTotalMinor, validateQuotationDraft } from '@/lib/quotation'
-import { useQuotationDraft } from '@/lib/quotation-draft'
+import { emptyBranding, previewTotalMinor, validateQuotationDraft } from '@/lib/quotation'
+import { isQuotationDraft, useQuotationDraft, type QuotationDraft } from '@/lib/quotation-draft'
 import { BrandingPanel } from './branding-panel'
 import { ExportActions } from './export-actions'
 import { LineItemEditor } from './line-item-editor'
@@ -23,11 +25,31 @@ export function QuotationBuilder({ tenantId, currency, initialLineItems, existin
   initialLineItems: QuotationLineItemInput[]
   existing?: Quotation
 }) {
-  const { draft, atLineItemLimit, removeLineItem, updateLineItem, setBranding } = useQuotationDraft(currency, {
+  const { draft, atLineItemLimit, removeLineItem, updateLineItem, setBranding, reset } = useQuotationDraft(currency, {
     branding: existing?.branding,
     lineItems: existing?.lineItems ?? initialLineItems,
   })
   const [saved, setSaved] = useState<Quotation | null>(existing ?? null)
+  const persisted = saved ?? existing
+  const seedKey = JSON.stringify(persisted?.lineItems ?? initialLineItems)
+  const seedBrand = JSON.stringify(persisted?.branding ?? null)
+  const baseline = useMemo<QuotationDraft>(() => ({
+    currency: persisted?.currency ?? currency,
+    branding: persisted?.branding ?? emptyBranding(),
+    lineItems: persisted?.lineItems ?? initialLineItems,
+  }), [persisted, currency, seedKey, seedBrand, initialLineItems])
+  const recovery = useDraftRecovery<QuotationDraft>({
+    scope: persisted ? `quotation:${persisted.id}` : 'quotation:new',
+    recordId: tenantId,
+    base: baseline,
+    value: draft,
+    dirty: JSON.stringify(draft) !== JSON.stringify(baseline),
+    valid: isQuotationDraft,
+    onRestore: (stored) => {
+      const { merged } = mergeDraft(stored.base, stored.value, baseline)
+      reset(merged)
+    },
+  })
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const issues = validateQuotationDraft(draft.lineItems, draft.branding)
@@ -54,6 +76,7 @@ export function QuotationBuilder({ tenantId, currency, initialLineItems, existin
     <header className="bb-quote-header">
       <h1>Quotation builder</h1>
       <p>Build a branded proposal from your search results, then export it for your client.</p>
+      {recovery.recovered && <p role="status">A draft from this tab was restored ({new Date(recovery.recovered.savedAt).toLocaleString()}). <button type="button" onClick={() => { reset(baseline); recovery.dismiss() }}>Discard it</button></p>}
     </header>
 
     <LineItemEditor currency={currency} lineItems={draft.lineItems} issues={issues?.lineItems} onUpdate={updateLineItem} onRemove={removeLineItem} />

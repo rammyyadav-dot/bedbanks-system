@@ -1,5 +1,5 @@
 import {
-  EMPTY_HEADER, normaliseHeader, activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
+  EMPTY_HEADER, normaliseHeader, activationAllowedFrom, amendmentProblems, applyAmendment, assessContractActivation, classifyExpectedUpdatedAt, lifecycleTarget, nextVersion, normaliseAmendment, termsEditable, termsFingerprint,
   type ContractTerms, type PlanFacts,
 } from './contract-lifecycle'
 
@@ -13,6 +13,17 @@ const terms = (over: Partial<ContractTerms> = {}): ContractTerms => ({
 const plan = (over: Partial<PlanFacts> = {}): PlanFacts => ({ code: 'P1', status: 'DRAFT', currency: 'AED', refundable: true, cancellationPolicySet: null, validFrom: null, validTo: null, ...over })
 const facts = (over: Partial<Parameters<typeof assessContractActivation>[0]> = {}) => ({ today: '2026-10-17', status: 'REVIEW', terms: terms(), supplierStatus: 'ACTIVE', mappingStatus: 'MAPPED', plans: [plan()], ...over })
 const failed = (r: ReturnType<typeof assessContractActivation>) => r.checks.filter((c) => !c.ok).map((c) => c.code)
+
+describe('contract version check (ADR 0110)', () => {
+  const at = new Date('2026-11-03T02:00:00.000Z')
+  it('accepts the loaded instant and rejects a stale or unreadable one', () => {
+    expect(classifyExpectedUpdatedAt(undefined, at)).toBe('absent')
+    expect(classifyExpectedUpdatedAt(at.toISOString(), at)).toBe('match')
+    expect(classifyExpectedUpdatedAt('2026-11-03T01:00:00.000Z', at)).toBe('stale')
+    expect(classifyExpectedUpdatedAt('yesterday', at)).toBe('invalid')
+    expect(classifyExpectedUpdatedAt(null, at)).toBe('invalid')
+  })
+})
 
 describe('contract lifecycle (ADR 0067, F-01)', () => {
   it('locks terms while ACTIVE or EXPIRED and allows direct edits in DRAFT, REVIEW and SUSPENDED', () => {

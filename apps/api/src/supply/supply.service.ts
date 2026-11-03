@@ -43,7 +43,7 @@ import { planFingerprint } from './rate-plan-fingerprint'
 import { EXTRA_ADULT_BAND, validateGuestPriceLines } from './guest-pricing'
 import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived-rates'
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
-import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, cancellationTerm, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
+import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, cancellationTerm, classifyExpectedUpdatedAt, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
 import { MAX_SUPPLEMENTS, supplementTerm } from './supplements'
 import { isLargePriceChange, largeChangeWarning } from './price-guardrails'
 import { supplementReferenceProblem } from './supplement-references'
@@ -461,9 +461,12 @@ export class SupplyService {
     if (input && typeof input === 'object' && Object.prototype.hasOwnProperty.call(input, 'status')) throw new BadRequestException({ code: 'CONTRACT_STATUS_VIA_LIFECYCLE_ONLY', message: 'Contract status cannot be set here. Submit for review, request activation (a second person approves) or suspend instead.' })
     return this.write(tenantId, userId, 'supply.contracts.manage', 'supply.contract.updated', 'contract', requestId, async tx => {
       // Owner and renewal reminder are governance, not terms (ADR 0067, F-20): they may change on an ACTIVE contract. Anything else needs editable terms.
-      const keys = Object.keys(input && typeof input === 'object' ? input : {})
+      const keys = Object.keys(input && typeof input === 'object' ? input : {}).filter((k) => k !== 'expectedUpdatedAt')
       const governanceOnly = keys.length > 0 && keys.every((k) => (GOVERNANCE_KEYS as readonly string[]).includes(k))
       const current = governanceOnly ? await this.lockContract(tx, tenantId, contractId) : await this.lockEditableContract(tx, tenantId, contractId)
+      const version = classifyExpectedUpdatedAt(input?.expectedUpdatedAt, current.updatedAt)
+      if (version === 'invalid') throw new BadRequestException({ code: 'CONTRACT_VERSION_INVALID', message: 'expectedUpdatedAt must be the updatedAt timestamp this contract was loaded with.' })
+      if (version === 'stale') throw new ConflictException({ code: 'CONTRACT_CHANGED', message: 'This contract changed since it was loaded. Reload it before saving. Nothing was written.' })
       if (governanceOnly && current.status === 'EXPIRED') throw new ConflictException({ code: 'CONTRACT_TERMS_LOCKED', message: 'An EXPIRED contract cannot be changed.' })
       const extra = { ...this.contractHeaderData(input, headerOf(current)), ...(await this.contractGovernanceData(tx, tenantId, input)) }
       if (governanceOnly) { const value = await tx.contract.update({ where: { id: contractId, tenantId }, data: extra }); return { id: value.id, value } }

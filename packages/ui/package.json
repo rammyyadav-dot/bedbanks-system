@@ -5,11 +5,21 @@
   "description": "FBEDS Shared UI Components",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dialog-key": "./src/dialog-key.ts",
+    "./draft-store": "./src/draft-store.ts",
+    "./merge-draft": "./src/merge-draft.ts",
+    "./use-draft-recovery": "./src/use-draft-recovery.ts",
+    "./use-draft-state": "./src/use-draft-state.ts",
+    "./use-virtual-window": "./src/use-virtual-window.ts",
+    "./window-range": "./src/window-range.ts"
+  },
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "node --test"
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

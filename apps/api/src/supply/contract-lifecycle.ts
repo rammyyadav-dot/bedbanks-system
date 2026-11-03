@@ -74,6 +74,15 @@ export const HEADER_KEYS = ['rateType', 'commissionBp', 'paymentTermsDays', 'sig
 /** Governance fields: who owns the contract and when renewal is flagged. Not commercial terms, so editable while the contract is ACTIVE. */
 export const GOVERNANCE_KEYS = ['ownerUserId', 'renewalReminderDays'] as const
 
+/** A contract write may carry the `updatedAt` the editor loaded. Omitted means an older client; a present value must be the same instant. */
+export function classifyExpectedUpdatedAt(expected: unknown, current: Date): 'absent' | 'match' | 'invalid' | 'stale' {
+  if (expected === undefined) return 'absent'
+  if (typeof expected !== 'string') return 'invalid'
+  const parsed = Date.parse(expected)
+  if (!Number.isFinite(parsed)) return 'invalid'
+  return parsed === current.getTime() ? 'match' : 'stale'
+}
+
 /**
  * Validates header keys present in `raw` against the header they would replace. Missing keys keep `current`. Every problem is reported.
  * The combination is checked as a whole: COMMISSIONABLE needs a commission, NET takes none.

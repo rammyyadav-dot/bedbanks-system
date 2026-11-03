@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { Building2, ChevronRight, Plus } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import { Suspense } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { HotelManagementSummary } from '@/components/hotels/HotelManagementSummary'
@@ -21,7 +22,6 @@ import { MappingsPanel } from '@/components/hotels/panels/MappingsPanel'
 import { ContractsPanel } from '@/components/hotels/panels/ContractsPanel'
 import { InventoryPanel } from '@/components/hotels/panels/InventoryPanel'
 import { RatePlansPanel } from '@/components/hotels/panels/RatePlansPanel'
-import { RateGrid } from '@/components/hotels/panels/RateGrid'
 import { RatesInventoryPanel } from '@/components/hotels/panels/RatesInventoryPanel'
 import { DistributionPanel } from '@/components/hotels/panels/DistributionPanel'
 import { BookingsPanel } from '@/components/hotels/panels/BookingsPanel'
@@ -32,6 +32,10 @@ import { ReportsPanel } from '@/components/hotels/panels/ReportsPanel'
 import { useCan } from '@/lib/auth/capabilities'
 import { getHotel360 } from '@/lib/data/hotel-commercial'
 import { hotelLifecycleLabel, HOTEL_TABS, hotelHref, parseTab, starsText, type HotelTabId } from '@/lib/hotel-ui'
+
+const RateGrid = dynamic(() => import('@/components/hotels/panels/RateGrid').then((mod) => mod.RateGrid), {
+  loading: () => <LoadingState rows={8} />,
+})
 
 const TAB_PERMISSION: Partial<Record<HotelTabId, 'supply.contracts.read' | 'supply.mappings.read' | 'supply.rates.read' | 'supply.availability.read' | 'supply.rooms.read' | 'booking.read' | 'audit.read'>> = {
   rooms: 'supply.rooms.read', mappings: 'supply.mappings.read', contracts: 'supply.contracts.read', rateplans: 'supply.rates.read', rates: 'supply.rates.read', sellability: 'supply.rates.read', inventory: 'supply.availability.read', bookings: 'booking.read', audit: 'audit.read', reports: 'booking.read',

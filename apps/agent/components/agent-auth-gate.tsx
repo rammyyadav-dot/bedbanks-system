@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AgentEntrance } from '@/components/entrance/agent-entrance'
 import { AgentWorkspace } from './agent-workspace'
+import { clearAllDrafts } from '@bedbanks/ui/draft-store'
 import { agentSession, getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
 import { clearGuestNationality } from '@/lib/guest-market'
 import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
@@ -64,6 +65,7 @@ export function AgentAuthGate({ render }: { render?: (identity: AgentIdentity) =
       sessionEpoch.current += 1
       clearRecentSearches(window.sessionStorage, current.user.id)
       clearGuestNationality(window.sessionStorage, current.user.id)
+      clearAllDrafts(window.sessionStorage)
       setIdentity(null)
       setRestoreError(false)
       setSessionExpired(true)
@@ -83,6 +85,7 @@ export function AgentSignOut({ userId, onComplete }: { userId: string; onComplet
     clearRecentSearches(window.sessionStorage, userId)
     clearGuestNationality(window.sessionStorage, userId)
     clearAgentSessionMark(window.sessionStorage)
+    clearAllDrafts(window.sessionStorage)
     onComplete()
   }}>Sign out</button>
 }
