@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { adminConsoleMemberships, adminConsoleRole, sessionMayUseAdminConsole } from '@bedbanks/contracts'
 import { highestAdminConsoleRole } from './auth/admin-access'
@@ -67,9 +67,9 @@ test('dashboard layout validates the session against /auth/me and ADMIN / SUPER_
   assert.match(read('lib', 'auth', 'session.ts'), /\/login\?denied=role/)
 })
 
-test('middleware.ts exists and delegates to proxy.ts (Next 16)', () => {
-  const middleware = read('middleware.ts')
-  assert.match(middleware, /export \{ proxy as middleware/)
+test('Next 16 has one proxy entry for the auth gate and API rewrite', () => {
+  assert.equal(existsSync(join(root, 'middleware.ts')), false)
+  assert.match(read('proxy.ts'), /export function proxy/)
   assert.match(read('proxy.ts'), /decideAdminEdgeAccess/)
   assert.match(read('proxy.ts'), /resolveApiDestination/)
 })
