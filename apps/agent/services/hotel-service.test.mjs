@@ -121,6 +121,20 @@ test('a suspended agency is told so, and an ordinary 403 stays a plain denial (s
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'access_denied')
   assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'access_denied')
 })
+test('Given the selected tenant, When an offer names another tenant, Then the search is rejected and recheck still uses the selected tenant', async () => {
+  const mismatched = structuredClone(hotel)
+  mismatched.rooms[0].rates[0].tenantId = 'tenant-b'
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+    request: criteria, hotels: [mismatched], total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+  const rejected = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(rejected.status, 'mapping_unavailable')
+  assert.deepEqual(rejected.liveHotels, [])
+  let header
+  globalThis.fetch = async (_url, init) => { header = init.headers['x-fbeds-tenant-id']; return new Response(JSON.stringify({ data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'rechecked' } }), { status: 200 }) }
+  await new ApiHotelService('https://example.invalid').recheckOffer({ ...mismatched.rooms[0].rates[0], tenantId: 'tenant-b' }, 'search-a', 'tenant-a')
+  assert.equal(header, 'tenant-a')
+})
+
 test('recheck sends only canonical offer identity and expected display amount without allocating inventory', async () => {
   const rate = hotel.rooms[0].rates[0]
   globalThis.fetch = async (url, init) => {

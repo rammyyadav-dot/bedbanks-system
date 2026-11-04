@@ -3,12 +3,20 @@ import { ApiClientError, createHttpClient } from '@bedbanks/api-client/agent'
 import { agentApiBase } from './api-config.mjs'
 import { defaultSearchStay } from './stay-dates.mjs'
 import { NON_EXPIRING_PATHS, announceSessionExpired } from './session-events.mjs'
+import { capabilitiesFromContext, type AgentCapability } from './portal-access'
 
 export type AgentIdentity = {
   user: { id: string; email: string; name: string | null; status: 'ACTIVE' | 'SUSPENDED' }
   memberships: Array<{ tenantId: string; tenantName: string; role: string }>
   /** Server context only. True solely when the API sends boolean true. Never a booking permission. */
   bookingEnabled: boolean
+  /** True when existing bookings can be listed, documented or cancelled. Never a permission. */
+  bookingServicingEnabled: boolean
+  /** True when funding declarations are enabled. A declaration still does not credit the wallet. */
+  fundingEnabled: boolean
+  /** Effective grants for capabilityTenantId. Empty until that tenant's context has loaded. */
+  capabilities: AgentCapability[]
+  capabilityTenantId: string
   /** Currencies the server enables (ADR 0029). Fails closed to AED when the server sends nothing usable. */
   settlementCurrencies: string[]
 }
@@ -23,8 +31,24 @@ export function settlementCurrenciesFromContext(value: unknown): string[] {
   return list.length > 0 ? [...new Set(list)] : ['AED']
 }
 
-export function agentSession(identity: { user: AgentIdentity['user']; memberships: AgentIdentity['memberships'] }, bookingEnabled: unknown, settlementCurrencies?: unknown): AgentIdentity {
-  return { user: identity.user, memberships: identity.memberships, bookingEnabled: bookingEnabledFromContext(bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(settlementCurrencies) }
+export function agentSession(identity: {
+  user: AgentIdentity['user']
+  memberships: AgentIdentity['memberships']
+  capabilities?: unknown
+  capabilityTenantId?: unknown
+  bookingServicingEnabled?: unknown
+  fundingEnabled?: unknown
+}, bookingEnabled: unknown, settlementCurrencies?: unknown): AgentIdentity {
+  return {
+    user: identity.user,
+    memberships: identity.memberships,
+    bookingEnabled: bookingEnabledFromContext(bookingEnabled),
+    bookingServicingEnabled: bookingEnabledFromContext(identity.bookingServicingEnabled),
+    fundingEnabled: bookingEnabledFromContext(identity.fundingEnabled),
+    capabilities: capabilitiesFromContext(identity.capabilities),
+    capabilityTenantId: typeof identity.capabilityTenantId === 'string' ? identity.capabilityTenantId : '',
+    settlementCurrencies: settlementCurrenciesFromContext(settlementCurrencies),
+  }
 }
 
 const http = createHttpClient({
@@ -58,9 +82,17 @@ export async function login(email: string, password: string) {
   }
 }
 
-export async function getAgentContext() {
-  const context = await request<{ user: AgentIdentity['user']; memberships: AgentIdentity['memberships']; capabilities: string[]; bookingEnabled?: unknown; settlementCurrencies?: unknown }>(routes.agent.context)
-  return { ...context, bookingEnabled: bookingEnabledFromContext(context.bookingEnabled), settlementCurrencies: settlementCurrenciesFromContext(context.settlementCurrencies) }
+export async function getAgentContext(tenantId?: string) {
+  const context = await request<{
+    user: AgentIdentity['user']
+    memberships: AgentIdentity['memberships']
+    capabilities?: unknown
+    bookingEnabled?: unknown
+    bookingServicingEnabled?: unknown
+    fundingEnabled?: unknown
+    settlementCurrencies?: unknown
+  }>(routes.agent.context, tenantId ? { headers: { 'x-fbeds-tenant-id': tenantId } } : undefined)
+  return agentSession({ ...context, capabilityTenantId: tenantId ?? '' }, context.bookingEnabled, context.settlementCurrencies)
 }
 
 export function logout() {

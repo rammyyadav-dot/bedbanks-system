@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { AgentHotelOffer } from '@bedbanks/domain'
 import { agentApiBase } from '@/lib/api-config.mjs'
+import { authenticatedFetch } from '@/lib/authenticated-fetch'
 import { hotelImagePath } from '@/lib/hotel-image.mjs'
 
 /**
@@ -17,7 +18,7 @@ export function HotelThumbnail({ hotel, tenantId, initial }: { hotel: AgentHotel
     if (!image || !tenantId) { setSrc(null); return }
     let url: string | null = null; let cancelled = false
     const controller = new AbortController()
-    fetch(`${agentApiBase}${hotelImagePath(hotel.hotelId, image.imageId)}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId }, signal: controller.signal })
+    authenticatedFetch(`${agentApiBase}${hotelImagePath(hotel.hotelId, image.imageId)}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId }, signal: controller.signal })
       .then((r) => (r.ok && /^image\/(jpeg|png|webp)/.test(r.headers.get('content-type') ?? '') ? r.blob() : Promise.reject(new Error('image'))))
       .then((blob) => { if (cancelled) return; url = URL.createObjectURL(blob); setSrc(url) })
       .catch(() => { if (!cancelled) setSrc(null) })
