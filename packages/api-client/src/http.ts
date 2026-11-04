@@ -1,3 +1,4 @@
+import { isSuccessEnvelope } from '@bedbanks/contracts'
 import type { ApiEnvelope } from '@bedbanks/types'
 
 export class ApiClientError extends Error {
@@ -23,8 +24,8 @@ function isEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
 }
 
 export function unwrapEnvelope<T>(body: unknown): T {
-  if (isEnvelope<T>(body) && body.success === true) return body.data
-  return body as T
+  if (isSuccessEnvelope<T>(body)) return body.data
+  throw new ApiClientError('The API returned an unexpected response.', 502, 'API_MALFORMED_RESPONSE')
 }
 
 export function createHttpClient(options: HttpClientOptions) {

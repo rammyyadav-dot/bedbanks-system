@@ -1,3 +1,4 @@
+import { isSuccessEnvelope } from '@bedbanks/contracts'
 import { ApiResponseError } from './errors'
 import { activeTenantHeaders } from './tenant-context'
 
@@ -51,10 +52,10 @@ export async function apiRequestWithMeta<T>(path: string, init: RequestInit = {}
     // HTTP success is not mutation success: only the API's own { success: true, data } envelope counts. A { success: false } body, an empty or
     // truncated body, or a proxy's HTML page is raised as a failure that keeps the request id, so no caller reports a save the server did not confirm.
     if (envelope?.success === false) throw failure(envelope, response.status, requestId, 'The request failed.')
-    if (!envelope || envelope.success !== true || !('data' in envelope)) {
+    if (!isSuccessEnvelope<T>(envelope)) {
       throw new ApiResponseError('API_MALFORMED_RESPONSE', 'The Admin API returned an unexpected response. The change may not have been applied; reload to check before retrying.', response.status, requestId, [reason || 'The response was not the API success envelope.'])
     }
-    return { data: envelope.data as T, requestId }
+    return { data: envelope.data, requestId }
   } catch (error) {
     if (error instanceof ApiResponseError) throw error
     if (error instanceof DOMException && error.name === 'AbortError') {

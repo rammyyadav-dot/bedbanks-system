@@ -1,6 +1,6 @@
 import type { HotelSearchCriteria, HotelSearchResult, OfferRecheckResult } from '../types/hotel.ts'
 import type { AgentRateOffer } from '@bedbanks/domain'
-import { routes } from '@bedbanks/contracts/agent'
+import { isSuccessEnvelope, routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from '../lib/api-config.mjs'
 import { announceSessionExpired } from '../lib/session-events.mjs'
 import { isAgencySuspended } from '../lib/agency-suspension.mjs'
@@ -43,8 +43,8 @@ export class ApiHotelService implements HotelService {
         }
         if (!response.ok) return empty('provider_unavailable')
         const envelope: unknown = await response.json()
-        const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-        const validated = validateAgentSearchResponse(data, criteria)
+        if (!isSuccessEnvelope(envelope)) return empty('mapping_unavailable')
+        const validated = validateAgentSearchResponse(envelope.data, criteria)
         if (!validated.ok) return empty('mapping_unavailable')
         const { status, hotels, request, pagination } = validated.response
         return { liveHotels: hotels, total: hotels.length,
@@ -74,8 +74,8 @@ export class ApiHotelService implements HotelService {
         if (response.status === 401) { announceSessionExpired(); return fallback('auth_required') }
         if (response.status === 403) return fallback(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
         const envelope: unknown = await response.json().catch(() => null)
-        const data: unknown = typeof envelope === 'object' && envelope !== null && 'data' in envelope ? envelope.data : envelope
-        return validateRecheckResult(data, rate.offerId, searchId) ?? fallback('provider_unavailable')
+        if (!isSuccessEnvelope(envelope)) return fallback('provider_unavailable')
+        return validateRecheckResult(envelope.data, rate.offerId, searchId) ?? fallback('provider_unavailable')
       } finally { clearTimeout(timeout) }
     } catch { return fallback('provider_unavailable') }
   }
