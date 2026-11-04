@@ -220,6 +220,21 @@ export const departments: readonly DepartmentDef[] = [
   { id: 'audit', label: 'Audit & Security', summary: 'Evidence and investigation', modules: [live('/audit', 'Audit explorer', 'audit.read')] },
 ]
 
+export interface LiveDepartmentModule {
+  href: string
+  label: string
+  departmentId: DepartmentId
+  requires?: string
+}
+
+/** Every module the Admin may render. Planned modules are absent: they have no route. */
+export function liveDepartmentModules(): readonly LiveDepartmentModule[] {
+  return departments.flatMap((department) => department.modules.flatMap((module) => {
+    if (module.readiness !== 'live' || !module.href) return []
+    return [{ href: module.href, label: module.label, departmentId: department.id, ...(module.requires ? { requires: module.requires } : {}) }]
+  }))
+}
+
 /** Sidebar groups: departments folded into the sections an operator works in. Only live modules render. */
 export const sidebarGroups: ReadonlyArray<{ label: string; departments: readonly DepartmentId[] }> = [
   { label: 'Business', departments: ['business'] },

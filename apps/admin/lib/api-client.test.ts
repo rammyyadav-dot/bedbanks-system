@@ -2,6 +2,7 @@ import { afterEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { apiRequest, apiRequestWithMeta } from './api/client'
 import { ApiResponseError } from './api/errors'
+import { publishBrowserAuthGate } from './auth/mutation-gate'
 
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
@@ -32,6 +33,7 @@ for (const [label, body] of [
   ['success as a string', '{"success":"true","data":{}}'],
 ] as const) {
   test(`HTTP 200 with ${label} is not a successful mutation`, async () => {
+    publishBrowserAuthGate({ status: 'ready', tenantId: 't1', permissions: new Set(['supply.hotels.manage']) })
     respond(200, body)
     const error = await failure(() => apiRequestWithMeta('/hotel/1', { method: 'PATCH', body: '{}' }))
     assert.equal(error.code, 'API_MALFORMED_RESPONSE')
@@ -71,6 +73,24 @@ test('HTTP errors keep their code, details and request id, including when the bo
   respond(500, JSON.stringify({ error: { details: 'not-an-array' } }), {})
   const odd = await failure(() => apiRequest('/x'))
   assert.deepEqual([odd.details, odd.requestId], [[], null])
+})
+
+test('an unsafe request is not sent until permissions for the active tenant are confirmed', async () => {
+  let fetched = false
+  globalThis.fetch = (async () => { fetched = true; return new Response('{}', { status: 200 }) }) as typeof fetch
+  publishBrowserAuthGate({ status: 'loading', tenantId: 't1', permissions: new Set() })
+  const loading = await failure(() => apiRequest('/hotel/1', { method: 'PATCH', body: '{}', permission: 'supply.hotels.manage' }))
+  assert.equal(loading.status, 403)
+  assert.match(loading.message, /Nothing was changed/)
+  assert.equal(fetched, false)
+  publishBrowserAuthGate({ status: 'error', tenantId: 't1', permissions: new Set(['supply.hotels.manage']) })
+  assert.equal((await failure(() => apiRequest('/hotel/1', { method: 'PATCH', body: '{}' }))).status, 403)
+  assert.equal(fetched, false)
+  publishBrowserAuthGate({ status: 'ready', tenantId: null, permissions: new Set(['supply.hotels.manage']) })
+  assert.match((await failure(() => apiRequest('/hotel/1', { method: 'PATCH', body: '{}', permission: 'supply.hotels.manage' }))).message, /not confirmed/)
+  publishBrowserAuthGate({ status: 'ready', tenantId: 't1', permissions: new Set(['supply.rates.read']) })
+  assert.match((await failure(() => apiRequest('/hotel/1', { method: 'PATCH', body: '{}', permission: 'supply.hotels.manage' }))).message, /do not have permission/)
+  assert.equal(fetched, false, 'a denied mutation never reaches the network')
 })
 
 test('a network failure and a body that dies mid-read are NETWORK_ERROR', async () => {

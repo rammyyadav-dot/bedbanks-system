@@ -5,6 +5,7 @@ import type { DepartmentPermission, OperationsPermission, SupplyPermission } fro
 import { getCapabilities } from '@/lib/data'
 import { getOpsCapabilities } from '@/lib/data/operations'
 import { isAllowed, loadingCapabilities, type CapabilityState, type CapabilityStatus } from './capability-policy'
+import { publishBrowserAuthGate } from './mutation-gate'
 
 /**
  * UX-only view of the caller's own permissions for the active tenant. The API remains the authorization boundary:
@@ -15,6 +16,14 @@ const CapabilityContext = createContext<{ state: CapabilityState; tenantId: stri
 
 export function CapabilityProvider({ tenantId, children }: { tenantId: string | null; children: ReactNode }) {
   const [state, setState] = useState<CapabilityState>(() => loadingCapabilities(tenantId))
+  if (typeof window !== 'undefined') {
+    const confirmed = state.status === 'ready' && state.tenantId === tenantId
+    publishBrowserAuthGate({
+      status: confirmed ? 'ready' : state.tenantId === tenantId ? state.status : 'loading',
+      tenantId,
+      permissions: confirmed ? state.permissions : new Set(),
+    })
+  }
   useEffect(() => {
     let active = true
     // Reset immediately so permissions from the previous tenant are never applied to the new one.
