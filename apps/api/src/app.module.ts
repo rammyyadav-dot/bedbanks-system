@@ -8,6 +8,7 @@ import { CrossSiteRequestGuard } from './common/guards/cross-site-request.guard'
 import configuration from './config/configuration';
 import { validate } from './config/env.validation';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
+import { SliMiddleware } from './observability/sli.middleware';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -79,6 +80,6 @@ import { DistributionModule } from './distribution/distribution.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware, SliMiddleware).forRoutes('*');
   }
 }

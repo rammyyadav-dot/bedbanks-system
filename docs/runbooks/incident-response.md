@@ -50,6 +50,10 @@ Follow `docs/runbooks/recovery.md`: restore to a NEW instance by point-in-time, 
 
 Internal updates every 30 minutes for Sev 1 and every 2 hours for Sev 2, even if the update is "no change". State what is known, what is not, and the next update time. Customer or regulator notification is the owner's decision; the IC supplies the facts (scope, window, data classes, status). Do not speculate about root cause in external messages.
 
+## Tabletop
+
+Before a staging acceptance, run `node tools/ops/incident-tabletop.mjs`. It checks this runbook still names a severity, the first 15 minutes, and the playbook actions for cross-tenant access, credential exposure, supplier outage, ledger inconsistency, data loss and a bad release. It does not page anyone. A live page to the alarm mailbox remains an owner-run staging drill.
+
 ## Closing
 
 Resolved means: customer impact ended, the cause is understood or explicitly unknown, and monitoring confirms normal behavior for at least one full alarm window. Within five business days publish a post-incident review containing the timeline, root cause, what detected it and how long that took, what mitigated it and how long that took, and dated, owned follow-up actions (including any missing alarm or test). Add regression tests and, where an invariant failed, an ADR or a `CLAUDE.md` rule change.
