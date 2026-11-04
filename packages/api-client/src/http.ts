@@ -1,5 +1,4 @@
-import { isSuccessEnvelope } from '@bedbanks/contracts'
-import type { ApiEnvelope } from '@bedbanks/types'
+import { parseApiEnvelope, parseApiEnvelopeValue } from '@bedbanks/contracts/envelope'
 
 export class ApiClientError extends Error {
   constructor(
@@ -19,13 +18,14 @@ export type HttpClientOptions = {
   nonExpiringPaths?: readonly string[]
 }
 
-function isEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
-  return typeof value === 'object' && value !== null && 'success' in value
-}
-
+/** Reads a success envelope. Anything else throws; a bare JSON object is never treated as data. */
 export function unwrapEnvelope<T>(body: unknown): T {
-  if (isSuccessEnvelope<T>(body)) return body.data
-  throw new ApiClientError('The API returned an unexpected response.', 502, 'API_MALFORMED_RESPONSE')
+  const parsed = parseApiEnvelopeValue(200, body)
+  if (parsed.kind === 'success') return parsed.data as T
+  const status = parsed.kind === 'failure' ? 200 : 502
+  const code = parsed.kind === 'failure' ? parsed.code ?? 'API_REQUEST_FAILED' : 'API_MALFORMED_RESPONSE'
+  const message = parsed.kind === 'failure' ? parsed.message ?? 'Request failed' : 'The API returned an unexpected response.'
+  throw new ApiClientError(message, status, code)
 }
 
 export function createHttpClient(options: HttpClientOptions) {
@@ -34,22 +34,31 @@ export function createHttpClient(options: HttpClientOptions) {
 
   return {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
-      const response = await fetch(`${baseUrl}${path}`, {
-        ...init,
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...init?.headers },
-      })
-      const body: unknown = await response.json().catch(() => null)
-      if (!response.ok) {
-        if (response.status === 401) {
-          if (!nonExpiring.has(path)) options.onUnauthorized?.(path)
-          throw new ApiClientError('Session expired', 401)
-        }
-        if (response.status === 403) throw new ApiClientError('Access denied', 403)
-        const message = isEnvelope(body) && body.success === false ? body.error.message : 'Request failed'
-        throw new ApiClientError(message, response.status, isEnvelope(body) && body.success === false ? body.error.code : undefined)
+      let response: Response
+      try {
+        response = await fetch(`${baseUrl}${path}`, {
+          ...init,
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', ...init?.headers },
+        })
+      } catch {
+        throw new ApiClientError('Request failed', 0, 'NETWORK_ERROR')
       }
-      return unwrapEnvelope<T>(body)
+      let text: string
+      try {
+        text = await response.text()
+      } catch {
+        throw new ApiClientError('Request failed', 0, 'NETWORK_ERROR')
+      }
+      if (response.status === 401) {
+        if (!nonExpiring.has(path)) options.onUnauthorized?.(path)
+        throw new ApiClientError('Session expired', 401)
+      }
+      if (response.status === 403) throw new ApiClientError('Access denied', 403)
+      const parsed = parseApiEnvelope(response.status, text)
+      if (parsed.kind === 'success') return parsed.data as T
+      if (parsed.kind === 'failure') throw new ApiClientError(parsed.message ?? 'Request failed', response.status, parsed.code ?? 'API_REQUEST_FAILED')
+      throw new ApiClientError('The API returned an unexpected response.', response.status, 'API_MALFORMED_RESPONSE')
     },
   }
 }

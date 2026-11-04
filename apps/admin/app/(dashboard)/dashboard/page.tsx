@@ -48,14 +48,14 @@ export default function DashboardPage() {
   const activityMax = useMemo(() => Math.max(...(data?.bookingActivity.map((point) => point.total) ?? [0]), 1), [data])
   const refreshLabel = state === 'loading' ? 'Refreshing…' : state === 'success' ? 'Updated' : 'Refresh'
 
-  if (state === 'loading' && !data) return <main className="dashboard-page"><AdminLoadingState /></main>
-  if (state === 'error' && error?.includes('FORBIDDEN')) return <main className="dashboard-page"><AccessDenied permission="dashboard.read" /></main>
-  if (state === 'error' && error?.includes('UNAUTHENTICATED')) return <main className="dashboard-page"><AuthRequired /></main>
-  if (state === 'error' && error?.includes('PERMISSION_UNAVAILABLE')) return <main className="dashboard-page"><PermissionUnavailable onRetry={() => void load()} /></main>
-  if (state === 'error' && error?.includes('NETWORK_ERROR')) return <main className="dashboard-page"><AdminServiceUnavailable network onRetry={() => void load()} /></main>
-  if (state === 'error' && error?.includes('API_')) return <main className="dashboard-page"><AdminServiceUnavailable onRetry={() => void load()} /></main>
+  if (state === 'loading' && !data) return <div className="dashboard-page"><AdminLoadingState /></div>
+  if (state === 'error' && error?.includes('FORBIDDEN')) return <div className="dashboard-page"><AccessDenied permission="dashboard.read" /></div>
+  if (state === 'error' && error?.includes('UNAUTHENTICATED')) return <div className="dashboard-page"><AuthRequired /></div>
+  if (state === 'error' && error?.includes('PERMISSION_UNAVAILABLE')) return <div className="dashboard-page"><PermissionUnavailable onRetry={() => void load()} /></div>
+  if (state === 'error' && error?.includes('NETWORK_ERROR')) return <div className="dashboard-page"><AdminServiceUnavailable network onRetry={() => void load()} /></div>
+  if (state === 'error' && error?.includes('API_')) return <div className="dashboard-page"><AdminServiceUnavailable onRetry={() => void load()} /></div>
 
-  return <main className="dashboard-page">
+  return <div className="dashboard-page">
     <div className="dashboard-heading"><div><div className="dashboard-eyebrow"><Activity size={12} /> OPERATIONAL OVERVIEW</div><h1>Dashboard</h1><p>Authoritative operational data for your bedbank network.</p></div><div className="dashboard-heading-actions"><label className="dashboard-date-button"><CalendarDays size={15} /><select aria-label="Dashboard date range" value={range} onChange={(event) => setRange(event.target.value as DateRange)}>{ranges.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><ChevronDown size={14} /></label><button className="dashboard-refresh" type="button" onClick={() => void load()} disabled={state === 'loading'}><RefreshCw size={14} className={state === 'loading' ? 'spin' : ''} /> {refreshLabel}</button></div></div>
     {state === 'error' ? <ErrorState onRetry={() => void load()} /> : null}
     <div className="dashboard-freshness">{data ? <>Last updated {relativeTime(data.generatedAt)} · {new Date(data.generatedAt).toLocaleString()}</> : 'Live metrics will appear when the Admin API is connected.'}</div>
@@ -66,5 +66,5 @@ export default function DashboardPage() {
     <div className="dashboard-lower-grid"><section className="dashboard-panel bookings-panel"><div className="dashboard-panel-header"><div><h2>Recent bookings</h2><p>Latest reservation activity</p></div></div>{data?.recentBookings.length ? <div className="dashboard-table-wrap" tabIndex={0} role="region" aria-label="Recent bookings table"><table className="dashboard-table"><caption className="sr-only">Recent bookings</caption><thead><tr><th>Reference</th><th>Agency</th><th>Hotel</th><th>Status</th><th>Amount</th></tr></thead><tbody>{data.recentBookings.map((booking) => <tr key={booking.id}><td className="strong-cell">{booking.reference}</td><td>{booking.agency}</td><td>{booking.hotel}</td><td>{booking.status.replace(/_/g, ' ')}</td><td>{money(booking.amount)}</td></tr>)}</tbody></table></div> : <Empty>No bookings found for this period.</Empty>}</section><aside className="dashboard-panel alerts-panel"><div className="dashboard-panel-header"><div><h2>Alerts &amp; notifications</h2><p>Items requiring attention</p></div></div>{data?.alerts.length ? data.alerts.map((alert) => <div className="alert-row" key={alert.id}><span className={`alert-icon ${alert.severity.toLowerCase()}`} aria-label={alert.severity}><AlertCircle size={15} /></span><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><time dateTime={alert.createdAt}>{relativeTime(alert.createdAt)}</time></div>) : <Empty>No alerts.</Empty>}</aside></div>
     <div className="dashboard-mini-grid"><section className="dashboard-panel ranking-panel"><div className="dashboard-panel-header"><div><h2>Top destinations</h2><p>Provided by the Admin API</p></div></div>{data?.topDestinations.length ? data.topDestinations.map((item) => <div className="ranking-row" key={item.name}><span>{item.name}</span><strong>{item.bookings.toLocaleString()}</strong><small>{item.share}%</small></div>) : <Empty>No destination data available.</Empty>}</section><section className="dashboard-panel ranking-panel"><div className="dashboard-panel-header"><div><h2>Top suppliers</h2><p>Provided by the Admin API</p></div></div>{data?.topSuppliers.length ? data.topSuppliers.map((item) => <div className="ranking-row" key={item.name}><span>{item.name}</span><strong>{item.bookings.toLocaleString()}</strong><small>{item.share}%</small></div>) : <Empty>No supplier activity available.</Empty>}</section></div>
     {error ? <p className="dashboard-error-detail">{error}</p> : null}
-  </main>
+  </div>
 }

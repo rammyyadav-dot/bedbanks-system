@@ -5,14 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./agent": "./src/agent.ts"
+    "./agent": "./src/agent.ts",
+    "./envelope": "./src/envelope.ts"
   },
   "sideEffects": false,
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "node --test",
+    "test": "node --import tsx --test src/*.test.ts",
     "build": "tsc"
   },
-  "devDependencies": { "typescript": "^5.9.3" }
+  "devDependencies": { "tsx": "^4.23.15", "typescript": "^5.9.3" }
 }
