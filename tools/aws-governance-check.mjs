@@ -113,6 +113,12 @@ export function checkGovernance(root = process.cwd()) {
   if (!/metric_name\s*=\s*"DatabaseConnections"/.test(t('observability.tf')) || !/metric_name\s*=\s*"FreeableMemory"/.test(t('observability.tf'))) {
     fail(`${TF}/observability.tf: RDS DatabaseConnections and FreeableMemory alarms missing`)
   }
+  const sli = t('sli.tf')
+  if (!/resource\s+"aws_cloudwatch_dashboard"\s+"operations"/.test(sli)) fail(`${TF}/sli.tf: operations dashboard missing`)
+  for (const metric of ['AuthenticationServerError', 'SearchServerError', 'RecheckServerError', 'BookingServerError', 'CancellationServerError', 'AuthorizationDenial']) {
+    if (!sli.includes(metric)) fail(`${TF}/sli.tf: SLI metric ${metric} missing`)
+  }
+  if (!sli.includes('ops.sli')) fail(`${TF}/sli.tf: SLI log filter must match the ops.sli event`)
   if (!/resource\s+"aws_flow_log"/.test(t('logging.tf'))) fail(`${TF}/logging.tf: VPC flow logs missing`)
   if ((t('alb.tf').match(/access_logs\s*\{[^}]*enabled\s*=\s*true/g) ?? []).length !== 2) fail(`${TF}/alb.tf: both ALBs need access_logs enabled`)
   const wafLogs = (t('logging.tf') + t('edge.tf')).match(/resource\s+"aws_wafv2_web_acl_logging_configuration"[\s\S]*?\n}\n/g) ?? []

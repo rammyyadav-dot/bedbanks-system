@@ -19,6 +19,8 @@ Availability (page now): unhealthy targets, API 5xx, no healthy targets (missing
 
 Saturation and latency (investigate): API target p95 `TargetResponseTime` (750 ms), API ECS CPU and memory (80 %), RDS CPU, RDS free storage (10 GiB), RDS `DatabaseConnections` (80), RDS `FreeableMemory` (256 MiB).
 
+Journey SLIs (ADR 0112, dashboard `fbeds-<env>-operations`): authentication, search, recheck, booking and cancellation server errors, plus authorization denials outside `/auth/*`. Thresholds are in `docs/ops/slo-catalog.json`. These series exist only after the API revision that logs `ops.sli` is deployed and `sli.tf` is applied.
+
 Scheduled jobs (when enabled): compliance export/verify heartbeats, hotel-search reindex heartbeat.
 
 Confirm after each environment apply that the topic has a confirmed subscriber; an alarm with no subscriber is not monitoring. Delivery to a real mailbox is an owner-run staging drill, not a CI check.

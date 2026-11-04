@@ -53,7 +53,9 @@ test('operations modules are in the sidebar only with a declared permission, and
 
 test('placeholder routes that remain say so and render no records', () => {
   for (const rel of ['finance/page.tsx', 'finance/payments/page.tsx', 'reports/page.tsx', 'notifications/page.tsx', 'pricing/page.tsx', 'distribution/page.tsx', 'users/page.tsx']) {
-    assert.match(readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8'), /FeatureUnavailable/, rel)
+    const page = readFileSync(join(root, 'app', '(dashboard)', rel), 'utf8')
+    assert.match(page, /FeatureUnavailable/, rel)
+    assert.doesNotMatch(page, /from ['"]@\/lib\/data|fetch\(|bk_dubai/, `${rel} must not load or post data`)
   }
 })
 

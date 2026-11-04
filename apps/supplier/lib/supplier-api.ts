@@ -3,6 +3,7 @@ import 'server-only'
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { routes, type ExtranetBookingDetail, type ExtranetBookingList, type ExtranetBookingQuery, type ExtranetContractList, type ExtranetHotelList } from '@bedbanks/contracts'
+import { parseApiEnvelope } from '@bedbanks/contracts/envelope'
 import { apiInternalUrl, SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE, supplierOrigin } from './server-env'
 
 export class SupplierApiError extends Error {
@@ -57,14 +58,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text()
-  if (!text) return null
+async function readSuccessData(response: Response): Promise<unknown> {
+  let text: string
   try {
-    return JSON.parse(text) as unknown
+    text = await response.text()
   } catch {
-    throw new SupplierApiError(response.status || 502)
+    throw new SupplierApiError(503)
   }
+  const parsed = parseApiEnvelope(response.status, text)
+  if (parsed.kind !== 'success') throw new SupplierApiError(response.ok ? 502 : response.status || 502)
+  return parsed.data
 }
 
 async function apiRequest(path: string, init: { method?: string; body?: unknown; supplierId?: string; requestId?: string; idempotencyKey?: string; cookieHeader: string; tenantId: string }): Promise<unknown> {
@@ -89,9 +92,7 @@ async function apiRequest(path: string, init: { method?: string; body?: unknown;
   } catch {
     throw new SupplierApiError(503)
   }
-  const payload = await readJson(response)
-  if (!response.ok || !isRecord(payload) || payload.success !== true) throw new SupplierApiError(response.status || 502)
-  return payload.data
+  return readSuccessData(response)
 }
 
 export const loadIdentity = cache(async (): Promise<{ cookieHeader: string; tenantId: string; user: PortalUser } | { ambiguous: true; user: PortalUser } | null> => {
@@ -109,10 +110,10 @@ export const loadIdentity = cache(async (): Promise<{ cookieHeader: string; tena
   } catch {
     throw new SupplierApiError(503)
   }
-  const payload = await readJson(response)
   if (response.status === 401) return null
-  if (!response.ok || !isRecord(payload) || payload.success !== true || !isRecord(payload.data)) throw new SupplierApiError(response.status || 502)
-  const data = payload.data as Partial<Identity>
+  const payload = await readSuccessData(response)
+  if (!isRecord(payload)) throw new SupplierApiError(response.status || 502)
+  const data = payload as Partial<Identity>
   if (!isRecord(data.user) || typeof data.user.email !== 'string' || !Array.isArray(data.memberships)) throw new SupplierApiError(502)
   const user = { id: String(data.user.id ?? ''), email: data.user.email, name: typeof data.user.name === 'string' ? data.user.name : null }
   if (data.memberships.length !== 1 || typeof data.memberships[0]?.tenantId !== 'string') return { ambiguous: true, user }
@@ -283,8 +284,7 @@ export async function loginRequest(email: string, password: string, rememberMe =
     throw new SupplierApiError(503)
   }
   if (!response.ok) throw new SupplierApiError(response.status)
-  const payload = await readJson(response)
-  if (!isRecord(payload) || payload.success !== true) throw new SupplierApiError(502)
+  await readSuccessData(response)
   return response.headers.getSetCookie()
 }
 
@@ -302,9 +302,9 @@ export async function logoutRequest(cookieHeader: string): Promise<void> {
 export const loadAuthCapabilities = cache(async (): Promise<{ passwordReset: boolean }> => {
   try {
     const response = await fetch(`${apiInternalUrl()}${routes.auth.capabilities}`, { headers: { Accept: 'application/json', Origin: supplierOrigin() }, cache: 'no-store', signal: AbortSignal.timeout(5000) })
-    const payload = await readJson(response)
-    const data = isRecord(payload) && payload.success === true && isRecord(payload.data) ? payload.data : null
-    return { passwordReset: response.ok && data?.passwordReset === true }
+    const parsed = parseApiEnvelope(response.status, await response.text())
+    const data = parsed.kind === 'success' && isRecord(parsed.data) ? parsed.data : null
+    return { passwordReset: parsed.kind === 'success' && response.ok && data?.passwordReset === true }
   } catch {
     return { passwordReset: false }
   }
@@ -323,9 +323,11 @@ async function publicPost(path: string, body: unknown): Promise<{ status: number
   } catch {
     throw new SupplierApiError(503)
   }
-  const payload = await readJson(response).catch(() => null)
-  const error = isRecord(payload) && isRecord(payload.error) ? payload.error : isRecord(payload) ? payload : {}
-  return { status: response.status, code: typeof error.code === 'string' ? error.code : null, message: typeof error.message === 'string' ? error.message : null }
+  let text = ''
+  try { text = await response.text() } catch { text = '' }
+  const parsed = parseApiEnvelope(response.status, text)
+  if (parsed.kind !== 'failure') return { status: response.status, code: null, message: null }
+  return { status: response.status, code: parsed.code, message: parsed.message }
 }
 
 /** Always resolves the same way for a well-formed request; the API does not say whether the account exists. */

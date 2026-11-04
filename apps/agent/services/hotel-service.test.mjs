@@ -36,7 +36,7 @@ test('live canonical offer retains nested authoritative total', async () => {
     assert.equal(url, 'https://example.invalid/agent/search')
     assert.equal(init.headers['x-fbeds-tenant-id'], 'tenant-a')
     assert.equal(init.credentials, 'include')
-    return new Response(JSON.stringify({ data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+    return new Response(JSON.stringify({ success: true, data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
       request: criteria, hotels: [hotel], total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
   }
   const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
@@ -53,7 +53,7 @@ test('accepts the buyer-only offer the API now sends and keeps no cost or supply
     cancellation: { refundable: true, summary: 'Free until deadline' }, availability: 'available', available: true,
     total: { amountMinor: 125099, currency: 'AED' }, taxAmountMinor: 10000, feeAmountMinor: 99, sellAmountMinor: 125099, paymentType: 'credit' }
   for (const hotels of [[{ ...shown, rooms: [{ roomTypeId: 'r1', name: 'King', rates: [buyerRate] }] }], [hotel]]) {
-    globalThis.fetch = async () => new Response(JSON.stringify({ data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+    globalThis.fetch = async () => new Response(JSON.stringify({ success: true, data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
       request: criteria, hotels, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
     const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
     assert.equal(result.status, 'available')
@@ -67,7 +67,7 @@ test('keeps server pagination instead of treating the page as the full result', 
   const pageCriteria = { ...criteria, limit: 1, offset: 1 }
   globalThis.fetch = async (_url, init) => {
     assert.equal(JSON.parse(init.body).offset, 1)
-    return new Response(JSON.stringify({ data: { version: 1, searchId: 'search-b', requestId: 'request-b', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
+    return new Response(JSON.stringify({ success: true, data: { version: 1, searchId: 'search-b', requestId: 'request-b', generatedAt: '2026-09-25T00:00:00Z', status: 'available',
       request: pageCriteria, hotels: [hotel], total: 1,
       pagination: { limit: 1, offset: 1, total: 2, hasMore: false },
       providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
@@ -105,9 +105,12 @@ test('a provider failure never becomes availability, even if a demo flag is set'
 })
 test('empty and forbidden responses are distinct', async () => {
   process.env.NODE_ENV = 'production'
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: true, data: { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'no_availability',
+    request: criteria, hotels: [], total: 0, providerSummary: { queried: 1, succeeded: 1, failed: 0 } } }), { status: 200 })
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'empty')
   globalThis.fetch = async () => new Response(JSON.stringify({ version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z', status: 'no_availability',
     request: criteria, hotels: [], total: 0, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }), { status: 200 })
-  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'empty')
+  assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')).status, 'mapping_unavailable')
   globalThis.fetch = async () => new Response(null, { status: 403 })
   assert.equal((await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-b')).status, 'access_denied')
 })
@@ -141,7 +144,7 @@ test('recheck sends only canonical offer identity and expected display amount wi
     assert.equal(url, 'https://example.invalid/agent/rates/recheck')
     assert.equal(init.headers['x-fbeds-tenant-id'], 'tenant-a')
     assert.deepEqual(JSON.parse(init.body), { offerId: 'o1', searchId: 'search-a', expectedCurrency: 'AED', expectedSellAmountMinor: 125099 })
-    return new Response(JSON.stringify({ data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'rechecked', currency: 'AED', sellAmountMinor: 125099, expiresAt: '2099-01-01T00:15:00.000Z' } }), { status: 200 })
+    return new Response(JSON.stringify({ success: true, data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'rechecked', currency: 'AED', sellAmountMinor: 125099, expiresAt: '2099-01-01T00:15:00.000Z' } }), { status: 200 })
   }
   const result = await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')
   assert.equal(result.status, 'rechecked')
@@ -149,11 +152,11 @@ test('recheck sends only canonical offer identity and expected display amount wi
 })
 test('price changes and malformed recheck responses fail closed', async () => {
   const rate = hotel.rooms[0].rates[0]
-  globalThis.fetch = async () => new Response(JSON.stringify({ data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a',
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: true, data: { offerId: 'o1', searchId: 'search-a', requestId: 'request-a',
     status: 'price_changed', currency: 'AED', sellAmountMinor: 125100 } }), { status: 409 })
   assert.deepEqual(await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a'), {
     offerId: 'o1', searchId: 'search-a', requestId: 'request-a', status: 'price_changed', currency: 'AED', sellAmountMinor: 125100,
   })
-  globalThis.fetch = async () => new Response(JSON.stringify({ data: { offerId: 'other-offer', searchId: 'search-a', requestId: 'request-a', status: 'rechecked' } }), { status: 200 })
+  globalThis.fetch = async () => new Response(JSON.stringify({ success: true, data: { offerId: 'other-offer', searchId: 'search-a', requestId: 'request-a', status: 'rechecked' } }), { status: 200 })
   assert.equal((await new ApiHotelService('https://example.invalid').recheckOffer(rate, 'search-a', 'tenant-a')).status, 'provider_unavailable')
 })

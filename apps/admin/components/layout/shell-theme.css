@@ -22,10 +22,12 @@
 .breadcrumb a:hover { text-decoration: underline; }
 .context-menu { background: var(--shell-menu-bg); border-color: var(--shell-menu-border); }
 
+main#main-content { min-width: 0; max-width: 100%; overflow-x: auto; }
 .skip-link { position: absolute; left: 8px; top: -48px; z-index: 100; padding: 8px 14px; background: var(--c-111111); color: var(--c-ffffff); font-size: 12px; font-weight: 600; border-radius: var(--fb-radius-control); }
 .skip-link:focus { top: 8px; }
 .enterprise-nav a:focus-visible, .breadcrumb a:focus-visible, .topbar-actions button:focus-visible,
-.mobile-nav-trigger:focus-visible, .context-menu button:focus-visible, main:focus-visible { outline: 2px solid var(--shell-focus); outline-offset: 2px; }
+.mobile-nav-trigger:focus-visible, .context-menu button:focus-visible, main:focus-visible,
+.admin-btn:focus-visible, .dashboard-page :focus-visible { outline: 2px solid var(--shell-focus); outline-offset: 2px; }
 main:focus { outline: none; }
 
 .theme-toggle { display: flex; gap: 4px; padding: 8px 10px; }

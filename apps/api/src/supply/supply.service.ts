@@ -490,6 +490,7 @@ export class SupplyService {
       await this.lockEditableContract(tx, tenantId, contractId)
       const currency = term.currency === null ? null : enabledCurrency(term.currency)
       if (term.kind === 'NO_SHOW' && await tx.cancellationPolicy.findFirst({ where: { contractId, policySet: term.policySet, kind: 'NO_SHOW' }, select: { id: true } })) throw new ConflictException({ code: 'CANCELLATION_NO_SHOW_EXISTS', message: 'This cancellation set already has a no-show rule. Delete it first.' })
+      if (term.kind === 'CANCELLATION' && await tx.cancellationPolicy.findFirst({ where: { contractId, policySet: term.policySet, kind: 'CANCELLATION', daysBeforeCheckin: term.daysBeforeCheckin }, select: { id: true } })) throw new BadRequestException({ code: 'CANCELLATION_WINDOW_EXISTS', message: 'This cancellation set already has a rule for that many days before check-in. Replace that rule instead of adding a second one.' })
       const value = await tx.cancellationPolicy.create({ data: { contractId, policySet: term.policySet, kind: term.kind, daysBeforeCheckin: term.daysBeforeCheckin, penaltyPercent: term.penaltyPercent, penaltyMinor: term.penaltyMinor === null ? null : BigInt(term.penaltyMinor), penaltyNights: term.penaltyNights, currency } })
       return { id: value.id, value: { ...value, penaltyMinor: value.penaltyMinor?.toString() ?? null } }
     })

@@ -63,7 +63,7 @@ test('malformed success bodies are rejected instead of trusted', async () => {
   assert.equal((await service().prebook('h', guest, 't')).ok, false)
   globalThis.fetch = reply(200, { data: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }] })
   assert.equal((await service().list('t')).ok, false)
-  globalThis.fetch = reply(200, { data: { items: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }], total: 51, limit: 20, offset: 20 } })
+  globalThis.fetch = reply(200, { success: true, data: { items: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }], total: 51, limit: 20, offset: 20 } })
   const page = await service().list('t', { limit: 20, offset: 20, status: 'CONFIRMED' })
   assert.equal(page.ok && page.data.total, 51)
   assert.equal(page.ok && page.data.items.length, 1)
@@ -74,14 +74,14 @@ test('malformed success bodies are rejected instead of trusted', async () => {
 test('hold keeps meaningful non-2xx outcomes and exposes only validated fields', async () => {
   globalThis.fetch = reply(409, { success: true, data: { status: 'price_changed', currency: 'AED', sellAmountMinor: 130000, extra: 'ignored' } })
   assert.deepEqual(await service().hold('offer/1', 's1', 'AED', 125099, 'hold-12345678', 't'), { ok: true, data: { status: 'price_changed', currency: 'AED', sellAmountMinor: 130000 } })
-  globalThis.fetch = reply(201, { data: { status: 'held', holdId: 'h1', expiresAt: '2099-01-01T00:00:00.000Z', currency: 'AED', sellAmountMinor: 125099 } })
+  globalThis.fetch = reply(201, { success: true, data: { status: 'held', holdId: 'h1', expiresAt: '2099-01-01T00:00:00.000Z', currency: 'AED', sellAmountMinor: 125099 } })
   const held = await service().hold('o', 's', 'AED', 125099, 'hold-12345678', 't')
   assert.equal(held.ok && held.data.holdId, 'h1')
 })
 
 test('cancel and quote use the right verbs and paths, with exact string amounts', async () => {
   const calls = []
-  globalThis.fetch = async (url, init) => { calls.push([url, init.method ?? 'GET']); return new Response(JSON.stringify({ data: { status: 'CANCELLED', bookingId: 'b/1', currency: 'AED', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570', checkIn: '2099-03-01', evaluatedAt: 'x', alreadyCancelled: false, cancellationId: 'c1' } }), { status: 200 }) }
+  globalThis.fetch = async (url, init) => { calls.push([url, init.method ?? 'GET']); return new Response(JSON.stringify({ success: true, data: { status: 'CANCELLED', bookingId: 'b/1', currency: 'AED', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570', checkIn: '2099-03-01', evaluatedAt: 'x', alreadyCancelled: false, cancellationId: 'c1' } }), { status: 200 }) }
   const quote = await service().cancellationQuote('b/1', 't'); const done = await service().cancel('b/1', 'guest request', 't')
   assert.deepEqual(calls, [['https://api.invalid/agent/bookings/b%2F1/cancellation-quote', 'GET'], ['https://api.invalid/agent/bookings/b%2F1', 'DELETE']])
   assert.equal(quote.ok && quote.data.refundMinor, '87570'); assert.equal(done.ok && done.data.penaltyMinor, '37529')
@@ -128,7 +128,7 @@ test('document html returns the text only on success', async () => {
 
 test('releasing a hold uses DELETE on the hold and only trusts a RELEASED/EXPIRED answer', async () => {
   let seen
-  globalThis.fetch = async (url, init) => { seen = [url, init.method, init.headers['x-fbeds-tenant-id']]; return new Response(JSON.stringify({ data: { holdId: 'h/1', status: 'RELEASED' } }), { status: 200 }) }
+  globalThis.fetch = async (url, init) => { seen = [url, init.method, init.headers['x-fbeds-tenant-id']]; return new Response(JSON.stringify({ success: true, data: { holdId: 'h/1', status: 'RELEASED' } }), { status: 200 }) }
   assert.deepEqual(await service().releaseHold('h/1', 'tenant-a'), { ok: true, data: { holdId: 'h/1', status: 'RELEASED' } })
   assert.deepEqual(seen, ['https://api.invalid/agent/holds/h%2F1', 'DELETE', 'tenant-a'])
   globalThis.fetch = reply(200, { data: { holdId: 'h', status: 'HELD' } })
@@ -161,4 +161,11 @@ test('a probable duplicate comes back with the existing references; acknowledgin
   globalThis.fetch = async (_url, init) => { body = JSON.parse(init.body); return new Response(JSON.stringify({ success: true, data: { status: 'prebooked', bookingId: 'b', bookingReference: 'FB-2' } }), { status: 201 }) }
   await service().prebook('h', { ...guest, acknowledgeDuplicate: true, specialRequests: { codes: [], arrivalTime: '22:30' } }, 't')
   assert.equal(body.acknowledgeDuplicate, true); assert.deepEqual(body.specialRequests, { codes: [], arrivalTime: '22:30' })
+})
+
+test('a complete body without success:true is not a booking result', async () => {
+  globalThis.fetch = reply(200, { data: { items: [{ id: 'b', reference: 'r', status: 'CONFIRMED', currency: 'AED', totalMinor: '100' }], total: 1, limit: 20, offset: 0 } })
+  assert.equal((await service().list('t')).ok, false)
+  globalThis.fetch = reply(201, { data: { status: 'held', holdId: 'h1', expiresAt: '2099-01-01T00:00:00.000Z', currency: 'AED', sellAmountMinor: 125099 } })
+  assert.equal((await service().hold('o', 's', 'AED', 1, 'hold-12345678', 't')).ok, false)
 })

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  DEPARTMENT_IDS, FORBIDDEN_PERMISSION_KEYS, departments, permissionCatalogue, sidebarGroups, operationsPermissions, supplyPermissions,
+  DEPARTMENT_IDS, FORBIDDEN_PERMISSION_KEYS, departments, liveDepartmentModules, permissionCatalogue, sidebarGroups, operationsPermissions, supplyPermissions,
 } from '@bedbanks/contracts'
 
 const srcRoot = join(__dirname, '..')
@@ -54,6 +54,13 @@ describe('Enterprise Admin permission catalogue (ADR 0015)', () => {
   it('keeps platform authority in the platform scope and tenant work in the tenant scope', () => {
     for (const key of ['role_permission.assign', 'user_role.assign']) expect(permissionCatalogue.find((p) => p.key === key)?.scope).toBe('PLATFORM')
     for (const p of permissionCatalogue.filter((x) => x.status === 'enforced')) expect(p.scope).toBe(p.key.startsWith('platform.') || p.key === 'tenant.lifecycle.manage' ? 'PLATFORM' : 'TENANT')
+  })
+
+  it('lists at least the 37 live modules once, each with a route', () => {
+    const live = liveDepartmentModules()
+    expect(live.length).toBeGreaterThanOrEqual(37)
+    expect(new Set(live.map((module) => module.href)).size).toBe(live.length)
+    for (const module of live) expect(module.href).toMatch(/^\//)
   })
 
   it('gates every live module with an enforced permission and gives planned modules no route', () => {

@@ -2,7 +2,7 @@
 
 This is the plain-language guide. The suite signs in to the three real portals in a real browser against a real (throwaway) database, the way a person would, and checks the things that must never break.
 
-## What it checks (30 checks)
+## What it checks
 | Area | What a person would see | Checks |
 |---|---|---|
 | Security boundary | Strangers are refused; a wrong password gives a generic message; a foreign website cannot sign anyone in or out; logins are HttpOnly and Secure; one agency can never see another agency's hotels; staff only reach what their role allows; signing out really ends the session | S1–S10 |
@@ -12,6 +12,7 @@ This is the plain-language guide. The suite signs in to the three real portals i
 | Supplier extranet | Each supplier sees only its own hotel; read-only members; a revoked member sees nothing | X1–X6 |
 | Booking stays closed | Holding or prebooking an offer is refused (503), a recheck changes nothing, a wrong price is not accepted, and the database shows no new booking, hold, ledger or finance rows | B1–B4 |
 | Whole chain | The same hotel is seen by the supplier, the admin and the agent at one whole-number AED price; another tenant's hotel is never in the chain | J1 |
+| Admin browser and security | Every live Admin module renders; 1280/768/390 layouts stay in the viewport; axe on sign-in, dashboard and hotels; a cleared session returns to sign-in; a forged tenant cookie cannot show the other tenant; a malformed or dropped dashboard response shows an outage; a caller without the module permission sees no submit control and sends no mutation | `09-admin-browser-security.spec.ts` |
 
 ## How to run it
 Needs: Node 24, pnpm, a local PostgreSQL 16 with pgvector on 127.0.0.1:5432, and `psql`.
