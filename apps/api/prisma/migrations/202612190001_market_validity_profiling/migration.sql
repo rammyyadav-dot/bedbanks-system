@@ -89,6 +89,5 @@ CREATE POLICY "MarketValidityRule_tenant_isolation" ON "MarketValidityRule"
   USING ("tenant_id" = "fbeds_current_tenant_id"())
   WITH CHECK ("tenant_id" = "fbeds_current_tenant_id"());
 
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fbeds_api') THEN
-  GRANT SELECT ON "SourceMarketGroup", "MarketValidityRule" TO fbeds_api;
-END IF; END $$;
+-- SELECT (and only SELECT) on these tables is part of the runtime-role contract.
+-- Provisioning applies it. This migration does not grant the runtime role.
