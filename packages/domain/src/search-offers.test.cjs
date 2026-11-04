@@ -426,6 +426,34 @@ test('an on-request rate stays in results as not available, and a contradictory 
   assert.equal(validateSearchHotels([lying], criteria).ok, false)
 })
 
+function agentEnvelope(hotels) {
+  return { version: 1, searchId: 'search-a', requestId: 'request-a', generatedAt: '2026-09-25T00:00:00Z',
+    status: 'available', request: criteria, hotels, total: 1, providerSummary: { queried: 1, succeeded: 1, failed: 0 } }
+}
+
+test('Given the selected workspace, When every offer tenant matches, Then the agent response is accepted and the tenant is not rendered', () => {
+  const validated = validateAgentSearchResponse(agentEnvelope([hotel()]), criteria, Date.now(), 'tenant-a')
+  assert.equal(validated.ok, true)
+  assert.equal(JSON.stringify(validated.response).includes('tenant-a'), false)
+})
+
+test('Given the selected workspace, When any offer tenant differs, Then the whole search response is rejected', () => {
+  const mismatched = hotel()
+  mismatched.rooms[0].rates[0].tenantId = 'tenant-b'
+  assert.equal(validateAgentSearchResponse(agentEnvelope([mismatched]), criteria, Date.now(), 'tenant-a').ok, false)
+  const hotelMismatch = hotel()
+  hotelMismatch.tenantId = 'tenant-b'
+  assert.equal(validateAgentSearchResponse(agentEnvelope([hotelMismatch]), criteria, Date.now(), 'tenant-a').ok, false)
+  assert.equal(validateAgentSearchResponse({ ...agentEnvelope([hotel()]), tenantId: 'tenant-b' }, criteria, Date.now(), 'tenant-a').ok, false)
+})
+
+test('Given a buyer projection with no tenant id, When the workspace is selected, Then the response is still accepted', () => {
+  const internal = validateSearchHotels([hotel()], criteria, Date.now(), 'tenant-a')
+  assert.equal(internal.ok, true)
+  const projected = validateAgentSearchResponse(agentEnvelope(projectAgentHotels(internal.hotels)), criteria, Date.now(), 'tenant-a')
+  assert.equal(projected.ok, true)
+})
+
 test('an unspecified payment type is a valid offer value; an unknown one is still rejected (ADR 0057)', () => {
   const unspecified = hotel()
   unspecified.rooms[0].rates[0].paymentType = 'unspecified'

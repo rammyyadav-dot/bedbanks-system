@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentFundingView } from '@bedbanks/contracts/agent'
 import { declareFundingReceipt, getFundingReceipts } from '@/lib/api-client'
+import { fundingDraftError } from '@/lib/funding-declaration'
 import { formatMinorAmount } from '@/lib/format'
 import { parseMajorAmount } from '@/lib/search-filters'
 
@@ -22,27 +23,29 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
   const key = useRef<string | null>(null)
 
   const load = useCallback(() => {
+    setError(null)
     getFundingReceipts(tenantId).then(v => { setView(v); setError(null) }, (e: unknown) => setError(e instanceof Error && e.message === 'Access denied' ? 'Your role cannot see agency payments.' : 'Payments could not be loaded.'))
   }, [tenantId])
   useEffect(() => { load() }, [load])
 
   const parsed = parseMajorAmount(amount, 'AED')
-  const ready = parsed.state === 'minor' && parsed.minor > 0 && reference.trim() && valueDate && payerName.trim()
+  const draftError = fundingDraftError({ amount, reference, valueDate, payerName }, view?.receipts ?? [])
+  const ready = draftError === null && parsed.state === 'minor'
 
   async function submit() {
-    if (parsed.state !== 'minor') return
+    if (busy || draftError || parsed.state !== 'minor') { setMessage(draftError); return }
     setBusy(true); setMessage(null)
     try {
       await declareFundingReceipt(tenantId, { currency: 'AED', amountMinor: String(parsed.minor), method, bankReference: reference, valueDate, payerName, payerType, requestId: (key.current ??= crypto.randomUUID()) })
       key.current = null; setAmount(''); setReference(''); setPayerName('')
-      setMessage('Sent to finance. Your balance changes only after finance confirms the money arrived.')
+      setMessage('Sent to finance for checking. This declaration has not credited the wallet.')
       load()
     } catch {
       setMessage('The payment could not be declared. Check the details; a reference can only be declared once.')
     } finally { setBusy(false) }
   }
 
-  if (error) return <div className="portal-panel" role="status"><p>{error}</p></div>
+  if (error) return <div className="portal-panel" role="alert"><p>{error}</p><button type="button" className="portal-link" onClick={load}>Retry</button></div>
   if (!view) return <div className="portal-panel" role="status"><p>Loading payments…</p></div>
   if (!view.agency) return <div className="portal-panel" role="status"><p>Your user is not linked to an agency, so payments cannot be declared here.</p></div>
 
@@ -54,6 +57,7 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
         ? <p role="status">Declaring payments is not enabled for this workspace yet.</p>
         : <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
+            <p>Launch currency is AED (ADR 0029). Declaring a payment does not credit the wallet.</p>
             <label>Amount (AED)<input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} data-testid="agent-funding-amount" /></label>
             <label>Bank reference<input maxLength={80} value={reference} onChange={e => setReference(e.target.value)} /></label>
             <label>Date received<input type="date" value={valueDate} onChange={e => setValueDate(e.target.value)} /></label>
@@ -61,6 +65,7 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
             <label>Method<select value={method} onChange={e => setMethod(e.target.value as typeof method)}><option value="BANK_TRANSFER">Bank transfer</option><option value="CASH_DEPOSIT">Cash deposit</option></select></label>
             <label>Payer<select value={payerType} onChange={e => setPayerType(e.target.value as typeof payerType)}><option value="AGENCY">{view.agency.name}</option><option value="THIRD_PARTY">Someone else</option></select></label>
             <button className="portal-primary" disabled={busy || !ready} onClick={() => void submit()} data-testid="agent-funding-declare">Declare payment</button>
+            {draftError && (amount || reference || valueDate || payerName) && <p role="alert">{draftError}</p>}
           </div>
           {(method === 'CASH_DEPOSIT' || payerType === 'THIRD_PARTY') && <p>Cash and payments from someone else are reviewed by compliance before they are credited.</p>}
         </>}

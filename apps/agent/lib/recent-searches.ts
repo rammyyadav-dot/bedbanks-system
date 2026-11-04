@@ -216,6 +216,19 @@ export function clearAgentSessionMark(storage: Pick<Storage, 'removeItem'>) {
   storage.removeItem(sessionMark)
 }
 
+/** Removes this account's portal session keys: searches, nationality, markup and the signed-in mark. */
+export function clearAccountSession(storage: Pick<Storage, 'removeItem'> & Partial<Pick<Storage, 'key' | 'length'>>, userId: string) {
+  clearRecentSearches(storage, userId)
+  clearAgentSessionMark(storage)
+  if (!userId || !storage.key || typeof storage.length !== 'number') return
+  const nationality = `fbeds.agent.guest-nationality.${userId}`
+  storage.removeItem(nationality)
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index)
+    if (key?.startsWith('fbeds:agent:client-markup:') && key.endsWith(`:${userId}`)) storage.removeItem(key)
+  }
+}
+
 export function consumeExpiredSession(storage: Pick<Storage, 'getItem' | 'removeItem'>) {
   if (storage.getItem(sessionMark) !== '1') return false
   storage.removeItem(sessionMark)

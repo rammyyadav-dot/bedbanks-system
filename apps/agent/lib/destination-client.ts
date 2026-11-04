@@ -1,12 +1,13 @@
 import type { DestinationResolution } from '@bedbanks/domain'
 import { isSuccessEnvelope, routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from './api-config.mjs'
+import { authenticatedFetch } from './authenticated-fetch'
 
 export type SearchFacets = { boards: { id: string; name: string }[]; propertyTypes: string[]; brands: string[] }
 
 async function readData(path: string, tenantId: string): Promise<unknown> {
   if (!tenantId) return null
-  const response = await fetch(`${agentApiBase}${path}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
+  const response = await authenticatedFetch(`${agentApiBase}${path}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
   if (!response.ok) return null
   const envelope: unknown = await response.json()
   return isSuccessEnvelope(envelope) ? envelope.data : null

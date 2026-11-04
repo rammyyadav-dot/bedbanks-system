@@ -31,6 +31,7 @@ import { SmartSearchService } from './smart-search.service'
 import { DUPLICATE_BOOKING_SUSPECTED, SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled, bookingServicingEnabled } from './booking-transaction.service'
+import { fundingEnabled } from '../funding/funding.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
@@ -142,11 +143,11 @@ export class AgentController {
   async context(@CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     const requested = req.headers[ACTIVE_TENANT_HEADER]
     if (requested === undefined || requested === '') {
-      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
+      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled(), bookingServicingEnabled: bookingServicingEnabled(), fundingEnabled: fundingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
     }
     const tenantId = sessionTenantId(identity, requested)
     const capabilities = await this.effectiveCapabilities(identity.user.id, tenantId)
-    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
+    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled(), bookingServicingEnabled: bookingServicingEnabled(), fundingEnabled: fundingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
   }
 
   @Post('offers/:offerId/hold')

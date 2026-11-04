@@ -13,4 +13,16 @@ describe('effective agent permissions', () => {
     expect(membershipGrantsPermission('finance', [], PERMISSIONS.createBooking)).toBe(false)
     expect(membershipGrantsPermission('staff', [], PERMISSIONS.search)).toBe(false)
   })
+
+  it('Given a search-only agent, a booking agent, or conflicting formal roles, When grants are resolved, Then each capability stays independent', () => {
+    expect(effectiveAgentPermissions('agent', [PERMISSIONS.search])).toEqual([PERMISSIONS.search])
+    expect(effectiveAgentPermissions('agent', [PERMISSIONS.prebook, PERMISSIONS.createBooking, PERMISSIONS.viewBookings, PERMISSIONS.cancelBooking])).toEqual([
+      PERMISSIONS.prebook, PERMISSIONS.createBooking, PERMISSIONS.cancelBooking, PERMISSIONS.viewBookings,
+    ])
+    expect(effectiveAgentPermissions('finance', [PERMISSIONS.search, PERMISSIONS.createBooking])).toEqual([
+      PERMISSIONS.search, PERMISSIONS.createBooking, PERMISSIONS.viewFinance,
+    ])
+    expect(membershipGrantsPermission('finance', [PERMISSIONS.search], PERMISSIONS.prebook)).toBe(false)
+    expect(membershipGrantsPermission('owner', [PERMISSIONS.search], PERMISSIONS.cancelBooking)).toBe(true)
+  })
 })

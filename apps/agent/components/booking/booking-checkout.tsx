@@ -10,8 +10,10 @@ import { ARRIVAL_TIME_OPTIONS, buildRoster, isLead, parseCcEmails, rosterErrors,
 import { averageNightlyMinor } from '@/lib/listing'
 import { guestMarketName } from '@/lib/guest-market'
 import { payAtHotelLines, priceIncludesText } from '@/lib/pay-at-hotel'
+import { blocksNewBookingAttempt, holdStillConfirmable, shouldWarnBeforeLeave } from '@/lib/checkout-guard'
+import { replaceDocumentUrl, revokeDocumentUrl } from '@/lib/document-url'
 
-type Phase = 'idle' | 'holding' | 'held' | 'booking' | 'done' | 'failed'
+type Phase = 'idle' | 'holding' | 'held' | 'booking' | 'done' | 'failed' | 'uncertain'
 const newKey = () => `hold-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
 const clock = (ms: number) => { const total = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}` }
 const HOLD_MESSAGES: Record<string, string> = {
@@ -24,16 +26,21 @@ type Done = { bookingId: string; reference: string; documents: { voucher: string
  * Bedbank checkout (ADR 0066): hold → every guest by room → agent reference and special requests → confirmation email → terms → confirm,
  * then a confirmation page with the voucher, invoice and the email's true state. All state shown comes from the API; a failure never looks like success.
  */
-export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId, request, onBooked, onViewBooking, onPriceChanged, service, agentEmail = null, timeZone }: {
+export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId, request, onBooked, onViewBooking, onPriceChanged, service, agentEmail = null, timeZone, canConfirm = true, confirmMessage = null }: {
   tenantId: string; hotelName: string; roomName: string; rate: AgentRateOffer; searchId: string; request: SearchCriteria
   onBooked: () => void; onViewBooking: (bookingId: string) => void; service?: BookingService
   /** Called when the hold is refused because the total changed: the parent re-quotes so the agent can accept the new price. */
   onPriceChanged?: () => void
   /** The signed-in agent's account email: where the confirmation goes. */
   agentEmail?: string | null; timeZone?: string
+  canConfirm?: boolean
+  confirmMessage?: string | null
 }) {
   const api = useRef(service ?? new BookingService()).current
   const holdKey = useRef(newKey())
+  const inFlight = useRef(false)
+  const documentUrl = useRef<string | null>(null)
+  useEffect(() => () => revokeDocumentUrl(documentUrl), [])
   const [phase, setPhase] = useState<Phase>('idle')
   const [hold, setHold] = useState<{ holdId: string; expiresAt: string } | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
@@ -51,31 +58,50 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
   const [message, setMessage] = useState('')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (phase !== 'held') return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [phase])
+  useEffect(() => {
+    if (!shouldWarnBeforeLeave(phase)) return
+    const onLeave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', onLeave)
+    return () => window.removeEventListener('beforeunload', onLeave)
+  }, [phase])
 
   const total = formatMinorAmount(rate.total.amountMinor, rate.total.currency) ?? 'Price unavailable'
   const remaining = hold ? Date.parse(hold.expiresAt) - now : 0
   const expired = phase === 'held' && remaining <= 0
   const errors = useMemo(() => rosterErrors(roster), [roster])
   const ccParsed = parseCcEmails(cc, agentEmail)
-  const deadline = rate.cancellation.refundable && rate.cancellation.deadline ? formatCancellationDeadline(rate.cancellation.deadline, timeZone || 'UTC') : null
+  const deadline = rate.cancellation.refundable && rate.cancellation.deadline && timeZone ? formatCancellationDeadline(rate.cancellation.deadline, timeZone) : null
   const conflict = requests.includes('TWIN_BEDS') && requests.includes('DOUBLE_BED')
   const nights = stayNights(request.checkIn, request.checkOut)
   const perNight = nights !== null && nights > 1 ? formatMinorAmount(averageNightlyMinor(rate.total.amountMinor, nights), rate.total.currency) : null
   const ready = Object.keys(errors).length === 0 && ccParsed.ok && terms && !conflict && note.length <= SPECIAL_REQUEST_NOTE_MAX && agentRef.length <= AGENT_REF_MAX && (duplicates.length === 0 || bookAnyway)
-  const failure = (result: BookingFailure) => { setMessage(result.message); if (result.kind === 'auth' || result.kind === 'denied' || result.kind === 'unavailable') setPhase('failed') }
-  const reset = () => { holdKey.current = newKey(); setHold(null); setBookingId(null); setPhase('idle'); setMessage('') }
+  const failure = (result: BookingFailure) => {
+    setMessage(result.message)
+    if (result.kind === 'uncertain') { setPhase('uncertain'); return }
+    if (result.kind === 'auth' || result.kind === 'denied' || result.kind === 'unavailable') setPhase('failed')
+  }
+  const reset = () => { if (blocksNewBookingAttempt(phase) && phase === 'uncertain') return; holdKey.current = newKey(); setHold(null); setBookingId(null); setPhase('idle'); setMessage('') }
   const update = (key: string, patch: Partial<GuestDraft>) => setRoster((current) => current.map((g) => g.key === key ? { ...g, ...patch } : g))
   const toggle = (code: SpecialRequestCode) => setRequests((current) => current.includes(code) ? current.filter((c) => c !== code) : [...current, code])
 
   async function holdRate() {
+    if (inFlight.current || phase === 'holding' || phase === 'uncertain') return
+    inFlight.current = true
     setPhase('holding'); setMessage('')
+    try {
     const result = await api.hold(rate.offerId, searchId, rate.total.currency, rate.sellAmountMinor, holdKey.current, tenantId)
-    if (!result.ok) { failure(result); if (result.kind !== 'auth' && result.kind !== 'denied' && result.kind !== 'unavailable') setPhase('idle'); return }
+    if (!result.ok) {
+      if (result.kind === 'uncertain') { setMessage(result.message); setPhase('uncertain'); return }
+      failure(result)
+      if (result.kind !== 'auth' && result.kind !== 'denied' && result.kind !== 'unavailable') { holdKey.current = newKey(); setPhase('idle') }
+      return
+    }
     const out = result.data
     if (out.status === 'held' && out.holdId && out.expiresAt) { setHold({ holdId: out.holdId, expiresAt: out.expiresAt }); setNow(Date.now()); setPhase('held'); return }
     setPhase('idle')
     if (out.status === 'price_changed' && onPriceChanged) { onPriceChanged(); return }
     setMessage(out.status === 'price_changed' ? `The price changed${out.currency && out.sellAmountMinor !== undefined ? ` to ${formatMinorAmount(out.sellAmountMinor, out.currency)}` : ''}. Recheck the rate to accept the new total.` : (HOLD_MESSAGES[out.status] ?? 'The rate could not be held.'))
+    } finally { inFlight.current = false }
   }
 
   async function releaseHold() {
@@ -88,9 +114,13 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
 
   async function book() {
     setTouched(true)
-    if (!hold || !ready || !ccParsed.ok || phase === 'booking') return
+    if (!hold || !ready || !ccParsed.ok || phase === 'booking' || phase === 'uncertain' || inFlight.current) return
+    if (!canConfirm) { setMessage(confirmMessage || 'You cannot confirm a booking for this workspace.'); return }
+    if (!holdStillConfirmable(hold.expiresAt, Date.now())) { setMessage('This hold has expired. Checkout is closed and nothing was booked.'); return }
     const lead = roster.find((g) => isLead(g, roster))!
+    inFlight.current = true
     setPhase('booking'); setMessage('')
+    try {
     let id = bookingId
     if (!id) {
       const pre = await api.prebook(hold.holdId, {
@@ -99,9 +129,9 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
         ...(duplicates.length && bookAnyway ? { acknowledgeDuplicate: true } : {}),
       }, tenantId)
       if (!pre.ok) {
-        if (/reconciliation/i.test(pre.message)) {
-          setPhase('held')
-          setMessage('Reconciliation required. This hold and any wallet reservation stay in place. Do not submit the booking again until the outcome is known.')
+        if (pre.kind === 'uncertain' || /reconciliation/i.test(pre.message)) {
+          setPhase('uncertain')
+          setMessage(pre.kind === 'uncertain' ? pre.message : 'Reconciliation required. Do not submit another booking until the outcome is known.')
           return
         }
         if (pre.kind === 'invalid') { setPhase('held'); setMessage(pre.message); return }
@@ -112,16 +142,26 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       id = pre.data.bookingId; setBookingId(id)
     }
     const confirmed = await api.confirm(id, tenantId, ccParsed.emails)
-    if (!confirmed.ok) { setMessage(`${confirmed.message} Your booking was reserved but not confirmed; you can retry confirmation.`); setPhase('held'); return }
+    if (!confirmed.ok) {
+      if (confirmed.kind === 'uncertain' || /reconciliation/i.test(confirmed.message)) {
+        setPhase('uncertain')
+        setMessage(confirmed.kind === 'uncertain' ? confirmed.message : 'Reconciliation required. Do not submit another booking until the outcome is known.')
+        return
+      }
+      setMessage(`${confirmed.message} Your booking was reserved but not confirmed; you can retry confirmation.`)
+      setPhase('held')
+      return
+    }
     setDone({ bookingId: id, reference: confirmed.data.reference, documents: confirmed.data.documents ?? null, email: confirmed.data.email ?? null })
     setPhase('done'); onBooked()
+    } finally { inFlight.current = false }
   }
 
   async function openDocument(type: DocumentType) {
     if (!done) return
     const popup = window.open('', '_blank')
     const result = await api.documentHtml(done.bookingId, type, tenantId)
-    if (result.ok && popup) popup.location.href = URL.createObjectURL(new Blob([result.data], { type: 'text/html' }))
+    if (result.ok && popup) popup.location.href = replaceDocumentUrl(documentUrl, result.data)
     else { popup?.close(); setMessage(result.ok ? 'Allow pop-ups to open the document.' : result.message) }
   }
 
@@ -203,9 +243,10 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
             {duplicates.length > 0 && <div className="ck-duplicate" role="alert"><p><AlertTriangle size={16} aria-hidden="true" /><strong>Possible duplicate booking.</strong> Your agency already has {duplicates.length === 1 ? 'a booking' : 'bookings'} for this lead guest, hotel and dates:</p>
               <ul>{duplicates.map((d) => <li key={d.reference}><b>{d.reference}</b> · {d.status.replace(/_/g, ' ').toLowerCase()} · booked {d.createdAt.slice(0, 10)}</li>)}</ul>
               <label><input type="checkbox" checked={bookAnyway} onChange={(e) => setBookAnyway(e.target.checked)} />This is a separate booking. Book it anyway.</label></div>}
+            {!canConfirm && <p role="status">{confirmMessage || 'You cannot confirm a booking for this workspace.'}</p>}
             <label className={`ck-terms${touched && !terms ? ' has-error' : ''}`}><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />I accept the cancellation policy and the booking terms, and confirm the guest names are correct.</label>
             <div className="ck-actions">
-              <button className="portal-primary" disabled={phase === 'booking' || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
+              <button className="portal-primary" disabled={phase === 'booking' || !canConfirm || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
               {!bookingId && <button className="portal-link" disabled={phase === 'booking'} onClick={() => void releaseHold()}>Release hold</button>}
             </div>
             {touched && !ready && <p className="portal-field-error" role="alert">{Object.keys(errors).length ? 'Enter every guest name.' : !terms ? 'Accept the cancellation policy and booking terms.' : duplicates.length && !bookAnyway ? 'Confirm this is a separate booking, or release the hold.' : 'Check the highlighted fields.'}</p>}
@@ -214,6 +255,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       </div>
       {summary}
     </div>}
+    {phase === 'uncertain' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Outcome unknown</strong><span>{message} Open My bookings and use reconciliation before trying again. A new booking is not offered from this screen.</span>{bookingId && <button type="button" className="portal-link" onClick={() => onViewBooking(bookingId)}>View booking status</button>}</div>}
     {phase === 'failed' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Booking not completed</strong><span>{message || 'Nothing was charged.'}</span><button className="portal-link" onClick={reset}>Start over</button></div>}
     {message && phase !== 'failed' && <p className="portal-field-error" role="alert">{message}</p>}
   </div>

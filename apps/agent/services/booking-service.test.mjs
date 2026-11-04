@@ -47,7 +47,13 @@ test('HTTP failures map to explicit kinds; only conflict/invalid/gone show the s
   assert.equal(ambiguous.ok, false)
   assert.equal(ambiguous.message, 'Reconciliation required')
   globalThis.fetch = async () => { throw new Error('network') }
-  assert.equal((await service().confirm('b1', 't')).kind, 'error')
+  const lost = await service().confirm('b1', 't')
+  assert.equal(lost.kind, 'uncertain')
+  assert.equal(lost.message.includes('Nothing was changed'), false)
+  globalThis.fetch = async () => { const error = new Error('timeout'); error.name = 'AbortError'; throw error }
+  assert.match((await service().hold('o', 's', 'AED', 1, 'k', 't')).message, /timed out/)
+  globalThis.fetch = async () => { throw new Error('network') }
+  assert.equal((await service().list('t')).kind, 'error')
   assert.equal((await new BookingService('', 10).confirm('b1', 't')).kind, 'error')
   assert.equal((await service().confirm('b1', '')).kind, 'error')
 })
@@ -79,6 +85,37 @@ test('cancel and quote use the right verbs and paths, with exact string amounts'
   const quote = await service().cancellationQuote('b/1', 't'); const done = await service().cancel('b/1', 'guest request', 't')
   assert.deepEqual(calls, [['https://api.invalid/agent/bookings/b%2F1/cancellation-quote', 'GET'], ['https://api.invalid/agent/bookings/b%2F1', 'DELETE']])
   assert.equal(quote.ok && quote.data.refundMinor, '87570'); assert.equal(done.ok && done.data.penaltyMinor, '37529')
+})
+
+test('Given a protected booking call, When the API answers 401, Then every workflow phase announces session expiry', async () => {
+  const seen = []
+  const previous = globalThis.window
+  globalThis.window = { dispatchEvent: (event) => { seen.push(event.type); return true } }
+  const phases = [
+    () => service().list('t'),
+    () => service().detail('b', 't'),
+    () => service().hold('o', 's', 'AED', 1, 'k', 't'),
+    () => service().releaseHold('h', 't'),
+    () => service().prebook('h', guest, 't'),
+    () => service().confirm('b', 't'),
+    () => service().cancellationQuote('b', 't'),
+    () => service().cancel('b', 'guest request', 't'),
+    () => service().documentHtml('b', 'voucher', 't'),
+  ]
+  try {
+    for (const phase of phases) {
+      seen.length = 0
+      globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'secret token' } }), { status: 401 })
+      const result = await phase()
+      assert.equal(result.ok, false)
+      assert.equal(result.kind, 'auth')
+      assert.equal(seen.includes('fbeds:session-expired'), true)
+      assert.equal(JSON.stringify(result).includes('secret'), false)
+    }
+  } finally {
+    if (previous === undefined) delete globalThis.window
+    else globalThis.window = previous
+  }
 })
 
 test('document html returns the text only on success', async () => {

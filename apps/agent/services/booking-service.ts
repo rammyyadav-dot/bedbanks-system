@@ -1,6 +1,7 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
+import { authenticatedFetch } from '../lib/authenticated-fetch'
 import { DUPLICATE_BOOKING_SUSPECTED, isSuccessEnvelope, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
 
@@ -8,7 +9,7 @@ import { duplicateMatches } from '../lib/checkout'
  * Typed client for the transactional booking API. Every call sends the active tenant header (validated server-side)
  * and the session cookie; none of it fabricates data: a failed call yields an explicit outcome the UI must show.
  */
-export type BookingFailure = { ok: false; kind: 'unavailable' | 'auth' | 'denied' | 'not_found' | 'conflict' | 'gone' | 'invalid' | 'error'; message: string
+export type BookingFailure = { ok: false; kind: 'unavailable' | 'auth' | 'denied' | 'not_found' | 'conflict' | 'gone' | 'invalid' | 'error' | 'uncertain'; message: string
   /** Set when the prebook was refused as a probable duplicate: the existing bookings (references only). */
   duplicates?: DuplicateBookingMatch[] }
 export type BookingResult<T> = { ok: true; data: T } | BookingFailure
@@ -42,7 +43,8 @@ const failureFor = (status: number, message: string): BookingFailure => {
   if (status === 503 && /reconciliation/i.test(message)) return { ok: false, kind: 'error', message: 'Reconciliation required' }
   const kind = status === 401 ? 'auth' : status === 403 ? 'denied' : status === 404 ? 'not_found' : status === 409 || status === 422 ? 'conflict' : status === 410 ? 'gone' : status === 400 ? 'invalid' : 'error'
   const generic: Record<BookingFailure['kind'], string> = { unavailable: 'Booking is not enabled.', auth: 'Your session expired. Sign in again.', denied: 'You do not have permission for this action.', not_found: 'That booking was not found.',
-    conflict: 'That could not be completed.', gone: 'That offer or hold has expired.', invalid: 'Some details are invalid.', error: 'The booking service is unavailable. Nothing was changed.' }
+    conflict: 'That could not be completed.', gone: 'That offer or hold has expired.', invalid: 'Some details are invalid.', error: 'The booking service is unavailable. Nothing was changed.',
+    uncertain: 'The outcome is unknown. Do not start a new booking until the status is known.' }
   return { ok: false, kind, message: kind === 'conflict' || kind === 'invalid' || kind === 'gone' ? (message || generic[kind]) : generic[kind] }
 }
 
@@ -56,11 +58,19 @@ export class BookingService {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this.timeoutMs)
     try {
-      const response = await fetch(`${this.base}${path}`, { ...init, credentials: 'include', signal: controller.signal,
+      const response = await authenticatedFetch(`${this.base}${path}`, { ...init, credentials: 'include', signal: controller.signal,
         headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), 'x-fbeds-tenant-id': tenantId, ...(init.headers as Record<string, string> | undefined) } })
       const body: unknown = await response.json().catch(() => null)
       return { status: response.status, body }
-    } catch { return failureFor(0, '') } finally { clearTimeout(timer) }
+    } catch (error) {
+      const method = (init.method ?? 'GET').toUpperCase()
+      const write = method !== 'GET' && method !== 'HEAD'
+      if (!write) return failureFor(0, '')
+      const timedOut = error instanceof Error && error.name === 'AbortError'
+      return { ok: false, kind: 'uncertain', message: timedOut
+        ? 'The request timed out after it was sent. The server may already have processed it. Do not start a new booking until the status is known.'
+        : 'The connection failed after the request was sent. The outcome is unknown. Do not start a new booking until the status is known.' }
+    } finally { clearTimeout(timer) }
   }
 
   private parse<T>(result: { status: number; body: unknown } | BookingFailure, accept: (data: unknown) => data is T): BookingResult<T> {
@@ -143,7 +153,7 @@ export class BookingService {
   async documentHtml(bookingId: string, type: DocumentType, tenantId: string): Promise<BookingResult<string>> {
     if (!this.base || !tenantId) return failureFor(0, '')
     try {
-      const response = await fetch(`${this.base}${routes.agent.bookingDocumentHtml.replace(':id', encodeURIComponent(bookingId)).replace(':type', type)}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
+      const response = await authenticatedFetch(`${this.base}${routes.agent.bookingDocumentHtml.replace(':id', encodeURIComponent(bookingId)).replace(':type', type)}`, { credentials: 'include', headers: { 'x-fbeds-tenant-id': tenantId } })
       if (response.status === 503) return { ok: false, kind: 'unavailable', message: 'Booking is not enabled for this workspace yet.' }
       if (!response.ok) { const body: unknown = await response.json().catch(() => null); return failureFor(response.status, isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string' ? body.error.message : '') }
       return { ok: true, data: await response.text() }

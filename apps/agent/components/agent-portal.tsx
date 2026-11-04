@@ -17,6 +17,10 @@ import { ApiHotelService } from '@/services/hotel-service'
 import { CheckCircle2, CircleHelp, FileText, House, Menu, Search, UserRound, WalletCards, X } from 'lucide-react'
 import type { AgentIdentity, FinanceSummary } from '@/lib/api-client'
 import { creditBreakdown, formatMinorAmount } from '@/lib/format'
+import type { FinanceView } from '@/lib/finance-view'
+import { financeCreditLabel } from '@/lib/finance-view'
+import type { PortalAccess } from '@/lib/portal-access'
+import { shouldApplyTenantResponse } from '@/lib/tenant-response'
 import { isGuestMarket, readGuestNationality, rememberGuestNationality } from '@/lib/guest-market'
 import { criteriaFilters, minorToMajorInput, type FilterDraft } from '@/lib/search-filters'
 import { buildRoomStays, supportedRoomStaysError, defaultRoomStay, type RoomStayDraft } from '@/lib/occupancy'
@@ -51,7 +55,9 @@ type SearchOverride = {
 
 const SEARCH_PAGE_SIZE = 25
 
-export function AgentPortal({ financeDenied = false, identity, tenantId, providerStatus, finance, bookingEnabled = false, onFinanceChanged = () => {} }: { financeDenied?: boolean; identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceSummary | null; bookingEnabled?: boolean; onFinanceChanged?: () => void }) {
+export function AgentPortal({ identity, tenantId, providerStatus, finance, access, onFinanceChanged = () => {} }: { identity: AgentIdentity; tenantId: string; providerStatus: 'idle' | 'checking' | 'available' | 'unavailable'; finance: FinanceView<FinanceSummary>; access: PortalAccess; onFinanceChanged?: () => void }) {
+  const tenantRef = useRef(tenantId)
+  tenantRef.current = tenantId
   const [view, setView] = useState<View>('home')
   const [openBookingId, setOpenBookingId] = useState<string | null>(null)
   const [mobileNav, setMobileNav] = useState(false)
@@ -89,8 +95,8 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
   const toastTimer = useRef<number | null>(null)
   const agency = identity.memberships.find((membership) => membership.tenantId === tenantId)?.tenantName ?? 'Verified agency workspace'
   const agentName = identity.user.name ?? identity.user.email
-  const formattedCredit = formatMinorAmount(finance?.availableCredit, finance?.currency)
-  const creditLabel = formattedCredit ?? (financeDenied ? 'Not available to your role' : 'Not configured')
+  const formattedCredit = finance.phase === 'ready' ? formatMinorAmount(finance.summary?.availableCredit, finance.summary?.currency) : null
+  const creditLabel = financeCreditLabel(finance.phase, formattedCredit)
   useEffect(() => {
     const saved = readGuestNationality(window.sessionStorage, identity.user.id)
     if (saved) setNationality(saved)
@@ -215,6 +221,11 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       show('Select a canonical destination, valid dates and occupancy')
       return
     }
+    if (!access.search.enabled) {
+      show('Hotel search is not included in your access for this workspace.')
+      return
+    }
+    const requestedTenant = tenantId
     const started = beginSearchRun({ generation: searchGeneration.current, searching: searchingRef.current })
     if (!started) return
     searchGeneration.current = started.generation
@@ -227,7 +238,8 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     dismissToast()
     const generation = started.generation
     try {
-      const result = await new ApiHotelService().search(built.criteria, tenantId)
+      const result = await new ApiHotelService().search(built.criteria, requestedTenant)
+      if (!shouldApplyTenantResponse(requestedTenant, tenantRef.current)) return
       if (!settleSearchRun({ generation: searchGeneration.current, searching: searchingRef.current }, generation).apply) return
       if (!replaceSearchResult(previous !== null, result.status)) {
         setSearchFailed(true)
@@ -320,11 +332,12 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     const current = searchResult
     if (!current || offset < 0 || loadingMore || searchingRef.current) return
     const generation = searchGeneration.current
+    const requestedTenant = tenantId
     setLoadingMore(true)
     setLoadMoreError('')
     try {
-      const next = await new ApiHotelService().search({ ...current.request, limit: SEARCH_PAGE_SIZE, offset }, tenantId)
-      if (generation !== searchGeneration.current) return
+      const next = await new ApiHotelService().search({ ...current.request, limit: SEARCH_PAGE_SIZE, offset }, requestedTenant)
+      if (!shouldApplyTenantResponse(requestedTenant, tenantRef.current) || generation !== searchGeneration.current) return
       if (requestFailure(next) || next.status === 'mapping_unavailable') {
         setLoadMoreError('Could not open that page. Existing results are unchanged.')
         return
@@ -343,11 +356,12 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
     const nextOffset = current?.pagination?.nextOffset
     if (!current?.pagination?.hasMore || nextOffset === undefined || loadingMore || searchingRef.current) return
     const generation = searchGeneration.current
+    const requestedTenant = tenantId
     setLoadingMore(true)
     setLoadMoreError('')
     try {
-      const next = await new ApiHotelService().search({ ...current.request, limit: SEARCH_PAGE_SIZE, offset: nextOffset }, tenantId)
-      if (generation !== searchGeneration.current) return
+      const next = await new ApiHotelService().search({ ...current.request, limit: SEARCH_PAGE_SIZE, offset: nextOffset }, requestedTenant)
+      if (!shouldApplyTenantResponse(requestedTenant, tenantRef.current) || generation !== searchGeneration.current) return
       if (!['available', 'partial', 'empty'].includes(next.status)) {
         setLoadMoreError('Could not load more hotels. Existing results are unchanged.')
         return
@@ -397,9 +411,9 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       <button className="portal-brand" aria-label="fabBeds home" onClick={() => nav('home')}><BrandLogo /></button>
       <nav className={`market-nav ${mobileNav ? 'is-open' : ''}`} aria-label="Marketplace">
         <NavItem icon={<House size={16} />} label="Home" active={view === 'home'} onClick={() => nav('home')} />
-        <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />
-        {bookingEnabled && <NavItem icon={<FileText size={16} />} label="My bookings" active={view === 'bookings'} muted={!bookingEnabled} detail={bookingEnabled ? undefined : 'Not enabled'} onClick={() => nav('bookings')} />}
-        {!financeDenied && <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />}
+        {access.search.shown && <NavItem icon={<Search size={16} />} label="Hotel search" active={view === 'search'} onClick={() => nav('search')} />}
+        {access.viewBookings.shown && <NavItem icon={<FileText size={16} />} label="My bookings" active={view === 'bookings'} muted={!access.viewBookings.enabled} detail={access.viewBookings.enabled ? undefined : 'Not certified'} onClick={() => nav('bookings')} />}
+        {(access.finance.shown || access.funding.shown) && <NavItem icon={<WalletCards size={16} />} label="Wallet" active={view === 'wallet'} onClick={() => nav('wallet')} />}
         <NavItem icon={<UserRound size={16} />} label="Account" active={view === 'account'} onClick={() => nav('account')} />
         <a href="/support"><CircleHelp size={16} /> Support</a>
         <button className="market-nav-close" type="button" onClick={() => setMobileNav(false)} aria-label="Close navigation"><X size={16} /></button>
@@ -411,10 +425,10 @@ export function AgentPortal({ financeDenied = false, identity, tenantId, provide
       </div>
     </header>
     <div className="portal-body"><main className="portal-main">
-      {view === 'home' && <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={bookingEnabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onReplay={replaySearch} />}
-      {view === 'search' && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} onApplyFilters={(filters) => beginSearch({ starRatings: filters.starRatings ?? [], refundableOnly: Boolean(filters.refundableOnly), boardBasisIds: filters.boardBasisIds ?? [], propertyTypes: filters.propertyTypes ?? [], brands: filters.brands ?? [], minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor })} bookingEnabled={bookingEnabled} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} agentEmail={identity.user.email} />}
-      {view === 'bookings' && <Bookings tenantId={tenantId} bookingEnabled={bookingEnabled} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
-      {view === 'wallet' && <Wallet creditLabel={creditLabel} creditLimitLabel={creditBreakdown(finance).limit} creditUsedLabel={creditBreakdown(finance).used} hasFinance={formattedCredit !== null} tenantId={tenantId} overdue={finance?.overdue ? { state: finance.overdue.state, daysOverdue: finance.overdue.daysOverdue, unpaidLabel: formatMinorAmount(finance.overdue.unpaidMinor, finance.currency) } : null} />}
+      {view === 'home' && (access.search.shown ? <AgentHome userId={identity.user.id} {...marketProps} bookingEnabled={access.viewBookings.enabled} onOpenBookings={() => nav('bookings')} onChange={changeCriteria} onSearch={() => beginSearch()} onReplay={replaySearch} /> : <p role="status">Hotel search is not included in your access for this workspace.</p>)}
+      {view === 'search' && access.search.shown && <SearchView {...marketProps} liveHotels={searchResult?.liveHotels ?? []} result={searchResult} refreshing={searching && searchResult !== null} refreshError={refreshError} loadingMore={loadingMore} loadMoreError={loadMoreError} onSearch={() => { void handleSearch() }} onLoadMore={() => void handleLoadMore()} onPage={(offset) => void handlePage(offset)} onCriteriaChange={noteCriteriaEdit} onApplyFilters={(filters) => beginSearch({ starRatings: filters.starRatings ?? [], refundableOnly: Boolean(filters.refundableOnly), boardBasisIds: filters.boardBasisIds ?? [], propertyTypes: filters.propertyTypes ?? [], brands: filters.brands ?? [], minPriceMinor: filters.minPriceMinor, maxPriceMinor: filters.maxPriceMinor })} access={access} tenantId={tenantId} onBooked={onFinanceChanged} onViewBooking={(id) => { setOpenBookingId(id); nav('bookings') }} agentEmail={identity.user.email} />}
+      {view === 'bookings' && access.viewBookings.shown && <Bookings tenantId={tenantId} access={access} initialBookingId={openBookingId} onChanged={onFinanceChanged} onSearch={() => nav('search')} />}
+      {view === 'wallet' && (access.finance.shown || access.funding.shown) && <Wallet creditLabel={creditLabel} creditLimitLabel={finance.phase === 'ready' ? creditBreakdown(finance.summary).limit : null} creditUsedLabel={finance.phase === 'ready' ? creditBreakdown(finance.summary).used : null} hasFinance={finance.phase === 'ready' && formattedCredit !== null} financePhase={finance.phase} onRetryFinance={onFinanceChanged} tenantId={tenantId} showFunding={access.funding.shown} fundingEnabled={access.funding.enabled} fundingMessage={access.funding.message} overdue={finance.phase === 'ready' && finance.summary?.overdue ? { state: finance.summary.overdue.state, daysOverdue: finance.summary.overdue.daysOverdue, unpaidLabel: formatMinorAmount(finance.summary.overdue.unpaidMinor, finance.summary.currency) } : null} />}
       {view === 'account' && <AgentAccount identity={identity} tenantId={tenantId} />}
     </main></div>
     {toast && <div className="portal-toast" role="status"><CheckCircle2 size={16} /> {toast}</div>}

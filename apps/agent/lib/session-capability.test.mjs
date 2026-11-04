@@ -14,6 +14,18 @@ test('bookingEnabled is true only for an explicit boolean true', () => {
   }
 })
 
+test('effective capabilities stay with the tenant that returned them', () => {
+  const first = agentSession({ user: alice, memberships: [membership], capabilities: ['hotel.search', 'not-a-grant'], capabilityTenantId: 'tenant-a', bookingServicingEnabled: true, fundingEnabled: false }, false)
+  assert.deepEqual(first.capabilities, ['hotel.search'])
+  assert.equal(first.capabilityTenantId, 'tenant-a')
+  assert.equal(first.bookingServicingEnabled, true)
+  assert.equal(first.fundingEnabled, false)
+  const second = agentSession({ user: alice, memberships: [membership, { tenantId: 'tenant-b', tenantName: 'Other', role: 'AGENT' }], capabilities: ['finance.read'], capabilityTenantId: 'tenant-b' }, false)
+  assert.deepEqual(second.capabilities, ['finance.read'])
+  assert.equal(second.capabilityTenantId, 'tenant-b')
+  assert.deepEqual(agentSession({ user: alice, memberships: [membership] }, true).capabilities, [])
+})
+
 test('a new context replaces the previous account capability', () => {
   const enabled = agentSession({ user: alice, memberships: [membership] }, true)
   const disabled = agentSession({ user: blake, memberships: [{ ...membership, tenantId: 'tenant-b' }] }, false)

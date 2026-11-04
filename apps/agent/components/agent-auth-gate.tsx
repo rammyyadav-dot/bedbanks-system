@@ -7,7 +7,7 @@ import { AgentWorkspace } from './agent-workspace'
 import { clearAllDrafts } from '@bedbanks/ui/draft-store'
 import { agentSession, getAgentContext, logout, type AgentIdentity } from '@/lib/api-client'
 import { clearGuestNationality } from '@/lib/guest-market'
-import { clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
+import { clearAccountSession, clearAgentSessionMark, clearRecentSearches, consumeExpiredSession } from '@/lib/recent-searches'
 import { SESSION_EXPIRED_EVENT } from '@/lib/session-events.mjs'
 
 export function AgentAuthGate({ render }: { render?: (identity: AgentIdentity) => ReactNode } = {}) {
@@ -63,7 +63,7 @@ export function AgentAuthGate({ render }: { render?: (identity: AgentIdentity) =
       const current = identityRef.current
       if (!current) return
       sessionEpoch.current += 1
-      clearRecentSearches(window.sessionStorage, current.user.id)
+      clearAccountSession(window.sessionStorage, current.user.id)
       clearGuestNationality(window.sessionStorage, current.user.id)
       clearAllDrafts(window.sessionStorage)
       setIdentity(null)

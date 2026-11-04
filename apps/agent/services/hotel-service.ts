@@ -2,7 +2,7 @@ import type { HotelSearchCriteria, HotelSearchResult, OfferRecheckResult } from 
 import type { AgentRateOffer } from '@bedbanks/domain'
 import { isSuccessEnvelope, routes } from '@bedbanks/contracts/agent'
 import { agentApiBase } from '../lib/api-config.mjs'
-import { announceSessionExpired } from '../lib/session-events.mjs'
+import { authenticatedFetch } from '../lib/authenticated-fetch'
 import { isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { validSearchCriteria, validateAgentSearchResponse } from '@bedbanks/domain/search-offers'
 
@@ -25,14 +25,14 @@ export class ApiHotelService implements HotelService {
       // The timer covers the response body too: a supplier that sends headers and then stalls must not hang the search.
       const timeout = setTimeout(() => controller.abort(), 10_000)
       try {
-        const response = await fetch(`${this.baseUrl}${routes.agent.search}`, {
+        const response = await authenticatedFetch(`${this.baseUrl}${routes.agent.search}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           credentials: 'include',
           body: JSON.stringify(criteria),
           signal: controller.signal,
         })
-        if (response.status === 401) { announceSessionExpired(); return empty('auth_required') }
+        if (response.status === 401) return empty('auth_required')
         if (response.status === 403) return empty(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
         if (response.status === 400) {
           const body: unknown = await response.json().catch(() => null)
@@ -44,7 +44,7 @@ export class ApiHotelService implements HotelService {
         if (!response.ok) return empty('provider_unavailable')
         const envelope: unknown = await response.json()
         if (!isSuccessEnvelope(envelope)) return empty('mapping_unavailable')
-        const validated = validateAgentSearchResponse(envelope.data, criteria)
+        const validated = validateAgentSearchResponse(envelope.data, criteria, Date.now(), tenantId)
         if (!validated.ok) return empty('mapping_unavailable')
         const { status, hotels, request, pagination } = validated.response
         return { liveHotels: hotels, total: hotels.length,
@@ -65,13 +65,13 @@ export class ApiHotelService implements HotelService {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 7_000)
       try {
-        const response = await fetch(`${this.baseUrl}${routes.agent.recheck}`, {
+        const response = await authenticatedFetch(`${this.baseUrl}${routes.agent.recheck}`, {
           method: 'POST', credentials: 'include', signal: controller.signal,
           headers: { 'Content-Type': 'application/json', 'x-fbeds-tenant-id': tenantId },
           body: JSON.stringify({ offerId: rate.offerId, searchId, expectedCurrency: rate.total.currency,
             expectedSellAmountMinor: rate.sellAmountMinor }),
         })
-        if (response.status === 401) { announceSessionExpired(); return fallback('auth_required') }
+        if (response.status === 401) return fallback('auth_required')
         if (response.status === 403) return fallback(isAgencySuspended(await response.json().catch(() => null)) ? 'agency_suspended' : 'access_denied')
         const envelope: unknown = await response.json().catch(() => null)
         if (!isSuccessEnvelope(envelope)) return fallback('provider_unavailable')
