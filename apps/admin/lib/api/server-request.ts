@@ -1,5 +1,6 @@
 import 'server-only';
 import { cookies } from 'next/headers';
+import { isSuccessEnvelope } from '@bedbanks/contracts';
 import { ApiResponseError } from './errors';
 import { apiInternalUrl, apiTrustedOrigin, SESSION_COOKIE_NAME } from './server-env';
 
@@ -32,6 +33,7 @@ export async function serverApiRequest<T>(path: string, init: RequestInit = {}):
 
   const body = await response.json().catch(() => null) as { success?: boolean; data?: T; error?: { code?: string; message?: string } } | null;
   if (!response.ok) throw new ApiResponseError(body?.error?.code ?? 'API_REQUEST_FAILED', body?.error?.message ?? 'The request failed.', response.status);
-  if (body?.success !== true) throw new ApiResponseError('INVALID_RESPONSE', 'The Admin API returned an unexpected response.', 502);
-  return body.data as T;
+  // Same rule as the browser client: HTTP 200 without { success: true, data } is not a result.
+  if (!isSuccessEnvelope<T>(body)) throw new ApiResponseError('INVALID_RESPONSE', 'The Admin API returned an unexpected response.', 502);
+  return body.data;
 }

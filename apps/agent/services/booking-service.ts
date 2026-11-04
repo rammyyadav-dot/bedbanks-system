@@ -1,7 +1,7 @@
 import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspension.mjs'
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
-import { DUPLICATE_BOOKING_SUSPECTED, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
+import { DUPLICATE_BOOKING_SUSPECTED, isSuccessEnvelope, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
 
 /**
@@ -65,9 +65,9 @@ export class BookingService {
 
   private parse<T>(result: { status: number; body: unknown } | BookingFailure, accept: (data: unknown) => data is T): BookingResult<T> {
     if ('ok' in result) return result
-    const data = isRecord(result.body) && 'data' in result.body ? result.body.data : result.body
+    const data = isSuccessEnvelope(result.body) ? result.body.data : undefined
     if (isRecord(data) && data.status === 'booking_unavailable') return { ok: false, kind: 'unavailable', message: 'Booking is not enabled for this workspace yet.' }
-    if (result.status >= 200 && result.status < 300) return accept(data) ? { ok: true, data } : failureFor(500, '')
+    if (result.status >= 200 && result.status < 300) return data !== undefined && accept(data) ? { ok: true, data } : failureFor(500, '')
     if (result.status === 403 && isAgencySuspended(result.body)) return { ok: false, kind: 'denied', message: agencySuspendedMessage }
     const credit = result.status === 403 || result.status === 503 ? creditRefusal(result.body) : null
     if (credit) return { ok: false, kind: result.status === 403 ? 'denied' : 'error', message: credit.message }
@@ -83,7 +83,7 @@ export class BookingService {
   async hold(offerId: string, searchId: string, currency: string, sellAmountMinor: number, idempotencyKey: string, tenantId: string): Promise<BookingResult<HoldOutcome>> {
     const result = await this.call(routes.agent.holdOffer.replace(':offerId', encodeURIComponent(offerId)), tenantId, { method: 'POST', body: JSON.stringify({ searchId, expectedCurrency: currency, expectedSellAmountMinor: sellAmountMinor, idempotencyKey }) })
     if (!('ok' in result)) {
-      const data = isRecord(result.body) && 'data' in result.body ? result.body.data : null
+      const data = isSuccessEnvelope(result.body) ? result.body.data : null
       if (isRecord(data) && typeof data.status === 'string' && data.status !== 'booking_unavailable') {
         const outcome: HoldOutcome = { status: data.status }
         if (typeof data.holdId === 'string') outcome.holdId = data.holdId
