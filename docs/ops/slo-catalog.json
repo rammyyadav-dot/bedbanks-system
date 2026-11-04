@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "status": "provisional",
+  "window": "28d",
+  "note": "Staging objectives. They become a production commitment only when engineering, operations, security and product owners sign the acceptance record for a SHA that is actually deployed to staging.",
+  "signals": [
+    {
+      "id": "authentication",
+      "sli": "Share of /auth/* responses with HTTP status below 500.",
+      "objective": "99.9% over 28 days.",
+      "metric": "AuthenticationServerError",
+      "alarm": "5 server errors in 5 minutes.",
+      "severity": 2
+    },
+    {
+      "id": "search",
+      "sli": "Share of POST /agent/search responses with HTTP status below 500, plus latency.",
+      "objective": "99.5% non-5xx. API target p95 under 750 ms. Hybrid retrieval p95 and p99 under 200 ms stays an open finding until a production-shaped run meets it.",
+      "metric": "SearchServerError",
+      "alarm": "5 server errors in 5 minutes. Latency uses the existing API target p95 alarm at 750 ms.",
+      "severity": 2
+    },
+    {
+      "id": "recheck",
+      "sli": "Share of POST /agent/rates/recheck responses with HTTP status below 500.",
+      "objective": "99% non-5xx. A supplier-declared unavailable or price change returned as HTTP 200 is success. A catch block must not substitute stale or zero-priced inventory.",
+      "metric": "RecheckServerError",
+      "alarm": "5 server errors in 5 minutes.",
+      "severity": 2
+    },
+    {
+      "id": "booking",
+      "sli": "Share of POST /agent/bookings responses with HTTP status below 500.",
+      "objective": "99.9% non-5xx. An idempotent replay is success. An unknown supplier outcome stays pending investigation.",
+      "metric": "BookingServerError",
+      "alarm": "1 server error in 5 minutes.",
+      "severity": 1
+    },
+    {
+      "id": "cancellation",
+      "sli": "Share of DELETE /agent/bookings/:id responses with HTTP status below 500.",
+      "objective": "99.9% non-5xx.",
+      "metric": "CancellationServerError",
+      "alarm": "1 server error in 5 minutes.",
+      "severity": 1
+    },
+    {
+      "id": "authorization",
+      "sli": "Count of HTTP 401 and 403 responses outside /auth/*.",
+      "objective": "A denial storm is investigated. A single 403 is expected RBAC.",
+      "metric": "AuthorizationDenial",
+      "alarm": "100 denials in 5 minutes.",
+      "severity": 2
+    },
+    {
+      "id": "connector",
+      "sli": "Supplier fan-out failure ratio on supplier.search spans.",
+      "objective": "Page when one connector's failure ratio exceeds 5% for 15 minutes. Failures stay visible.",
+      "metric": null,
+      "alarm": "Not a CloudWatch metric until the ADOT collector is confirmed in staging (ADR 0093).",
+      "severity": 2
+    },
+    {
+      "id": "job_backlog",
+      "sli": "Search-reindex and compliance job heartbeats.",
+      "objective": "A missed heartbeat pages.",
+      "metric": "SearchReindexSucceeded",
+      "alarm": "Existing search-reindex and compliance heartbeat alarms. Missing data breaches.",
+      "severity": 2
+    }
+  ]
+}

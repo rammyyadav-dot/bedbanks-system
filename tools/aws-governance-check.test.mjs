@@ -54,6 +54,8 @@ test('WP3: Redis without TLS', () => match([[`${T}/data.tf`, 'transit_encryption
 test('WP3: RDS log export removed', () => match([[`${T}/data.tf`, 'enabled_cloudwatch_logs_exports     = ["postgresql", "upgrade"]', '']], /log exports/))
 test('WP3: alarm topic on the AWS-managed SNS key', () => match([[`${T}/observability.tf`, 'kms_master_key_id = aws_kms_key.data.arn', 'kms_master_key_id = "alias/aws/sns"']], /alias\/aws\/sns/))
 test('WP3: API latency alarm removed', () => match([[`${T}/observability.tf`, 'metric_name         = "TargetResponseTime"', 'metric_name         = "RequestCount"']], /TargetResponseTime alarm missing/))
+test('WP3: operations dashboard removed', () => match([[`${T}/sli.tf`, 'resource "aws_cloudwatch_dashboard" "operations"', 'resource "aws_cloudwatch_dashboard" "other"']], /operations dashboard missing/))
+test('WP3: search SLI alarm removed', () => match([[`${T}/sli.tf`, 'SearchServerError', 'SearchErrors']], /SearchServerError/))
 test('WP3: RDS connection alarm removed', () => match([[`${T}/observability.tf`, 'metric_name         = "DatabaseConnections"', 'metric_name         = "ReadIOPS"']], /DatabaseConnections and FreeableMemory/))
 test('WP3: flow logs removed', () => match([[`${T}/logging.tf`, 'resource "aws_flow_log" "vpc"', 'resource "aws_flow_log_disabled" "vpc"']], /flow logs missing/))
 test('WP3: ALB access logs off', () => match([[`${T}/alb.tf`, 'enabled = true', 'enabled = false']], /access_logs enabled/))
