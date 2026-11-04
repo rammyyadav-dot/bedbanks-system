@@ -171,6 +171,13 @@ function agentRate(rate) {
 }
 
 /** Server-side fields and the supplier-cost identities: total = net + tax + fee, sell = total + markup. Never checked in the browser. */
+/** A buyer offer may omit tenantId. A present tenantId must be a real id and, when the workspace is known, that workspace. */
+function agentOfferTenantOk(rate, expectedTenantId) {
+  if (rate.tenantId === undefined) return true
+  if (!id(rate.tenantId)) return false
+  return expectedTenantId === undefined || rate.tenantId === expectedTenantId
+}
+
 function internalRateOk(rate, hotel, room, expectedTenantId) {
   return id(rate.tenantId) && (expectedTenantId === undefined || rate.tenantId === expectedTenantId) &&
     id(rate.providerId) && rate.canonicalHotelId === hotel.hotelId && rate.canonicalRoomTypeId === room.roomTypeId &&
@@ -204,6 +211,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
           (hotel.latitude !== undefined && (!coordinateOk(hotel.latitude) || !coordinateOk(hotel.longitude))) ||
           (hotel.timeZone !== undefined && !timeZoneOk(hotel.timeZone)) ||
           (hotel.primaryImage !== undefined && !imageOk(hotel.primaryImage)) ||
+          (agent && !agentOfferTenantOk(hotel, expectedTenantId)) ||
           (!agent && (!id(hotel.supplierId) || !id(hotel.supplierHotelId))) ||
           !Array.isArray(hotel.rooms) || hotel.rooms.length === 0 ||
           hotelIds.has(hotel.hotelId))
@@ -240,7 +248,7 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
               (rate.payAtHotel !== undefined && (!Array.isArray(rate.payAtHotel) || rate.payAtHotel.length > 10 || rate.payAtHotel.some((c) => !record(c) || !id(c.kind) || !id(c.label) ||
                 !natural(c.amountMinor, 0) || !natural(c.estimatedTotalMinor, 0) || !/^[A-Z]{3}$/.test(c.currency) ||
                 !['PER_ROOM_PER_NIGHT', 'PER_PERSON_PER_NIGHT', 'PER_ROOM_PER_STAY', 'PER_PERSON_PER_STAY'].includes(c.basis)))) ||
-              (agent ? rate.taxAmountMinor + rate.feeAmountMinor > rate.sellAmountMinor : !internalRateOk(rate, hotel, room, expectedTenantId))) throw Error('rate')
+              (agent ? rate.taxAmountMinor + rate.feeAmountMinor > rate.sellAmountMinor || !agentOfferTenantOk(rate, expectedTenantId) : !internalRateOk(rate, hotel, room, expectedTenantId))) throw Error('rate')
           offerIds.add(rate.offerId)
           const buyer = agentRate(rate)
           if (agent) return buyer
@@ -299,7 +307,9 @@ function validateSearchHotels(input, criteria, now = Date.now(), expectedTenantI
   }
 }
 
-function validateAgentSearchResponse(value, criteria, now = Date.now()) {
+function validateAgentSearchResponse(value, criteria, now = Date.now(), expectedTenantId) {
+  if (expectedTenantId !== undefined && (!id(expectedTenantId) || (record(value) && value.tenantId !== undefined && value.tenantId !== expectedTenantId)))
+    return { ok: false, reason: 'mapping_unavailable' }
   if (!record(value) || value.version !== 1 || !id(value.searchId) || !id(value.requestId) || !instant(value.generatedAt) || !record(value.request) ||
       !validSearchCriteria(value.request) || !validSearchCriteria(criteria) ||
       !sameCriteria(value.request, criteria) ||
@@ -308,7 +318,7 @@ function validateAgentSearchResponse(value, criteria, now = Date.now()) {
       !natural(value.providerSummary.queried, 0) || !natural(value.providerSummary.succeeded, 0) || !natural(value.providerSummary.failed, 0) ||
       value.providerSummary.succeeded + value.providerSummary.failed > value.providerSummary.queried)
     return { ok: false, reason: 'mapping_unavailable' }
-  const result = validateSearchHotels(value.hotels, criteria, now, undefined, false, 'agent')
+  const result = validateSearchHotels(value.hotels, criteria, now, expectedTenantId, false, 'agent')
   const pagination = result.ok ? declaredPagination(value.pagination, criteria, result.hotels.length) : null
   if (!result.ok || pagination === null || value.total !== result.hotels.length ||
       (!['available', 'partial'].includes(value.status) && result.hotels.length > 0) ||

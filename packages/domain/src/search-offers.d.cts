@@ -9,6 +9,6 @@ export function validateSearchHotels(input: unknown, criteria: SearchCriteria, n
   | { ok: true; hotels: AgentHotelOffer[]; matchedTotal: number }
   | { ok: false; reason: 'mapping_unavailable' }
 export function projectAgentHotels(hotels: SearchHotelOffer[]): AgentHotelOffer[]
-export function validateAgentSearchResponse(input: unknown, criteria: SearchCriteria, now?: number):
+export function validateAgentSearchResponse(input: unknown, criteria: SearchCriteria, now?: number, expectedTenantId?: string):
   | { ok: true; response: AgentSearchResponse }
   | { ok: false; reason: 'mapping_unavailable' }
