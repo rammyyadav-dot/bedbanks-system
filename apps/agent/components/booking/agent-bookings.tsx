@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { BookingService, type BookingDetail, type BookingPage, type CancellationQuote, type DocumentType } from '@/services/booking-service'
 import { agentFacingBooking, supplierReferenceForAgent } from '@/lib/booking-attention'
+import { recoveryLines } from '@/lib/booking-recovery'
 import { cancellationQuoteFresh } from '@/lib/checkout-guard'
 import { replaceDocumentUrl, revokeDocumentUrl } from '@/lib/document-url'
 import { formatMinorAmount, formatOfferExpiry, formatStay } from '@/lib/format'
@@ -37,9 +38,11 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   const [detailError, setDetailError] = useState('')
   const [quote, setQuote] = useState<CancellationQuote | null>(null)
   const [busy, setBusy] = useState(false)
+  const [recovering, setRecovering] = useState(false)
   busyRef.current = busy
   const [notice, setNotice] = useState('')
   const [filter, setFilter] = useState<BookingFilter>('ALL')
+  const [recovery, setRecovery] = useState<string[]>([])
 
   const loadList = useCallback(async () => {
     const result = await api.list(tenantId, { limit: PAGE_SIZE, offset, status: filter === 'ALL' ? undefined : filter })
@@ -81,7 +84,12 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
     return () => window.removeEventListener('keydown', onKey)
   }, [quote])
 
-  if (!access.viewBookings.enabled) return <section className="portal-empty" role="status"><h1>My bookings</h1><p>{access.viewBookings.message || 'Booking history is not available for this workspace yet. Nothing has been booked and no booking history is shown.'}</p><button className="portal-primary" onClick={onSearch}>New search</button></section>
+  const recoveryPanel = <>
+    {access.recover.enabled && <div className="portal-hold-panel"><div><strong>Recovery</strong><span>Closes interrupted holds that are old enough. A fulfilled supplier booking still inside its confirmation window is left in place.</span></div><button type="button" className="portal-link" disabled={busy} onClick={() => void recover()}>{recovering ? 'Recovering…' : 'Run recovery'}</button></div>}
+    {access.recover.shown && !access.recover.enabled && <p role="status">{access.recover.message}</p>}
+    {recovery.length > 0 && <ul>{recovery.map((line) => <li key={line}>{line}</li>)}</ul>}
+  </>
+  if (!access.viewBookings.enabled) return <section className="portal-empty" role="status"><h1>My bookings</h1><p>{access.viewBookings.message || 'Booking history is not available for this workspace yet. Nothing has been booked and no booking history is shown.'}</p>{recoveryPanel}{notice && <p role="status" className="booking-note">{notice}</p>}<button className="portal-primary" onClick={onSearch}>New search</button></section>
 
   async function openDocument(type: DocumentType) {
     if (!detail || busy) return
@@ -93,6 +101,20 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
     else { popup?.close(); setNotice(result.ok ? 'Allow pop-ups to open the document.' : result.message) }
     setBusy(false)
     void loadDetail(detail.id)
+  }
+  async function recover() {
+    if (busy || !access.recover.enabled) return
+    setBusy(true); setRecovering(true); setNotice(''); setRecovery([])
+    const result = await api.recover(tenantId)
+    if (result.ok) {
+      setRecovery(recoveryLines(result.data.items))
+      if (result.data.examined > 0) setNotice(`Recovery examined ${result.data.examined} hold${result.data.examined === 1 ? '' : 's'}.`)
+      if (access.viewBookings.enabled) {
+        await loadList()
+        if (selectedId) await loadDetail(selectedId)
+      }
+    } else setNotice(result.message)
+    setRecovering(false); setBusy(false)
   }
   async function requestQuote() {
     if (!detail || busy || !access.cancel.enabled) return
@@ -120,6 +142,7 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   const windowStart = page && page.total > 0 ? page.offset + 1 : 0
   const windowEnd = page ? page.offset + page.items.length : 0
   return <section className="portal-bookings"><div className="portal-heading-row"><div><span className="portal-eyebrow">TRANSACTIONS</span><h1>My bookings</h1><p>Newest bookings for this agency. The list is paged on the server.</p></div><button className="portal-primary" onClick={onSearch}>New search</button></div>
+    {recoveryPanel}
     {listError && <p className="portal-field-error" role="alert">{listError} <button type="button" className="portal-link" onClick={() => void loadList()}>Retry</button></p>}
     {page === null && !listError && <p role="status">Loading bookings…</p>}
     {page !== null && <div className="market-recheck-actions" role="tablist" aria-label="Booking status">{FILTERS.map((item) => <button key={item.id} type="button" className="portal-link" aria-pressed={filter === item.id} onClick={() => { setFilter(item.id); setOffset(0) }}>{item.label}</button>)}</div>}

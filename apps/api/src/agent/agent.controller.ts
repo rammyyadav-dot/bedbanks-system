@@ -356,7 +356,12 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.reconcileBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+  async reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingServicingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.reconcile.unavailable', entityType: 'tenant', entityId: tenantId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Recovery is unavailable until booking gates are certified.' }
+    }
     return this.reconciliation.reconcileStale({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), staleMinutes: body.staleMinutes, prebookMaxMinutes: body.prebookMaxMinutes, dryRun: body.dryRun })
   }
 
