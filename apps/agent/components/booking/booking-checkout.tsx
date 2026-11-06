@@ -243,10 +243,13 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
             {duplicates.length > 0 && <div className="ck-duplicate" role="alert"><p><AlertTriangle size={16} aria-hidden="true" /><strong>Possible duplicate booking.</strong> Your agency already has {duplicates.length === 1 ? 'a booking' : 'bookings'} for this lead guest, hotel and dates:</p>
               <ul>{duplicates.map((d) => <li key={d.reference}><b>{d.reference}</b> · {d.status.replace(/_/g, ' ').toLowerCase()} · booked {d.createdAt.slice(0, 10)}</li>)}</ul>
               <label><input type="checkbox" checked={bookAnyway} onChange={(e) => setBookAnyway(e.target.checked)} />This is a separate booking. Book it anyway.</label></div>}
-            {!canConfirm && <p role="status">{confirmMessage || 'You cannot confirm a booking for this workspace.'}</p>}
-            <label className={`ck-terms${touched && !terms ? ' has-error' : ''}`}><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />I accept the cancellation policy and the booking terms, and confirm the guest names are correct.</label>
+            {canConfirm && <>
+              <label className={`ck-terms${touched && !terms ? ' has-error' : ''}`}><input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />I accept the cancellation policy and the booking terms, and confirm the guest names are correct.</label>
+              <div className="ck-actions">
+                <button className="portal-primary" disabled={phase === 'booking' || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
+              </div>
+            </>}
             <div className="ck-actions">
-              <button className="portal-primary" disabled={phase === 'booking' || !canConfirm || /reconciliation/i.test(message)} onClick={() => void book()}>{phase === 'booking' ? 'Booking…' : bookingId ? 'Retry confirmation' : `Confirm & book · ${total}`}</button>
               {!bookingId && <button className="portal-link" disabled={phase === 'booking'} onClick={() => void releaseHold()}>Release hold</button>}
             </div>
             {touched && !ready && <p className="portal-field-error" role="alert">{Object.keys(errors).length ? 'Enter every guest name.' : !terms ? 'Accept the cancellation policy and booking terms.' : duplicates.length && !bookAnyway ? 'Confirm this is a separate booking, or release the hold.' : 'Check the highlighted fields.'}</p>}

@@ -8,6 +8,7 @@ import { cancellationQuoteFresh } from '@/lib/checkout-guard'
 import { replaceDocumentUrl, revokeDocumentUrl } from '@/lib/document-url'
 import { formatMinorAmount, formatOfferExpiry, formatStay } from '@/lib/format'
 import type { PortalAccess } from '@/lib/portal-access'
+import { shouldApplyTenantResponse } from '@/lib/tenant-response'
 import { LAUNCH_BUSINESS_TIME_ZONE } from '@/lib/business-time'
 
 const FILTERS = [
@@ -24,6 +25,8 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   tenantId: string; access: PortalAccess; initialBookingId?: string | null; onSearch: () => void; onChanged: () => void; service?: BookingService
 }) {
   const api = useRef(service ?? new BookingService()).current
+  const tenantRef = useRef(tenantId)
+  tenantRef.current = tenantId
   const documentUrl = useRef<string | null>(null)
   const cancelDialog = useRef<HTMLDivElement>(null)
   const cancelTitleId = useId()
@@ -45,12 +48,16 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   const [recovery, setRecovery] = useState<string[]>([])
 
   const loadList = useCallback(async () => {
-    const result = await api.list(tenantId, { limit: PAGE_SIZE, offset, status: filter === 'ALL' ? undefined : filter })
+    const requested = tenantId
+    const result = await api.list(requested, { limit: PAGE_SIZE, offset, status: filter === 'ALL' ? undefined : filter })
+    if (!shouldApplyTenantResponse(requested, tenantRef.current)) return
     if (result.ok) { setPage(result.data); setListError('') } else { setPage(null); setListError(result.message) }
   }, [api, tenantId, offset, filter])
   const loadDetail = useCallback(async (id: string) => {
+    const requested = tenantId
     setDetail(null); setDetailError(''); setQuote(null)
-    const result = await api.detail(id, tenantId)
+    const result = await api.detail(id, requested)
+    if (!shouldApplyTenantResponse(requested, tenantRef.current)) return
     if (result.ok) setDetail(result.data); else setDetailError(result.message)
   }, [api, tenantId])
   useEffect(() => { if (access.viewBookings.enabled) void loadList() }, [access.viewBookings.enabled, loadList])
