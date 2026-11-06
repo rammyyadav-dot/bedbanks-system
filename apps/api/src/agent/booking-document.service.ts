@@ -1,4 +1,4 @@
-import { DOCUMENT_BLOCK_TEXT, bookingConfirmedForDocuments, documentBlock, type BookingStatus } from '@bedbanks/contracts'
+import { DOCUMENT_BLOCK_TEXT, bookingConfirmedForDocuments, documentBlock, type BookingDocumentType, type BookingStatus, type DocumentBlock, type EffectivePenalty } from '@bedbanks/contracts'
 import { payAtHotel } from '../supply/local-charges'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
@@ -24,12 +24,43 @@ export function documentKindFromRoute(value: string): DocumentKind {
   return kind
 }
 
+const ISSUED_DOCUMENT_TYPES = new Set<string>(['VOUCHER', 'INVOICE', 'CREDIT_NOTE', 'CANCELLATION_NOTE'])
+
+/**
+ * Agent document eligibility is `documentBlock`, the same rule Admin and the confirmation email use (ADR 0039, Phase 5).
+ * Agent confirmation does not write a CONFIRMED finance event, so a post-confirmation status is the confirmation fact.
+ * The cancellation row's refund is the determined penalty: penalty = sell − refund. An unknown or impossible refund
+ * is undecided, never guessed as zero.
+ */
+export function agentDocumentBlock(input: {
+  type: DocumentKind
+  status: string
+  hotelConfirmationNo: string | null
+  sellMinor: bigint
+  issued: readonly string[]
+  cancellation: { refundMinor: bigint | null } | null
+}): DocumentBlock {
+  return documentBlock(input.type, {
+    status: input.status as BookingStatus,
+    hasConfirmedEvent: bookingConfirmedForDocuments({ status: input.status as BookingStatus, hasConfirmedFinanceEvent: false }),
+    hotelConfirmationNo: input.hotelConfirmationNo,
+    penalty: penaltyFromAgentCancellation(input.sellMinor, input.cancellation),
+    sellMinor: input.sellMinor.toString(),
+    issued: input.issued.filter((type): type is BookingDocumentType => ISSUED_DOCUMENT_TYPES.has(type)),
+  })
+}
+
+function penaltyFromAgentCancellation(sellMinor: bigint, cancellation: { refundMinor: bigint | null } | null): EffectivePenalty {
+  if (!cancellation) return { state: 'NOT_REQUESTED' }
+  const refund = cancellation.refundMinor
+  if (refund === null || refund < 0n || refund > sellMinor) return { state: 'NEEDS_DECISION', reason: 'no_quote' }
+  return { state: 'QUOTED', penaltyMinor: (sellMinor - refund).toString(), refundMinor: refund.toString() }
+}
+
 /**
  * Issues each booking document exactly once and freezes its content. Numbers are derived from the booking reference
  * (no shared counter to race on); a database unique key plus an UPDATE-rejecting trigger make re-issue and edits
- * impossible. Voucher eligibility is `documentBlock` (the same rule Admin and the confirmation email use): a confirmed
- * booking, the hotel confirmation number, and no new voucher once cancelled. A voucher already issued is returned unchanged,
- * including after cancellation. Invoice needs a charged booking (CONFIRMED or CANCELLED); a credit note needs CANCELLED.
+ * impossible. A document already issued is returned unchanged, including a voucher after cancellation.
  */
 @Injectable()
 export class BookingDocumentService {
@@ -54,22 +85,14 @@ export class BookingDocumentService {
       const scope = await resolveAgentBookingScope(tx, tenantId, userId)
       const booking = await tx.booking.findFirst({ where: { ...agencyConstraint(scope), id: bookingId, tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
-      const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type }, tenantId } })
+      const [documents, cancellation] = await Promise.all([
+        tx.bookingDocument.findMany({ where: { bookingId, tenantId }, select: { id: true, type: true, number: true, issuedAt: true, payload: true } }),
+        tx.cancellation.findUnique({ where: { bookingId }, select: { refundMinor: true } }),
+      ])
+      const existing = documents.find((document) => document.type === type)
       if (existing) return this.view(existing, booking.status, true)
-
-      if (type === 'VOUCHER') {
-        const block = documentBlock('VOUCHER', {
-          status: booking.status as BookingStatus,
-          hasConfirmedEvent: bookingConfirmedForDocuments({ status: booking.status as BookingStatus, hasConfirmedFinanceEvent: false }),
-          hotelConfirmationNo: booking.hotelConfirmationNo,
-          penalty: { state: 'NOT_REQUESTED' },
-          sellMinor: booking.totalMinor.toString(),
-          issued: [],
-        })
-        if (block) throw new ConflictException({ message: DOCUMENT_BLOCK_TEXT[block], code: block })
-      }
-      if (type === 'INVOICE' && booking.status !== 'CONFIRMED' && booking.status !== 'CANCELLED') throw new ConflictException('An invoice is issued only for a charged booking')
-      if (type === 'CREDIT_NOTE' && booking.status !== 'CANCELLED') throw new ConflictException('A credit note is issued only for a cancelled booking')
+      const block = agentDocumentBlock({ type, status: booking.status, hotelConfirmationNo: booking.hotelConfirmationNo, sellMinor: booking.totalMinor, issued: documents.map((document) => document.type), cancellation })
+      if (block) throw new ConflictException({ message: DOCUMENT_BLOCK_TEXT[block], code: block })
 
       const payload = await this.build(tx, tenantId, booking, type)
       const created = await tx.bookingDocument.create({ data: { tenantId, bookingId, type, number: `${PREFIX[type]}-${booking.reference}`, payload: payload as Prisma.InputJsonObject } })

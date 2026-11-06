@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { LargeChangeConfirm } from '@/components/commercial/LargeChangeConfirm'
 import { FormField } from '@/components/forms/FormField'
 import { describeApiError } from '@/lib/api/describe-error'
+import { ApiResponseError } from '@/lib/api/errors'
 import { useCan } from '@/lib/auth/capabilities'
 import { blankLine, buildGuestPricesInput, draftFromLines, type GuestLineDraft } from '@/lib/guest-prices'
 import { getGuestPrices, replaceGuestPrices } from '@/lib/data'
@@ -18,12 +20,13 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [problems, setProblems] = useState<string[]>([])
   const [message, setMessage] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
+  const [guard, setGuard] = useState<{ warnings: string[]; confirmed: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = () => getGuestPrices(ratePlanId).then((loaded) => { setState({ currency: loaded.currency, occupancy: loaded.occupancy, updatedAt: loaded.updatedAt }); setDrafts(draftFromLines(loaded.lines)); setLoadError(null) }).catch((error) => setLoadError(describeApiError(error, 'load the guest prices')))
   useEffect(() => { void load() }, [ratePlanId])
 
-  const patch = (index: number, change: Partial<GuestLineDraft>) => { setProblems([]); setMessage(null); setDrafts((cur) => cur.map((line, i) => (i === index ? { ...line, ...change } : line))) }
+  const patch = (index: number, change: Partial<GuestLineDraft>) => { setProblems([]); setMessage(null); setGuard(null); setDrafts((cur) => cur.map((line, i) => (i === index ? { ...line, ...change } : line))) }
 
   async function save() {
     if (!state) return
@@ -31,8 +34,16 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
     setProblems(built.problems)
     if (!built.input) return
     setBusy(true); setMessage(null)
-    try { const saved = await replaceGuestPrices(ratePlanId, built.input); setState({ currency: saved.currency, occupancy: saved.occupancy, updatedAt: saved.updatedAt }); setDrafts(draftFromLines(saved.lines)); setMessage({ kind: 'ok', text: saved.lines.length ? `Saved ${saved.lines.length} guest price line(s).` : 'Removed every guest price line: the plan sells its flat occupancy again.' }) }
-    catch (error) { setMessage({ kind: 'error', text: describeApiError(error, 'save the guest prices') }) } finally { setBusy(false) }
+    try {
+      const saved = await replaceGuestPrices(ratePlanId, { ...built.input, ...(guard?.confirmed ? { confirmLargeChanges: true } : {}) })
+      setState({ currency: saved.currency, occupancy: saved.occupancy, updatedAt: saved.updatedAt })
+      setDrafts(draftFromLines(saved.lines))
+      setGuard(null)
+      setMessage({ kind: 'ok', text: saved.lines.length ? `Saved ${saved.lines.length} guest price line(s).` : 'Removed every guest price line: the plan sells its flat occupancy again.' })
+    } catch (error) {
+      if (error instanceof ApiResponseError && error.code === 'PRICE_GUARDRAIL_CONFIRMATION_REQUIRED') setGuard({ warnings: error.details.length > 0 ? error.details : [error.message], confirmed: false })
+      else setMessage({ kind: 'error', text: describeApiError(error, 'save the guest prices') })
+    } finally { setBusy(false) }
   }
 
   if (loadError) return <p role="alert" style={{ color: 'var(--c-b3141b)', fontSize: 12 }}>{loadError}</p>
@@ -56,12 +67,13 @@ export function GuestPricesPanel({ ratePlanId }: { ratePlanId: string }) {
         </div>
       ))}
       {problems.length ? <ul role="alert" style={{ margin: '6px 0', paddingLeft: 16, fontSize: 12, color: 'var(--c-b3141b)' }}>{problems.map((p, i) => <li key={i}>{p}</li>)}</ul> : null}
+      {guard ? <LargeChangeConfirm warnings={guard.warnings} confirmed={guard.confirmed} onChange={(confirmed) => setGuard({ ...guard, confirmed })} /> : null}
       {message ? <p role={message.kind === 'error' ? 'alert' : 'status'} style={{ color: message.kind === 'error' ? 'var(--c-b3141b)' : 'var(--c-111111)', fontSize: 12 }}>{message.text}</p> : null}
       {canManage ? (
         <span style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankLine('CHILD')]) }}>Add child band</button>
-          {!drafts.some((d) => d.kind === 'EXTRA_ADULT') ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setDrafts((cur) => [...cur, blankLine('EXTRA_ADULT')]) }}>Add extra-adult price</button> : null}
-          <button type="button" className="admin-btn admin-btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save guest prices'}</button>
+          <button type="button" className="admin-btn" onClick={() => { setProblems([]); setGuard(null); setDrafts((cur) => [...cur, blankLine('CHILD')]) }}>Add child band</button>
+          {!drafts.some((d) => d.kind === 'EXTRA_ADULT') ? <button type="button" className="admin-btn" onClick={() => { setProblems([]); setGuard(null); setDrafts((cur) => [...cur, blankLine('EXTRA_ADULT')]) }}>Add extra-adult price</button> : null}
+          <button type="button" className="admin-btn admin-btn-primary" disabled={busy || (guard !== null && !guard.confirmed)} onClick={save}>{busy ? 'Saving…' : 'Save guest prices'}</button>
         </span>
       ) : <p style={{ fontSize: 12 }}>You can view these prices but not change them.</p>}
     </section>

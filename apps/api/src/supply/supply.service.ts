@@ -45,7 +45,7 @@ import { validDerivedTerms, withDerivedRates, type RateRowLike } from './derived
 import { validatePromotions, type PromotionKind, type PromotionRule } from './promotions'
 import { EMPTY_HEADER, GOVERNANCE_KEYS, HEADER_KEYS, cancellationTerm, classifyExpectedUpdatedAt, headerOf, normaliseHeader, termsEditable, type ContractHeader } from './contract-lifecycle'
 import { MAX_SUPPLEMENTS, supplementTerm } from './supplements'
-import { isLargePriceChange, largeChangeWarning } from './price-guardrails'
+import { guestPriceLargeChanges, isLargePriceChange, largeChangeWarning } from './price-guardrails'
 import { supplementReferenceProblem } from './supplement-references'
 import { buildCalendarImport, scanReferences, type ExistingAvailability, type ExistingRate, type ImportPlan } from './calendar-import'
 import { MarketValidityService } from '../agent/market-validity.service'
@@ -852,12 +852,16 @@ export class SupplyService {
       if (plan.updatedAt.getTime() !== expected.getTime()) throw new ConflictException({ code: 'RATE_PLAN_CHANGED', message: 'The rate plan changed since it was loaded. Reload and review before retrying.' })
       const issues = validateGuestPriceLines(lines, plan.currency)
       if (issues.length) throw new BadRequestException({ code: issues[0]!.code, message: issues[0]!.message, details: issues })
+      // ADR 0067 F-13: a stored guest price (same kind and age band) moving by more than the guardrail needs an explicit confirmation.
+      const priced = lines.filter((line: { amountMinor: bigint | null }): line is { kind: string; minAge: number; maxAge: number; amountMinor: bigint } => typeof line.amountMinor === 'bigint')
+      const largeChanges = guestPriceLargeChanges(plan.guestPrices, priced)
+      if (largeChanges.length > 0 && input.confirmLargeChanges !== true) throw new ConflictException({ code: 'PRICE_GUARDRAIL_CONFIRMATION_REQUIRED', message: `${largeChanges.length} guest price(s) change by more than ${PRICE_GUARDRAIL.maxChangeBp / 100}%. Nothing was written. Review them and confirm large changes to apply.`, details: largeChanges.slice(0, 20).map((change) => `${change.kind} ${change.minAge}-${change.maxAge}: ${change.warning}`) })
       await tx.ratePlanGuestPrice.deleteMany({ where: { tenantId, ratePlanId } })
       if (lines.length) await tx.ratePlanGuestPrice.createMany({ data: lines.map((line: any) => ({ tenantId, ratePlanId, kind: line.kind, minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, amountBasis: line.basis, currency: line.currency })) })
       // The plan version moves with its prices: an approval or a stale editor bound to the old version is refused.
       await tx.ratePlan.update({ where: { id: ratePlanId, tenantId }, data: { updatedAt: new Date(Math.max(Date.now(), plan.updatedAt.getTime() + 1)) } })
       const shape = (rows: Array<{ kind: string; minAge: number; maxAge: number; amountMinor: bigint | null; amountBasis?: string | null; basis?: string }>) => rows.map(r => ({ kind: r.kind, minAge: r.minAge, maxAge: r.maxAge, amountMinor: r.amountMinor?.toString() ?? null, basis: r.amountBasis ?? r.basis ?? null }))
-      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines) } } })
+      await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'supply.rate_plan.guest_prices_changed', entityType: 'rate_plan', entityId: ratePlanId, payload: { requestId: requestId ?? null, before: shape(plan.guestPrices), after: shape(lines), largePriceChanges: largeChanges.length, confirmedLargeChanges: largeChanges.length > 0 && input.confirmLargeChanges === true } } })
       return { id: ratePlanId, value: { ratePlanId } }
     }).then(() => this.guestPrices(tenantId, userId, ratePlanId))
   }

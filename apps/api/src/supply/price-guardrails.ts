@@ -18,3 +18,20 @@ export const largeChangeWarning = (fromMinor: bigint, toMinor: bigint): string =
   const bp = changeBp(fromMinor, toMinor)
   return `the price moves ${bp > 0 ? '+' : ''}${Math.trunc(bp / 100)}% (more than ${PRICE_GUARDRAIL.maxChangeBp / 100}%): confirm large changes to apply` // no-float-check: display-only
 }
+
+export interface StoredGuestAmount { kind: string; minAge: number; maxAge: number; amountMinor: bigint }
+
+/**
+ * Guest-price lines that move a stored amount (same kind and age band) by more than the guardrail.
+ * A new band is a first price. A stored amount of zero has no percentage base, so raising it is not flagged.
+ */
+export function guestPriceLargeChanges(before: readonly StoredGuestAmount[], after: readonly StoredGuestAmount[]): Array<StoredGuestAmount & { fromMinor: bigint; warning: string }> {
+  const stored = new Map(before.map((line) => [`${line.kind}:${line.minAge}:${line.maxAge}`, line.amountMinor]))
+  const changes: Array<StoredGuestAmount & { fromMinor: bigint; warning: string }> = []
+  for (const line of after) {
+    const from = stored.get(`${line.kind}:${line.minAge}:${line.maxAge}`)
+    if (from === undefined || !isLargePriceChange(from, line.amountMinor)) continue
+    changes.push({ ...line, fromMinor: from, warning: largeChangeWarning(from, line.amountMinor) })
+  }
+  return changes
+}
