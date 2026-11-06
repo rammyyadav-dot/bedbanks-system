@@ -19,6 +19,18 @@ describe('ContractedInventoryAdapter.prebook', () => {
     expect(findFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant-a', offerId: 'offer-a', searchId: 'search-a', status: 'PROCESSING' }, select: { id: true } })
   })
 
+  it('reads the claimed hold as the booking transaction client, not the search role', async () => {
+    const searchFind = jest.fn()
+    const bookingFind = jest.fn().mockResolvedValue({ id: 'hold-a' })
+    const prisma = { withTenant: jest.fn((_t: string, work: (tx: unknown) => unknown) => work({ inventoryHold: { findFirst: searchFind } })) }
+    const booking = { withTenant: jest.fn((_t: string, work: (tx: unknown) => unknown) => work({ inventoryHold: { findFirst: bookingFind } })) }
+    const adapter = new ContractedInventoryAdapter(prisma as never, booking as never)
+    ;(adapter as unknown as { offers: Map<string, unknown> }).offers.set('tenant-a:offer-a', stored(new Date(Date.now() + 60_000).toISOString()))
+    await expect(adapter.prebook(request, context)).resolves.toEqual({ supplierReference: 'contracted:hold-a' })
+    expect(searchFind).not.toHaveBeenCalled()
+    expect(bookingFind).toHaveBeenCalledWith({ where: { tenantId: 'tenant-a', offerId: 'offer-a', searchId: 'search-a', status: 'PROCESSING' }, select: { id: true } })
+  })
+
   it('fails closed for an unknown offer, an expired offer or a missing claimed hold', async () => {
     for (const options of [{ offer: null, hold: { id: 'h' } }, { offer: stored(new Date(Date.now() - 1).toISOString()), hold: { id: 'h' } }, { offer: stored(new Date(Date.now() + 60_000).toISOString()), hold: null }]) {
       await expect(setup(options).adapter.prebook(request, context)).rejects.toBeInstanceOf(SupplierProviderError)

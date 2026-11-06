@@ -1,12 +1,13 @@
 import { completeHotelsInCity } from './hotel-candidates'
 import { payAtHotel } from '../supply/local-charges'
 import { derivedParentSelect, withDerivedRates } from '../supply/derived-rates'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'crypto'
 import type { SearchCriteria, SearchHotelOffer, SearchRateOffer } from '@bedbanks/domain'
 import type { SupplierType } from '@prisma/client'
 import { CACHE_PORT, NoopCache, tenantCacheKey, type CachePort } from '../common/cache/cache.port'
 import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase } from './booking-transaction.database'
 import { evaluateContractedStay, stayDates } from '../supply/contracted-sellability'
 import { buildStaySnapshot } from '../supply/stay-snapshot'
 import { loadDealRules, withDealRules } from '../supply/deal-rules.loader'
@@ -111,7 +112,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CACHE_PORT) private readonly cache: CachePort = new NoopCache(),
+    @Optional() @Inject(BookingTransactionDatabase) private readonly booking?: BookingTransactionDatabase,
+    @Optional() @Inject(CACHE_PORT) private readonly cache: CachePort = new NoopCache(),
   ) {}
 
   async search(criteria: SearchCriteria, context: SupplierSearchContext): Promise<SupplierSearchResult> {
@@ -188,7 +190,9 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
   async prebook(request: PrebookRequest, context: SupplierRequestContext): Promise<{ supplierReference: string }> {
     const stored = await this.readOffer(context.tenantId, request.offerId)
     if (!stored || Date.parse(stored.expiresAt) <= Date.now()) throw new SupplierProviderError('malformed_response')
-    const hold = await this.prisma.withTenant(context.tenantId, tx => tx.inventoryHold.findFirst({
+    // The strict API role cannot read offer or search columns on a hold (ADR 0113). The proof runs as the booking transaction login.
+    const holds = this.booking ?? this.prisma
+    const hold = await holds.withTenant(context.tenantId, tx => tx.inventoryHold.findFirst({
       where: { tenantId: context.tenantId, offerId: request.offerId, searchId: request.searchId, status: 'PROCESSING' }, select: { id: true },
     }))
     if (!hold) throw new SupplierProviderError('malformed_response')
