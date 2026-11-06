@@ -5,6 +5,7 @@ import type { DiscountBase, PromotionKind, PromotionRule, StayWindowMode } from 
 import type { ContractedStaySnapshot, InventoryModeName, StayNightSnapshot } from './contracted-sellability'
 import { supplementsForPlan } from './supplements'
 import { eventSupplementsForPlan } from './event-supplements'
+import type { RoomSalesRuleView } from '../inventory/room-sales/engine'
 
 const dayKey = (value: Date): string => value.toISOString().slice(0, 10)
 
@@ -52,6 +53,10 @@ export interface StayPlanInput {
   }
   dailyRates: Array<{ stayDate: Date; occupancy?: number; amountMinor: bigint; currency: string; amountBasis: string | null }>
   availability: Array<{ stayDate: Date; allotment: number; sold: number; held: number; stopSell: boolean; minStay: number; closedToArrival: boolean; releaseDays: number | null; closedToDeparture?: boolean; inventoryMode?: string; source?: string; freshUntil?: Date | null }>
+  /** Present only when the loader read RoomSalesRule. Undefined leaves the legacy inventory mode unchanged. */
+  roomTypeId?: string
+  contractId?: string
+  salesRules?: RoomSalesRuleView[]
 }
 
 /** One night of a shared pool's stock. Loaded for the plan's pool only; tenant, hotel and supplier isolation is enforced by the loader and the DB. */
@@ -95,6 +100,7 @@ export function buildStaySnapshot(
   if (plan.contract.childPolicies === undefined) throw new Error('CONTRACT_CHILD_POLICY_NOT_LOADED')
   if (plan.contract.supplements === undefined) throw new Error('CONTRACT_SUPPLEMENTS_NOT_LOADED')
   if (plan.contract.eventSupplements === undefined) throw new Error('CONTRACT_EVENT_SUPPLEMENTS_NOT_LOADED')
+  if (plan.salesRules !== undefined && !plan.roomTypeId) throw new Error('ROOM_SALES_CONTEXT_NOT_LOADED')
   if (plan.contract.minStayMode !== 'STAY_THROUGH' && plan.contract.minStayMode !== 'ARRIVAL') throw new Error('CONTRACT_MIN_STAY_MODE_NOT_LOADED')
   // A loader may bring several occupancies (ADR 0057, S6). ADR 0067 F-05: a plan may be contracted per occupancy (single, double, triple). The
   // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
@@ -114,6 +120,7 @@ export function buildStaySnapshot(
       rateCurrency: rate?.currency ?? null,
       amountBasis: rate?.amountBasis === 'NET' || rate?.amountBasis === 'SELL' ? rate.amountBasis : null,
       markupBasisPoints: rate?.amountBasis === 'NET' && markupFor ? markupFor(date) : null,
+      counterConsumed: plan.salesRules === undefined ? undefined : plan.inventoryPoolId ? (pools.get(date) ? pools.get(date)!.sold + pools.get(date)!.held : null) : (row ? row.sold + row.held : null),
       availability: row ? {
         allotment: row.allotment, sold: row.sold, held: row.held, stopSell: row.stopSell, minStay: row.minStay, closedToArrival: row.closedToArrival, releaseDays: row.releaseDays,
         mode: toMode(row.inventoryMode),
@@ -161,6 +168,7 @@ export function buildStaySnapshot(
     maxChildren: plan.roomType.maxChildren,
     maxOccupancy: plan.roomType.maxOccupancy,
     nights: stayNights,
+    ...(plan.salesRules === undefined ? {} : { salesRules: plan.salesRules, salesContext: plan.roomTypeId ? { roomTypeId: plan.roomTypeId, ratePlanId: plan.id, poolId: plan.inventoryPoolId ?? null, contractId: plan.contractId ?? '' } : undefined }),
   }
 }
 

@@ -2,9 +2,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
 import * as request from 'supertest'
-import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
-import { deprovisionBookingExecutionRole, provisionBookingExecutionRole } from '../src/database/booking-execution-role'
 import { AppModule } from '../src/app.module'
 import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter'
@@ -21,9 +19,6 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
   const suffix = `gates-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const password = 'agent-transaction-gate-password'
   const previousBooking = process.env.BOOKING_ENABLED
-  const previousExecutionUrl = process.env.BOOKING_EXECUTION_DATABASE_URL
-  const executionLogin = `fbeds_bkx_${randomBytes(4).toString('hex')}`
-  const executionPassword = randomBytes(24).toString('hex')
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
   const checkIn = day(21)
   const checkOut = day(23)
@@ -58,11 +53,6 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
   beforeAll(async () => {
     delete process.env.BOOKING_ENABLED
     await prisma.$connect()
-    await provisionBookingExecutionRole(prisma, { loginRole: executionLogin, password: executionPassword })
-    const executionUrl = new URL(process.env.DATABASE_URL as string)
-    executionUrl.username = executionLogin
-    executionUrl.password = executionPassword
-    process.env.BOOKING_EXECUTION_DATABASE_URL = executionUrl.toString()
     const [tenant, other, empty] = await Promise.all([
       prisma.tenant.create({ data: { name: `${suffix} Agency`, slug: `${suffix}-a` } }),
       prisma.tenant.create({ data: { name: `${suffix} Other`, slug: `${suffix}-b` } }),
@@ -146,9 +136,6 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
   afterAll(async () => {
     if (previousBooking === undefined) delete process.env.BOOKING_ENABLED
     else process.env.BOOKING_ENABLED = previousBooking
-    if (previousExecutionUrl === undefined) delete process.env.BOOKING_EXECUTION_DATABASE_URL
-    else process.env.BOOKING_EXECUTION_DATABASE_URL = previousExecutionUrl
-    await deprovisionBookingExecutionRole(prisma, executionLogin).catch(() => undefined)
     await app?.close()
     const userIds = [ownerId, searcherId, financeId, deniedId, otherUserId, emptyOwnerId, platformUserId].filter(Boolean)
     const tenantIds = [tenantId, otherTenantId, emptyTenantId].filter(Boolean)

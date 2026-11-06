@@ -40,9 +40,11 @@ const iso = (value: Date | null): string | null => (value ? value.toISOString() 
  */
 export async function reserveNight(
   tx: Prisma.TransactionClient,
-  input: { tenantId: string; ratePlanId: string; stayDate: Date; rooms: number; now?: Date },
+  input: { tenantId: string; ratePlanId: string; stayDate: Date; rooms: number; now?: Date; channel?: string; market?: string },
 ): Promise<NightReservation> {
   const now = input.now ?? new Date()
+  const channel = input.channel ?? ''
+  const market = input.market ?? ''
   if (!Number.isSafeInteger(input.rooms) || input.rooms < 1) throw new ConflictException('Inventory unavailable')
   const rows = await tx.$queryRaw<PlanRowLocked[]>(Prisma.sql`
     SELECT da."id", da."inventory_mode"::text AS "mode", da."stop_sell", da."source"::text AS "source", da."fresh_until", rp."inventory_pool_id" AS "pool_id"
@@ -55,11 +57,29 @@ export async function reserveNight(
   const row = rows[0]
   if (row.stop_sell) throw new ConflictException('Inventory unavailable')
   if (!rowIsFresh(row.source, iso(row.fresh_until), now)) throw new ConflictException('Inventory unavailable')
-  if (row.mode === 'FREE_SALE') return { availabilityId: row.id, counterKind: 'NONE', poolDayId: null }
-  if (row.mode !== 'ALLOTMENT') throw new ConflictException('Inventory unavailable') // ON_REQUEST and CLOSED never reserve instantly
+  const sales = await tx.$queryRaw<Array<{ mode: string; sales_cap: number | null; consumes_inventory: boolean }>>(Prisma.sql`
+    SELECT r."mode"::text AS "mode", r."sales_cap", r."consumes_inventory"
+      FROM "RoomSalesRule" r
+      JOIN "RatePlan" rp ON rp."tenant_id" = r."tenant_id" AND rp."room_type_id" = r."room_type_id" AND rp."id" = ${input.ratePlanId}
+     WHERE r."tenant_id" = ${input.tenantId} AND r."stay_date" = ${input.stayDate}
+       AND (r."pool_key" = '' OR r."pool_key" = COALESCE(rp."inventory_pool_id", ''))
+       AND (r."plan_key" = '' OR r."plan_key" = rp."id")
+       AND (r."channel_key" = '' OR r."channel_key" = ${channel})
+       AND (r."market_key" = '' OR r."market_key" = ${market})
+       AND (r."contract_key" = '' OR r."contract_key" = rp."contract_id")
+       AND (r."override_expires_at" IS NULL OR r."override_expires_at" > ${now})
+  `)
+  const rules = sales.filter((rule) => rule.mode === 'FREE_SALE' || rule.mode === 'STOP_SALE' || rule.mode === 'ON_REQUEST' || rule.mode === 'LIMITED')
+  if (rules.some((rule) => rule.mode === 'STOP_SALE' || rule.mode === 'ON_REQUEST')) throw new ConflictException('Inventory unavailable')
+  const caps = rules.filter((rule) => rule.mode === 'LIMITED' && Number.isInteger(rule.sales_cap)).map((rule) => rule.sales_cap as number)
+  const cap = caps.length > 0 ? Math.min(...caps) : null
+  const forceConsume = rules.some((rule) => rule.consumes_inventory === true)
+  if (row.mode === 'FREE_SALE' && !forceConsume && cap === null) return { availabilityId: row.id, counterKind: 'NONE', poolDayId: null }
+  if (row.mode !== 'ALLOTMENT' && row.mode !== 'FREE_SALE') throw new ConflictException('Inventory unavailable')
 
   if (row.pool_id) {
-    const days = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    const days = cap === null
+      ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       UPDATE "InventoryPoolDay" pd
          SET "held" = pd."held" + ${input.rooms}, "updated_at" = CURRENT_TIMESTAMP
         FROM "InventoryPool" p
@@ -69,15 +89,34 @@ export async function reserveNight(
          AND pd."sold" + pd."held" + ${input.rooms} <= pd."capacity"
       RETURNING pd."id"
     `)
+      : await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      UPDATE "InventoryPoolDay" pd
+         SET "held" = pd."held" + ${input.rooms}, "updated_at" = CURRENT_TIMESTAMP
+        FROM "InventoryPool" p
+       WHERE pd."tenant_id" = ${input.tenantId} AND pd."pool_id" = ${row.pool_id} AND pd."stay_date" = ${input.stayDate}
+         AND p."id" = pd."pool_id" AND p."tenant_id" = pd."tenant_id" AND p."status" = 'ACTIVE'::"InventoryPoolStatus"
+         AND (pd."fresh_until" IS NULL AND pd."source" NOT IN ('SUPPLIER_API'::"InventorySource", 'SUPPLIER_FEED'::"InventorySource") OR pd."fresh_until" > ${now})
+         AND pd."sold" + pd."held" + ${input.rooms} <= pd."capacity"
+         AND pd."sold" + pd."held" + ${input.rooms} <= ${cap}
+      RETURNING pd."id"
+    `)
     if (days.length !== 1) throw new ConflictException('Inventory unavailable')
     return { availabilityId: row.id, counterKind: 'POOL_DAY', poolDayId: days[0].id }
   }
 
-  const taken = await tx.$executeRaw(Prisma.sql`
+  const taken = cap === null
+    ? await tx.$executeRaw(Prisma.sql`
     UPDATE "DailyAvailability"
        SET "held" = "held" + ${input.rooms}, "updated_at" = CURRENT_TIMESTAMP
      WHERE "id" = ${row.id} AND "tenant_id" = ${input.tenantId} AND "stop_sell" = false
        AND "sold" + "held" + ${input.rooms} <= "allotment"
+  `)
+    : await tx.$executeRaw(Prisma.sql`
+    UPDATE "DailyAvailability"
+       SET "held" = "held" + ${input.rooms}, "updated_at" = CURRENT_TIMESTAMP
+     WHERE "id" = ${row.id} AND "tenant_id" = ${input.tenantId} AND "stop_sell" = false
+       AND "sold" + "held" + ${input.rooms} <= "allotment"
+       AND "sold" + "held" + ${input.rooms} <= ${cap}
   `)
   if (taken !== 1) throw new ConflictException('Inventory unavailable')
   return { availabilityId: row.id, counterKind: 'PLAN_ROW', poolDayId: null }

@@ -6,7 +6,7 @@ import type {
   OperationsReadiness, ReconcileRequest, ReconcileResponse, WalletRow, AgencyAccountView, AgencyAccountPosition, ReceivablesView, ReceivableRow, CreditRiskView, CreditRiskRow, SupplierPayablesView, SupplierPayableRow, CreditNoteRow,
 } from '@bedbanks/contracts'
 import { PrismaService } from '../database/prisma.service'
-import { AGENCY_CREDIT_RISK_POLICY, AGENCY_CREDIT_TERMS } from '@bedbanks/contracts'
+import { AGENCY_CREDIT_RISK_POLICY, AGENCY_CREDIT_TERMS, bookingConfirmedForDocuments, documentBlock, type BookingStatus } from '@bedbanks/contracts'
 import { availableMinor } from '@bedbanks/money'
 import { totalsOf, walletBalanceMinor, walletTotals } from '../ledger/ledger-core'
 import { enabledSettlementCurrencies } from '../agent/currency'
@@ -198,7 +198,12 @@ export class OperationsTransactionsService {
       const confirmation = views.find(a => a.action === 'booking.confirmed' || a.action === 'booking.confirm.succeeded') ?? null
       const prebook = views.find(a => a.action === 'booking.prebook.succeeded') ?? null
       const mutation = await tx.supplierMutation.findFirst({ where: { tenantId, bookingId: booking.id, operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' } })
-      const issuable: Array<'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'> = booking.status === 'CONFIRMED' ? ['VOUCHER', 'INVOICE'] : booking.status === 'CANCELLED' ? ['INVOICE', 'CREDIT_NOTE'] : []
+      const status = booking.status as BookingStatus
+      const voucherBlock = documentBlock('VOUCHER', {
+        status, hasConfirmedEvent: bookingConfirmedForDocuments({ status, hasConfirmedFinanceEvent: false }), hotelConfirmationNo: booking.hotelConfirmationNo,
+        penalty: { state: 'NOT_REQUESTED' }, sellMinor: booking.totalMinor.toString(), issued: [],
+      })
+      const issuable: Array<'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'> = status === 'CONFIRMED' ? [...(voucherBlock === null ? ['VOUCHER' as const] : []), 'INVOICE'] : status === 'CANCELLED' ? ['INVOICE', 'CREDIT_NOTE'] : []
       return {
         booking: { id: booking.id, reference: booking.reference, status: booking.status, createdAt: booking.createdAt.toISOString(), updatedAt: booking.updatedAt.toISOString(), tenantId: booking.tenantId, createdByRequestId: null },
         stay: { hotelId: booking.hotelId, hotelName: hotel?.name ?? null, roomTypeId, roomName: room?.name ?? null, boardBasisId, boardCode: board?.code ?? null, checkIn: str(s.checkIn), checkOut: str(s.checkOut), rooms: int(s.rooms), adults: int(s.adults), children: int(s.children) },

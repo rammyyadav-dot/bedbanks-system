@@ -1,6 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, Optional } from '@nestjs/common'
-import { PrismaService } from '../database/prisma.service'
-import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { bookingAccountFor } from './agency-account'
 import { BookingConfirmationService } from './booking-confirmation.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
@@ -40,16 +39,13 @@ const ACTIVE_STATUSES = ['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_R
 @Injectable()
 export class BookingTransactionService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly prebookFlow: SupplierPrebookOrchestrationService,
     private readonly confirmation: BookingConfirmationService,
-    @Optional() private readonly execution?: BookingExecutionDatabase,
   ) {}
 
-  private database() { return bookingTenantDb(this.prisma, this.execution) }
-
   async prebook(input: PrebookInput) {
-    const { hold, wallet, plan } = await this.database().withTenant(input.tenantId, async tx => {
+    const { hold, wallet, plan } = await this.prisma.withTenant(input.tenantId, async tx => {
       const hold = await tx.inventoryHold.findFirst({ where: { id: input.inventoryHoldId, tenantId: input.tenantId, createdByUserId: input.userId } })
       if (!hold) throw new ConflictException('Inventory hold is unavailable')
       // ADR 0028 slice 3: a booking is charged to the booker's AGENCY account (opened if needed); a user in no agency cannot book.
@@ -85,7 +81,7 @@ export class BookingTransactionService {
    * An unknown hold or a user outside any agency finds nothing here; prebook then refuses it with its own error.
    */
   async findDuplicates(input: { tenantId: string; userId: string; inventoryHoldId: string; idempotencyKey: string; leadGuest: { firstName: string; lastName: string } }): Promise<DuplicateBookingMatch[]> {
-    return this.database().withTenant(input.tenantId, async tx => {
+    return this.prisma.withTenant(input.tenantId, async tx => {
       const hold = await tx.inventoryHold.findFirst({ where: { id: input.inventoryHoldId, tenantId: input.tenantId, createdByUserId: input.userId }, select: { canonicalHotelId: true, checkIn: true, checkOut: true } })
       const member = await tx.agencyMember.findFirst({ where: { tenantId: input.tenantId, userId: input.userId }, select: { agencyId: true } })
       if (!hold || !member) return []

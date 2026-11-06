@@ -24,13 +24,13 @@ import { PrebookCompensationRecoveryService } from './prebook-compensation-recov
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingConfirmationService } from './booking-confirmation.service'
 import { BookingTransactionService } from './booking-transaction.service'
+import { BookingTransactionDatabase } from './booking-transaction.database'
 import { CancellationPolicyService } from './cancellation-policy.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
 import { SupplierMutationJournalService } from './supplier-mutation-journal.service'
 import { MarketValidityService } from './market-validity.service'
-import { BookingExecutionDatabase } from './booking-execution.database'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -44,7 +44,6 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     AgentAuditService,
     LedgerService,
     AgentFinanceService,
-    BookingExecutionDatabase,
     InventoryHoldService,
     { provide: HoldExpirySweeper, useFactory: () => new HoldExpirySweeper() },
     OfferHoldService,
@@ -58,6 +57,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     PrebookCompensationRecoveryService,
     BookingReconciliationService,
     BookingConfirmationService,
+    BookingTransactionDatabase,
     BookingTransactionService,
     CancellationPolicyService,
     BookingCancellationService,

@@ -224,6 +224,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   it('ADMIN-DOCS: Admin renders only issued documents and never issues one', async () => {
     await expect(tx.documentHtml(A.tenantId, confirmedA.bookingId, 'voucher')).rejects.toBeInstanceOf(NotFoundException)
     expect((await tx.booking(A.tenantId, confirmedA.bookingId)).documents).toHaveLength(0)
+    await prisma.booking.update({ where: { id: confirmedA.bookingId }, data: { hotelConfirmationNo: 'HC-ADMIN' } })
     await docs.get({ tenantId: A.tenantId, userId: A.userId, requestId: 'doc-1', bookingId: confirmedA.bookingId, type: 'VOUCHER' })
     const html = await tx.documentHtml(A.tenantId, confirmedA.bookingId, 'voucher')
     expect(html).toContain('<html')

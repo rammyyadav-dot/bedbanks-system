@@ -69,6 +69,7 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
     const pre = await tx.prebook({ tenantId, userId, requestId: `${key}-pre`, inventoryHoldId: h.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: lead,
       guests, agentRef: 'TR-2099/0501', specialRequests: { codes: ['LATE_CHECK_IN', 'QUIET_ROOM'], note: 'Arriving after 23:00' } })
     const done = await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId, ...confirm })
+    await prisma.booking.update({ where: { id: pre.bookingId }, data: { hotelConfirmationNo: 'HC-EMAIL' } })
     return { bookingId: pre.bookingId, done }
   }
   const issue = async (bookingId: string) => { for (const type of ['VOUCHER', 'INVOICE'] as const) await docs.get({ tenantId, userId, requestId: `doc-${type}`, bookingId, type }) }

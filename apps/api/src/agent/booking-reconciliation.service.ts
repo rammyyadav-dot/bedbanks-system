@@ -1,7 +1,6 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common'
-import { PrismaService } from '../database/prisma.service'
-import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { InventoryHoldService } from './inventory-hold.service'
@@ -39,14 +38,11 @@ export class BookingReconciliationService {
   private readonly logger = new Logger(BookingReconciliationService.name)
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly finance: BookingFinancialAuthorizationService,
     private readonly holds: InventoryHoldService,
     private readonly audit: AgentAuditService,
-    @Optional() private readonly execution?: BookingExecutionDatabase,
   ) {}
-
-  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async reconcileStale(input: { tenantId: string; userId: string; requestId: string; staleMinutes?: number; prebookMaxMinutes?: number; dryRun?: boolean; now?: Date }): Promise<ReconciliationResult> {
     const staleMinutes = Math.max(MIN_STALE_MINUTES, Math.trunc(input.staleMinutes ?? DEFAULT_STALE_MINUTES))
@@ -54,7 +50,7 @@ export class BookingReconciliationService {
     const dryRun = input.dryRun === true
     const now = input.now ?? new Date()
     const cutoff = new Date(now.getTime() - staleMinutes * 60_000)
-    const stale = await this.database().withTenant(input.tenantId, tx => tx.inventoryHold.findMany({
+    const stale = await this.prisma.withTenant(input.tenantId, tx => tx.inventoryHold.findMany({
       where: { tenantId: input.tenantId, status: 'PROCESSING', updatedAt: { lt: cutoff } },
       select: { id: true }, orderBy: { updatedAt: 'asc' }, take: RECONCILIATION_BATCH_SIZE,
     }))
@@ -75,7 +71,7 @@ export class BookingReconciliationService {
   }
 
   private async reconcileOne(tenantId: string, userId: string, requestId: string, holdId: string, dryRun: boolean, now: Date, prebookMaxMinutes: number): Promise<ReconciliationItem> {
-    const booking = await this.database().withTenant(tenantId, tx => tx.booking.findFirst({
+    const booking = await this.prisma.withTenant(tenantId, tx => tx.booking.findFirst({
       where: { tenantId, searchSnapshot: { path: ['inventoryHoldId'], equals: holdId } },
     }))
 
@@ -88,7 +84,7 @@ export class BookingReconciliationService {
     // FAILED with a still-PROCESSING hold is an interrupted earlier reconciliation: finish it (every step is idempotent).
     if (booking.status !== 'PENDING_SUPPLIER' && booking.status !== 'FAILED') return { holdId, bookingId: booking.id, outcome: 'booking_not_pending' }
 
-    const mutation = await this.database().withTenant(tenantId, tx => tx.supplierMutation.findFirst({
+    const mutation = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({
       where: { tenantId, bookingId: booking.id, operation: 'PREBOOK' },
       orderBy: { createdAt: 'desc' },
     }))
@@ -99,7 +95,7 @@ export class BookingReconciliationService {
       const uncertain = mutation.status === 'SENDING' || mutation.status === 'UNKNOWN' || (mutation.status === 'RESOLVED' && mutation.supplierStatus === 'unknown')
       if (uncertain) {
         if (!dryRun && mutation.status === 'SENDING') {
-          await this.database().withTenant(tenantId, tx => tx.supplierMutation.updateMany({
+          await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.updateMany({
             where: { id: mutation.id, tenantId, status: 'SENDING' },
             data: { status: 'UNKNOWN', failureCategory: 'crash', failureCode: 'outcome_unobserved' },
           })).catch(() => this.logger.error(`Could not mark unobserved supplier mutation unknown mutation=${mutation.id}`))
@@ -131,7 +127,7 @@ export class BookingReconciliationService {
         return { holdId, bookingId: booking.id, outcome: 'manual_review_required' }
       }
     } else if (booking.status === 'PENDING_SUPPLIER') {
-      const marker = await this.database().withTenant(tenantId, tx => tx.auditEvent.findFirst({
+      const marker = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
         where: { tenantId, action: 'booking.prebook.succeeded', entityType: 'booking', entityId: booking.id }, orderBy: { createdAt: 'asc' }, select: { createdAt: true },
       }))
       const recorded = readSupplierPrebook(booking.searchSnapshot)
@@ -149,7 +145,7 @@ export class BookingReconciliationService {
     if (booking.status === 'PENDING_SUPPLIER') {
       // Claim first: confirmation also locks the booking and requires PENDING, so exactly one of
       // "confirm" and "reconcile/expire" can win. Losing here means the booking was just confirmed.
-      const claimed = await this.database().withTenant(tenantId, tx => transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemFail', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'SYSTEM' }, level: 'SYSTEM', reason: 'Reconciliation: the supplier outcome was never confirmed', idempotencyKey: `reconcile:${booking.id}:fail`, now: new Date() }).then(() => true, (error: unknown) => {
+      const claimed = await this.prisma.withTenant(tenantId, tx => transitionBooking(tx, { tenantId, bookingId: booking.id, action: 'systemFail', expectedStatus: 'PENDING_SUPPLIER', actor: { type: 'SYSTEM' }, level: 'SYSTEM', reason: 'Reconciliation: the supplier outcome was never confirmed', idempotencyKey: `reconcile:${booking.id}:fail`, now: new Date() }).then(() => true, (error: unknown) => {
         // Losing the race (confirmed or already moved in the meantime) is the "not pending" outcome; anything else is a real failure.
         if (error instanceof ConflictException) return false
         throw error
@@ -158,14 +154,14 @@ export class BookingReconciliationService {
     }
 
     const authorizationKey = `booking:${booking.id}:authorize`
-    const reservation = await this.database().withTenant(tenantId, tx => tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: authorizationKey, type: 'HOLD' } }))
+    const reservation = await this.prisma.withTenant(tenantId, tx => tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: authorizationKey, type: 'HOLD' } }))
     if (reservation) {
       await this.finance.release({ tenantId, userId, requestId, walletId: reservation.walletId, bookingId: booking.id, currency: booking.currency, amountMinor: booking.totalMinor, idempotencyKey: authorizationKey })
     }
     await this.holds.release(tenantId, holdId, `${requestId}:reconcile`, { type: 'USER', userId })
     const outcome = expiredPrebook ? 'prebook_expired' : 'reconciled'
     if (mutation && journalTerminal && mutation.status !== 'RESOLVED') {
-      await this.database().withTenant(tenantId, tx => tx.supplierMutation.updateMany({
+      await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.updateMany({
         where: { id: mutation.id, tenantId, status: { not: 'RESOLVED' } },
         data: { status: 'RESOLVED', supplierStatus: journalTerminal, resolvedAt: new Date() },
       }))
@@ -181,7 +177,7 @@ export class BookingReconciliationService {
 
   private async supplierOutcomeUnknown(tenantId: string, bookingId: string, snapshotUnknown: boolean): Promise<boolean> {
     if (snapshotUnknown) return true
-    const unknown = await this.database().withTenant(tenantId, tx => tx.auditEvent.findFirst({
+    const unknown = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.findFirst({
       where: { tenantId, action: 'booking.prebook.unknown', entityType: 'booking', entityId: bookingId }, select: { id: true },
     }))
     return Boolean(unknown)
@@ -189,7 +185,7 @@ export class BookingReconciliationService {
 
   /** One audit row per booking. Repeating the sweep must not release inventory or append another review. */
   private async noteManualReview(tenantId: string, userId: string, requestId: string, holdId: string, bookingId: string): Promise<void> {
-    const existing = await this.database().withTenant(tenantId, tx => tx.auditEvent.count({
+    const existing = await this.prisma.withTenant(tenantId, tx => tx.auditEvent.count({
       where: { tenantId, action: 'booking.reconciliation.manual_review', entityType: 'booking', entityId: bookingId },
     }))
     if (existing > 0) return

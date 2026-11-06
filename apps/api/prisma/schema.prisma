@@ -895,6 +895,12 @@ model Tenant {
   fxRates FxRate[]
   hotelDeals HotelDeal[]
   hotelDealRatePlans HotelDealRatePlan[]
+  roomSalesRules RoomSalesRule[]
+  roomSalesBatches RoomSalesBatch[]
+  roomSalesAudits RoomSalesAudit[]
+  poolNightAllocations PoolNightAllocation[]
+  salesDistributionJobs SalesDistributionJob[]
+  supplierStayRequests SupplierStayRequest[]
   markupRules CommercialMarkupRule[]
   id        String   @id @default(cuid())
   name      String
@@ -2159,6 +2165,12 @@ model Hotel {
   supplierRoomDrafts SupplierRoomDraft[]
   supplierChangeSets SupplierChangeSet[]
   deals HotelDeal[]
+  roomSalesRules RoomSalesRule[]
+  roomSalesBatches RoomSalesBatch[]
+  roomSalesAudits RoomSalesAudit[]
+  poolNightAllocations PoolNightAllocation[]
+  salesDistributionJobs SalesDistributionJob[]
+  supplierStayRequests SupplierStayRequest[]
 
   @@unique([tenantId, externalRef])
   @@unique([tenantId, id])
@@ -2313,6 +2325,9 @@ model RoomType {
   supplierRoomMappings SupplierRoomMapping[]
   supplierRoomDrafts SupplierRoomDraft[]
   amenities RoomAmenity[]
+  roomSalesRules RoomSalesRule[]
+  roomSalesAudits RoomSalesAudit[]
+  supplierStayRequests SupplierStayRequest[]
 
   @@unique([hotelId, code])
   @@unique([hotelId, id])
@@ -2934,6 +2949,7 @@ model InventoryPool {
 
   days  InventoryPoolDay[]
   plans RatePlan[]
+  allocations PoolNightAllocation[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, hotelId, supplierId, name])
@@ -2962,6 +2978,199 @@ model InventoryPoolDay {
   @@unique([poolId, stayDate])
   @@unique([tenantId, id])
   @@index([tenantId, stayDate])
+}
+
+/// How a room night may be sold. This is not the physical stock. ADR 0113.
+enum RoomSalesMode {
+  FREE_SALE
+  STOP_SALE
+  ON_REQUEST
+  LIMITED
+}
+
+enum SalesDistributionStatus {
+  PENDING
+  ACKNOWLEDGED
+  FAILED
+}
+
+enum SupplierStayRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+/// One atomic paint or bulk save. Idempotency is per tenant.
+model RoomSalesBatch {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId        String   @map("hotel_id")
+  hotel          Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  reason         String   @db.VarChar(500)
+  actorId        String   @map("actor_id")
+  cellCount      Int      @map("cell_count")
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(80)
+  requestHash    String   @map("request_hash") @db.Char(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+  rules          RoomSalesRule[]
+  audits         RoomSalesAudit[]
+  job            SalesDistributionJob?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, hotelId, createdAt])
+  @@index([hotelId])
+}
+
+/// Configured sales control for one room night and scope. Empty scope keys mean every value of that dimension.
+model RoomSalesRule {
+  id                     String        @id @default(cuid())
+  tenantId               String        @map("tenant_id")
+  tenant                 Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId                String        @map("hotel_id")
+  hotel                  Hotel         @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  roomTypeId             String        @map("room_type_id")
+  roomType               RoomType      @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  stayDate               DateTime      @map("stay_date") @db.Date
+  poolKey                String        @default("") @map("pool_key") @db.VarChar(40)
+  planKey                String        @default("") @map("plan_key") @db.VarChar(40)
+  channelKey             String        @default("") @map("channel_key") @db.VarChar(40)
+  marketKey              String        @default("") @map("market_key") @db.VarChar(8)
+  contractKey            String        @default("") @map("contract_key") @db.VarChar(40)
+  mode                   RoomSalesMode
+  salesCap               Int?          @map("sales_cap")
+  consumesInventory      Boolean       @default(true) @map("consumes_inventory")
+  responseDeadlineHours  Int?          @map("response_deadline_hours")
+  requestOwnerLabel      String?       @map("request_owner_label") @db.VarChar(80)
+  escalationPolicy       String?       @map("escalation_policy") @db.VarChar(200)
+  reason                 String        @db.VarChar(500)
+  source                 String        @db.VarChar(24)
+  version                Int           @default(1)
+  overrideExpiresAt      DateTime?     @map("override_expires_at")
+  batchId                String        @map("batch_id")
+  batch                  RoomSalesBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict)
+  actorId                String        @map("actor_id")
+  createdAt              DateTime      @default(now()) @map("created_at")
+  updatedAt              DateTime      @updatedAt @map("updated_at")
+
+  @@unique([tenantId, roomTypeId, stayDate, poolKey, planKey, channelKey, marketKey, contractKey], map: "RoomSalesRule_scope")
+  @@unique([tenantId, id])
+  @@index([tenantId, hotelId, stayDate])
+  @@index([hotelId, roomTypeId])
+  @@index([batchId])
+}
+
+/// Append-only before/after record of a sales-control change. A database trigger refuses updates and deletes.
+model RoomSalesAudit {
+  id          String    @id @default(cuid())
+  tenantId    String    @map("tenant_id")
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId     String    @map("hotel_id")
+  hotel       Hotel     @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  batchId     String    @map("batch_id")
+  batch       RoomSalesBatch @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict)
+  roomTypeId  String    @map("room_type_id")
+  roomType    RoomType  @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  stayDate    DateTime  @map("stay_date") @db.Date
+  beforeMode  String?   @map("before_mode") @db.VarChar(24)
+  afterMode   String?   @map("after_mode") @db.VarChar(24)
+  beforeCap   Int?      @map("before_cap")
+  afterCap    Int?      @map("after_cap")
+  actorId     String    @map("actor_id")
+  source      String    @db.VarChar(24)
+  reason      String    @db.VarChar(500)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, hotelId, roomTypeId, stayDate])
+  @@index([batchId])
+  @@index([hotelId])
+}
+
+/// Allocation breakdown for one shared pool night. Physical counters stay on InventoryPoolDay.
+model PoolNightAllocation {
+  id                            String   @id @default(cuid())
+  tenantId                      String   @map("tenant_id")
+  tenant                        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId                       String   @map("hotel_id")
+  hotel                         Hotel    @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  poolId                        String   @map("pool_id")
+  pool                          InventoryPool @relation(fields: [tenantId, poolId], references: [tenantId, id], onDelete: Restrict)
+  stayDate                      DateTime @map("stay_date") @db.Date
+  contracted                    Int
+  approvedAdjustment            Int      @default(0) @map("approved_adjustment")
+  blockedQuantity               Int      @default(0) @map("blocked_quantity")
+  blockedExcludedFromAllocation Boolean  @default(false) @map("blocked_excluded")
+  postReleasePolicy             String   @default("CLOSED") @map("post_release_policy") @db.VarChar(32)
+  releaseCutoffDays             Int?     @map("release_cutoff_days")
+  releaseTimeLocal              String?  @map("release_time_local") @db.Char(5)
+  responseDeadlineHours         Int?     @map("response_deadline_hours")
+  requestOwnerLabel             String?  @map("request_owner_label") @db.VarChar(80)
+  escalationPolicy              String?  @map("escalation_policy") @db.VarChar(200)
+  version                       Int      @default(1)
+  createdAt                     DateTime @default(now()) @map("created_at")
+  updatedAt                     DateTime @updatedAt @map("updated_at")
+
+  @@unique([poolId, stayDate])
+  @@unique([tenantId, id])
+  @@index([tenantId, hotelId, stayDate])
+  @@index([hotelId])
+}
+
+/// Downstream delivery of a saved batch. Pending is not acknowledgement. The built-in adapter is simulated.
+model SalesDistributionJob {
+  id             String                  @id @default(cuid())
+  tenantId       String                  @map("tenant_id")
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId        String                  @map("hotel_id")
+  hotel          Hotel                   @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  batchId        String                  @map("batch_id")
+  batch          RoomSalesBatch          @relation(fields: [tenantId, batchId], references: [tenantId, id], onDelete: Restrict)
+  status         SalesDistributionStatus @default(PENDING)
+  attempts       Int                     @default(0)
+  lastError      String?                 @map("last_error") @db.VarChar(300)
+  payloadHash    String                  @map("payload_hash") @db.Char(64)
+  simulated      Boolean                 @default(true)
+  acknowledgedAt DateTime?               @map("acknowledged_at")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+
+  @@unique([tenantId, batchId])
+  @@unique([tenantId, id])
+  @@index([tenantId, hotelId, status])
+  @@index([hotelId])
+  @@index([batchId])
+}
+
+/// A supplier confirmation request. Approval does not itself create a reservation.
+model SupplierStayRequest {
+  id                    String                    @id @default(cuid())
+  tenantId              String                    @map("tenant_id")
+  tenant                Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  hotelId               String                    @map("hotel_id")
+  hotel                 Hotel                     @relation(fields: [tenantId, hotelId], references: [tenantId, id], onDelete: Restrict)
+  roomTypeId            String                    @map("room_type_id")
+  roomType              RoomType                  @relation(fields: [hotelId, roomTypeId], references: [hotelId, id], onDelete: Restrict)
+  ratePlanId            String                    @map("rate_plan_id")
+  checkIn               DateTime                  @map("check_in") @db.Date
+  checkOut              DateTime                  @map("check_out") @db.Date
+  rooms                 Int
+  status                SupplierStayRequestStatus @default(PENDING)
+  deadlineAt            DateTime                  @map("deadline_at")
+  ownerLabel            String                    @map("owner_label") @db.VarChar(80)
+  escalationPolicy      String                    @map("escalation_policy") @db.VarChar(200)
+  idempotencyKey        String                    @map("idempotency_key") @db.VarChar(80)
+  requestHash           String                    @map("request_hash") @db.Char(64)
+  decisionReason        String?                   @map("decision_reason") @db.VarChar(500)
+  createdById           String                    @map("created_by_id")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, idempotencyKey])
+  @@unique([tenantId, id])
+  @@index([tenantId, hotelId, status])
+  @@index([hotelId, roomTypeId])
 }
 
 model DailyAvailability {

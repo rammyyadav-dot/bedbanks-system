@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
@@ -83,6 +84,7 @@ describe('booking documents (PostgreSQL)', () => {
     const hold = await newHold(key)
     const pre = await tx.prebook({ tenantId, userId, requestId: `${key}-req`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
     await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
+    await prisma.booking.update({ where: { id: pre.bookingId }, data: { hotelConfirmationNo: `HC-${key.slice(-20)}` } })
     return pre.bookingId
   }
   const get = (bookingId: string, type: 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE', t = tenantId) => docs.get({ tenantId: t, userId, requestId: `doc-${Math.random()}`, bookingId, type })
@@ -104,7 +106,7 @@ describe('booking documents (PostgreSQL)', () => {
 
     const voucher = await get(bookingId, 'VOUCHER')
     expect(voucher).toMatchObject({ type: 'VOUCHER', number: `VCH-${reference}`, alreadyIssued: false, bookingStatus: 'CONFIRMED' })
-    expect(voucher.payload).toMatchObject({ bookingReference: reference, hotel: { city: 'Dubai' }, stay: { checkIn: '2099-03-01', checkOut: '2099-03-03', nights: 2, rooms: 1, adults: 2 }, leadGuest: guest, cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '100% of the booking total' }] })
+    expect(voucher.payload).toMatchObject({ bookingReference: reference, hotelConfirmationNo: expect.stringMatching(/^HC-/), hotel: { city: 'Dubai' }, stay: { checkIn: '2099-03-01', checkOut: '2099-03-03', nights: 2, rooms: 1, adults: 2 }, leadGuest: guest, cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '100% of the booking total' }] })
     expect(JSON.stringify(voucher.payload)).not.toContain('125099') // a voucher carries no price
 
     const invoice = await get(bookingId, 'INVOICE')
@@ -139,7 +141,10 @@ describe('booking documents (PostgreSQL)', () => {
     await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('only for a cancelled booking')
     const hold = await newHold(`${suffix}-pending`)
     const pending = await tx.prebook({ tenantId, userId, requestId: 'p', inventoryHoldId: hold.holdId, idempotencyKey: `${suffix}-pending`, adults: 2, children: 0, childAges: [], leadGuest: guest })
-    await expect(get(pending.bookingId, 'VOUCHER')).rejects.toThrow('only for a confirmed booking')
+    await expect(get(pending.bookingId, 'VOUCHER')).rejects.toThrow('never confirmed')
+    await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: null } })
+    await expect(get(bookingId, 'VOUCHER')).rejects.toThrow('hotel confirmation number')
+    await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: 'HC-RESTORED' } })
     await expect(get(pending.bookingId, 'INVOICE')).rejects.toThrow('only for a charged booking')
     await expect(get('does-not-exist', 'VOUCHER')).rejects.toThrow('Booking not found')
     const other = await prisma.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })
@@ -169,20 +174,20 @@ describe('booking documents (PostgreSQL)', () => {
   it('lists and describes bookings for the agent portal, tenant-scoped, with integer-string amounts', async () => {
     const bookingId = await bookConfirmed(`${suffix}-view`)
     await get(bookingId, 'VOUCHER')
-    const list = await queries.list(tenantId, { limit: 50 })
+    const list = await queries.list(tenantId, userId, { limit: 50 })
     const row = list.items.find((booking) => booking.id === bookingId)!
     expect(row).toMatchObject({ status: 'CONFIRMED', currency: 'AED', totalMinor: '125099', checkIn: '2099-03-01', checkOut: '2099-03-03', rooms: 1, leadGuest: "Layla O'Hara" })
     expect(row.hotelName).toBeTruthy()
     expect(list.items.length).toBeLessThanOrEqual(list.limit)
     expect(list.total).toBeGreaterThanOrEqual(list.items.length)
     expect(list.items.map((booking) => booking.createdAt)).toEqual([...list.items.map((booking) => booking.createdAt)].sort().reverse())
-    const detail = await queries.detail(tenantId, bookingId)
+    const detail = await queries.detail(tenantId, userId, bookingId)
     expect(detail).toMatchObject({ cancellable: true, adults: 2, children: 0, documents: [{ type: 'VOUCHER' }] })
-    expect((await queries.detail(tenantId, bookingId, new Date('2099-03-01T00:00:00.000Z'))).cancellable).toBe(false)
+    expect((await queries.detail(tenantId, userId, bookingId, new Date('2099-03-01T00:00:00.000Z'))).cancellable).toBe(false)
     const other = await prisma.tenant.create({ data: { name: `${suffix}-q`, slug: `${suffix}-q` } })
     try {
-      expect(await queries.list(other.id)).toMatchObject({ items: [], total: 0, offset: 0 })
-      await expect(queries.detail(other.id, bookingId)).rejects.toThrow('Booking not found')
+      await expect(queries.list(other.id, userId)).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(queries.detail(other.id, userId, bookingId)).rejects.toBeInstanceOf(ForbiddenException)
     } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
   })
 })
