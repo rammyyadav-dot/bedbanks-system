@@ -40,6 +40,17 @@ export function activeTenantId(request: Request): string {
   return value
 }
 
+/** Same membership row the tenant guard accepts. Suspended tenants count only on routes that opted into servicing. */
+export function membershipEligible(
+  membership: { revokedAt?: Date | null; tenantId?: string; tenant: { status: string } },
+  tenantId: string,
+  allowSuspendedServicing: boolean,
+): boolean {
+  if (membership.revokedAt || membership.tenantId !== tenantId) return false
+  if (membership.tenant.status === 'ACTIVE') return true
+  return allowSuspendedServicing && membership.tenant.status === 'SUSPENDED'
+}
+
 function requestedTenantHeader(request: Request): string | undefined {
   const raw = request.headers[ACTIVE_TENANT_HEADER]
   if (raw === undefined || raw === '') return undefined
@@ -61,7 +72,7 @@ export class TenantContextGuard implements CanActivate {
       where: { userId_tenantId: { userId: identity.user.id, tenantId } },
       include: { tenant: true },
     }))
-    if (!membership || membership.revokedAt || membership.tenantId !== tenantId || (membership.tenant.status !== 'ACTIVE' && !(serving && membership.tenant.status === 'SUSPENDED'))) {
+    if (!membership || !membershipEligible(membership, tenantId, serving)) {
       await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({
         data: {
           tenantId,

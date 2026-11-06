@@ -91,8 +91,9 @@ export async function getAgentContext(tenantId?: string) {
     bookingServicingEnabled?: unknown
     fundingEnabled?: unknown
     settlementCurrencies?: unknown
+    capabilityTenantId?: unknown
   }>(routes.agent.context, tenantId ? { headers: { 'x-fbeds-tenant-id': tenantId } } : undefined)
-  return agentSession({ ...context, capabilityTenantId: tenantId ?? '' }, context.bookingEnabled, context.settlementCurrencies)
+  return agentSession(context, context.bookingEnabled, context.settlementCurrencies)
 }
 
 export function logout() {

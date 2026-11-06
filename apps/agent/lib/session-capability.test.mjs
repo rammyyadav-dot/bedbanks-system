@@ -24,6 +24,7 @@ test('effective capabilities stay with the tenant that returned them', () => {
   assert.deepEqual(second.capabilities, ['finance.read'])
   assert.equal(second.capabilityTenantId, 'tenant-b')
   assert.deepEqual(agentSession({ user: alice, memberships: [membership] }, true).capabilities, [])
+  assert.equal(agentSession({ user: alice, memberships: [membership], capabilities: ['hotel.search'] }, true).capabilityTenantId, '')
 })
 
 test('a new context replaces the previous account capability', () => {

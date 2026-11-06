@@ -7,7 +7,7 @@ import { AgentPortal } from './agent-portal'
 import { getAgentContext, getFinanceSummary, getSearchStatus, type AgentIdentity, type FinanceSummary } from '@/lib/api-client'
 import { financeCreditLabel, nextFinanceView, type FinanceView } from '@/lib/finance-view'
 import { formatMinorAmount } from '@/lib/format'
-import { CLOSED_ACCESS, portalAccess, type PortalAccess } from '@/lib/portal-access'
+import { accessForTenant, CLOSED_ACCESS, type PortalAccess } from '@/lib/portal-access'
 import { shouldApplyTenantResponse } from '@/lib/tenant-response'
 import { CurrencyOptionsContext } from '@/components/search/currency-options'
 
@@ -31,9 +31,9 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
     if (!tenantId || !access.finance.enabled) return
     const requested = tenantId
     void getFinanceSummary(requested).then(
-      (summary) => { if (tenantRef.current === requested) setFinance((current) => nextFinanceView(current, { ok: true, summary })) },
+      (summary) => { if (shouldApplyTenantResponse(requested, tenantRef.current)) setFinance((current) => nextFinanceView(current, { ok: true, summary })) },
       (reason: unknown) => {
-        if (tenantRef.current !== requested) return
+        if (!shouldApplyTenantResponse(requested, tenantRef.current)) return
         setFinance((current) => nextFinanceView(current, { ok: false, denied: reason instanceof Error && reason.message === 'Access denied' }))
       },
     )
@@ -53,14 +53,14 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
     setError('')
     let active = true
     void getAgentContext(requested).then((context) => {
-      if (!active || !shouldApplyTenantResponse(requested, context.capabilityTenantId)) return
+      if (!active || !shouldApplyTenantResponse(requested, tenantRef.current)) return
+      if (!shouldApplyTenantResponse(requested, context.capabilityTenantId)) {
+        setError('Workspace access could not be confirmed. Search and booking stay closed until it loads.')
+        return
+      }
       setGrants({
-        tenantId: requested,
-        access: portalAccess(context.capabilities, {
-          bookingEnabled: context.bookingEnabled,
-          bookingServicingEnabled: context.bookingServicingEnabled,
-          fundingEnabled: context.fundingEnabled,
-        }),
+        tenantId: context.capabilityTenantId,
+        access: accessForTenant(requested, tenantRef.current, context),
       })
     }).catch((reason: unknown) => {
       if (!active) return
@@ -81,7 +81,7 @@ export function AgentWorkspace({ identity }: { identity: AgentIdentity }) {
     setProviderStatus('checking')
     Promise.allSettled([getFinanceSummary(requested), access.search.enabled ? getSearchStatus(requested) : Promise.resolve({ status: 'not_checked' as const })])
       .then(([financeResult, statusResult]) => {
-        if (!active) return
+        if (!active || !shouldApplyTenantResponse(requested, tenantRef.current)) return
         setFinance(nextFinanceView({ phase: 'loading', summary: null }, financeResult.status === 'fulfilled'
           ? { ok: true, summary: financeResult.value }
           : { ok: false, denied: financeResult.reason instanceof Error && financeResult.reason.message === 'Access denied' }))

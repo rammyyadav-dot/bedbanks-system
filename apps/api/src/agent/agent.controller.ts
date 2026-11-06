@@ -13,7 +13,8 @@ import { AgentHotelImageService } from './agent-hotel-image.service'
 import { AgentRbacGuard, RequirePermission } from './rbac.guard'
 import { SupplierAdapter, SUPPLIER_ADAPTER, PERMISSIONS } from './supplier.port'
 import type { SearchCriteria } from '@bedbanks/domain'
-import { ACTIVE_TENANT_HEADER, ActiveTenant, TenantContextGuard, activeTenantId, sessionTenantId } from './tenant-context.guard'
+import { ACTIVE_TENANT_HEADER, ActiveTenant, TenantContextGuard, activeTenantId, membershipEligible, sessionTenantId } from './tenant-context.guard'
+import { portalCertification } from './portal-certification'
 import { effectiveAgentPermissions } from './agent-permissions'
 import type { AgentPermission } from './supplier.port'
 import { IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator'
@@ -32,7 +33,6 @@ import { BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE, DUPLICATE_BOOKING_SUSPECTED, SM
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled, bookingServicingEnabled } from './booking-transaction.service'
 import { bookingTransactionConfigured } from './booking-transaction.database'
-import { fundingEnabled } from '../funding/funding.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
@@ -157,12 +157,13 @@ export class AgentController {
   @ApiOperation({ summary: 'Return authenticated agent context, memberships and effective grants for the selected tenant' })
   async context(@CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
     const requested = req.headers[ACTIVE_TENANT_HEADER]
+    const certification = portalCertification()
     if (requested === undefined || requested === '') {
-      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], bookingEnabled: bookingEnabled(), bookingServicingEnabled: bookingServicingEnabled(), fundingEnabled: fundingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
+      return { user: identity.user, memberships: identity.memberships, capabilities: [] as AgentPermission[], capabilityTenantId: '', ...certification, settlementCurrencies: [...enabledSettlementCurrencies()] }
     }
     const tenantId = sessionTenantId(identity, requested)
     const capabilities = await this.effectiveCapabilities(identity.user.id, tenantId)
-    return { user: identity.user, memberships: identity.memberships, capabilities, bookingEnabled: bookingEnabled(), bookingServicingEnabled: bookingServicingEnabled(), fundingEnabled: fundingEnabled(), settlementCurrencies: [...enabledSettlementCurrencies()] }
+    return { user: identity.user, memberships: identity.memberships, capabilities, capabilityTenantId: tenantId, ...certification, settlementCurrencies: [...enabledSettlementCurrencies()] }
   }
 
   @Post('offers/:offerId/hold')
@@ -434,7 +435,7 @@ export class AgentController {
       where: { userId_tenantId: { userId, tenantId } },
       include: { tenant: true },
     }))
-    if (!membership || membership.tenantId !== tenantId || membership.tenant.status !== 'ACTIVE') {
+    if (!membership || !membershipEligible(membership, tenantId, false)) {
       await this.prisma.withTenant(tenantId, (tx) => tx.auditEvent.create({
         data: { tenantId, actorType: 'USER', action: 'tenant.access.denied', entityType: 'tenant', entityId: tenantId, payload: { reason: 'inactive_or_missing_membership' }, userId },
       })).catch(() => undefined)

@@ -6,6 +6,7 @@ import { declareFundingReceipt, getFundingReceipts } from '@/lib/api-client'
 import { fundingDraftError } from '@/lib/funding-declaration'
 import { formatMinorAmount } from '@/lib/format'
 import { parseMajorAmount } from '@/lib/search-filters'
+import { shouldApplyTenantResponse } from '@/lib/tenant-response'
 
 const STATUS: Record<string, string> = { DECLARED: 'Waiting for finance', VERIFIED: 'Verified, not yet credited', POSTED: 'Credited', REJECTED: 'Rejected' }
 
@@ -13,7 +14,7 @@ const STATUS: Record<string, string> = { DECLARED: 'Waiting for finance', VERIFI
  * Tell finance about a bank transfer the agency has sent (ADR 0028 slice 2). The agency comes from the user's membership on the server.
  * A declaration adds nothing to any balance: finance checks it against the bank statement and only then credits the account.
  */
-export function AgentFunding({ tenantId }: { tenantId: string }) {
+export function AgentFunding({ tenantId, fundingEnabled }: { tenantId: string; fundingEnabled: boolean }) {
   const [view, setView] = useState<AgentFundingView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -21,10 +22,19 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
   const [amount, setAmount] = useState(''); const [reference, setReference] = useState(''); const [valueDate, setValueDate] = useState(''); const [payerName, setPayerName] = useState('')
   const [method, setMethod] = useState<'BANK_TRANSFER' | 'CASH_DEPOSIT'>('BANK_TRANSFER'); const [payerType, setPayerType] = useState<'AGENCY' | 'THIRD_PARTY'>('AGENCY')
   const key = useRef<string | null>(null)
+  const tenantRef = useRef(tenantId)
+  tenantRef.current = tenantId
 
   const load = useCallback(() => {
+    const requested = tenantId
     setError(null)
-    getFundingReceipts(tenantId).then(v => { setView(v); setError(null) }, (e: unknown) => setError(e instanceof Error && e.message === 'Access denied' ? 'Your role cannot see agency payments.' : 'Payments could not be loaded.'))
+    getFundingReceipts(requested).then(v => {
+      if (!shouldApplyTenantResponse(requested, tenantRef.current)) return
+      setView(v); setError(null)
+    }, (e: unknown) => {
+      if (!shouldApplyTenantResponse(requested, tenantRef.current)) return
+      setError(e instanceof Error && e.message === 'Access denied' ? 'Your role cannot see agency payments.' : 'Payments could not be loaded.')
+    })
   }, [tenantId])
   useEffect(() => { load() }, [load])
 
@@ -32,8 +42,10 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
   const draftError = fundingDraftError({ amount, reference, valueDate, payerName }, view?.receipts ?? [])
   const ready = draftError === null && parsed.state === 'minor'
 
+  const canDeclare = fundingEnabled && view?.enabled === true
+
   async function submit() {
-    if (busy || draftError || parsed.state !== 'minor') { setMessage(draftError); return }
+    if (!canDeclare || busy || draftError || parsed.state !== 'minor') { setMessage(draftError); return }
     setBusy(true); setMessage(null)
     try {
       await declareFundingReceipt(tenantId, { currency: 'AED', amountMinor: String(parsed.minor), method, bankReference: reference, valueDate, payerName, payerType, requestId: (key.current ??= crypto.randomUUID()) })
@@ -47,28 +59,28 @@ export function AgentFunding({ tenantId }: { tenantId: string }) {
 
   if (error) return <div className="portal-panel" role="alert"><p>{error}</p><button type="button" className="portal-link" onClick={load}>Retry</button></div>
   if (!view) return <div className="portal-panel" role="status"><p>Loading payments…</p></div>
-  if (!view.agency) return <div className="portal-panel" role="status"><p>Your user is not linked to an agency, so payments cannot be declared here.</p></div>
+  if (!view.agency) return fundingEnabled ? <div className="portal-panel" role="status"><p>Your user is not linked to an agency, so payments cannot be declared here.</p></div> : null
+
+  if (!canDeclare && view.receipts.length === 0) return null
 
   return (
     <div className="portal-panel" aria-label="Agency payments" data-testid="agent-funding">
-      <span className="portal-eyebrow">PAYMENTS TO FBEDS</span>
-      <h2>Tell us about a bank transfer</h2>
-      {!view.enabled
-        ? <p role="status">Declaring payments is not enabled for this workspace yet.</p>
-        : <>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
-            <p>Launch currency is AED (ADR 0029). Declaring a payment does not credit the wallet.</p>
-            <label>Amount (AED)<input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} data-testid="agent-funding-amount" /></label>
-            <label>Bank reference<input maxLength={80} value={reference} onChange={e => setReference(e.target.value)} /></label>
-            <label>Date received<input type="date" value={valueDate} onChange={e => setValueDate(e.target.value)} /></label>
-            <label>Paid by<input maxLength={140} value={payerName} onChange={e => setPayerName(e.target.value)} /></label>
-            <label>Method<select value={method} onChange={e => setMethod(e.target.value as typeof method)}><option value="BANK_TRANSFER">Bank transfer</option><option value="CASH_DEPOSIT">Cash deposit</option></select></label>
-            <label>Payer<select value={payerType} onChange={e => setPayerType(e.target.value as typeof payerType)}><option value="AGENCY">{view.agency.name}</option><option value="THIRD_PARTY">Someone else</option></select></label>
-            <button className="portal-primary" disabled={busy || !ready} onClick={() => void submit()} data-testid="agent-funding-declare">Declare payment</button>
-            {draftError && (amount || reference || valueDate || payerName) && <p role="alert">{draftError}</p>}
-          </div>
-          {(method === 'CASH_DEPOSIT' || payerType === 'THIRD_PARTY') && <p>Cash and payments from someone else are reviewed by compliance before they are credited.</p>}
-        </>}
+      {canDeclare && <>
+        <span className="portal-eyebrow">PAYMENTS TO FBEDS</span>
+        <h2>Tell us about a bank transfer</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
+          <p>Launch currency is AED (ADR 0029). Declaring a payment does not credit the wallet.</p>
+          <label>Amount (AED)<input inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} data-testid="agent-funding-amount" /></label>
+          <label>Bank reference<input maxLength={80} value={reference} onChange={e => setReference(e.target.value)} /></label>
+          <label>Date received<input type="date" value={valueDate} onChange={e => setValueDate(e.target.value)} /></label>
+          <label>Paid by<input maxLength={140} value={payerName} onChange={e => setPayerName(e.target.value)} /></label>
+          <label>Method<select value={method} onChange={e => setMethod(e.target.value as typeof method)}><option value="BANK_TRANSFER">Bank transfer</option><option value="CASH_DEPOSIT">Cash deposit</option></select></label>
+          <label>Payer<select value={payerType} onChange={e => setPayerType(e.target.value as typeof payerType)}><option value="AGENCY">{view.agency.name}</option><option value="THIRD_PARTY">Someone else</option></select></label>
+          <button className="portal-primary" disabled={busy || !ready} onClick={() => void submit()} data-testid="agent-funding-declare">Declare payment</button>
+          {draftError && (amount || reference || valueDate || payerName) && <p role="alert">{draftError}</p>}
+        </div>
+        {(method === 'CASH_DEPOSIT' || payerType === 'THIRD_PARTY') && <p>Cash and payments from someone else are reviewed by compliance before they are credited.</p>}
+      </>}
       {message && <p role="status">{message}</p>}
       {view.receipts.length > 0 && (
         <table className="booking-table" aria-label="Declared payments">
