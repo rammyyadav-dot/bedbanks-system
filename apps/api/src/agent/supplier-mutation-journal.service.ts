@@ -1,7 +1,7 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common'
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 
 export const SUPPLIER_MUTATION_OPERATIONS = ['PREBOOK', 'BOOK', 'CANCEL'] as const
@@ -62,11 +62,15 @@ export function supplierMutationFingerprint(input: {
   return createHash('sha256').update(canonical).digest('hex')
 }
 
+/** Supplier words that mean the supplier fulfilled the booking. Rejection, expiry and "not sent" are never in this set. */
+const FULFILLED_SUPPLIER_STATUSES = new Set(['accepted', 'fulfilled', 'confirmed'])
+
 /** Supplier success that is durable in the journal, not merely an in-memory adapter response. */
 export function supplierMutationAcceptedReference(record: Pick<SupplierMutationView, 'status' | 'supplierStatus' | 'supplierReference'> | null | undefined): string | null {
   if (!record?.supplierReference) return null
   if (record.status === 'ACKNOWLEDGED') return record.supplierReference
-  if (record.status === 'RESOLVED' && record.supplierStatus === 'accepted') return record.supplierReference
+  const supplierStatus = record.supplierStatus?.trim().toLowerCase()
+  if (record.status === 'RESOLVED' && supplierStatus !== undefined && FULFILLED_SUPPLIER_STATUSES.has(supplierStatus)) return record.supplierReference
   return null
 }
 
@@ -82,7 +86,7 @@ export class SupplierMutationJournalService {
   private readonly logger = new Logger(SupplierMutationJournalService.name)
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly audit: AgentAuditService,
   ) {}
 

@@ -11,8 +11,10 @@ import { apiErrorParts } from '@/lib/hotel-setup-ui'
 import { addInventoryPoolMembers, createInventoryPool, getInventorySummary, removeInventoryPoolMembers, setPlanRelease, updateInventoryPool } from '@/lib/data/hotel-inventory'
 import { hotelHref } from '@/lib/hotel-ui'
 import { Chip, ScrollRegion, td, th, tableStyle } from '../ui'
+import { AllocationBoardPanel } from './AllocationBoardPanel'
 import { PoolWorkspace } from './PoolWorkspace'
 import { RatesInventoryPanel } from './RatesInventoryPanel'
+import { RoomAvailabilityPanel } from './RoomAvailabilityPanel'
 
 const field = { display: 'grid', gap: 2, fontSize: 12, color: 'var(--c-111111)' } as const
 const note = { color: 'var(--c-444444)', fontSize: 11, margin: 0 } as const
@@ -30,9 +32,12 @@ type Failure = { message: string; details: string[]; requestId: string | null }
  * Every change sends the token of what is on screen, so a stale form is refused by the server instead of overwriting.
  */
 export function InventoryPanel({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {
-  const poolId = useSearchParams().get('pool')
+  const search = useSearchParams()
+  const poolId = search.get('pool')
+  const view = search.get('view')
+  if (view === 'availability') return <RoomAvailabilityPanel hotelId={hotelId} />
   if (poolId) return <PoolWorkspace hotelId={hotelId} poolId={poolId} />
-  return <InventoryOverview hotelId={hotelId} rooms={rooms} />
+  return <><AllocationBoardPanel hotelId={hotelId} /><InventoryOverview hotelId={hotelId} rooms={rooms} /></>
 }
 
 function InventoryOverview({ hotelId, rooms }: { hotelId: string; rooms: HotelCommercial360['rooms'] }) {

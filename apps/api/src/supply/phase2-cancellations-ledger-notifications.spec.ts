@@ -168,6 +168,12 @@ describe('Phase 2: Supplier GDS Adapters, Wallet/Ledger Adjustments & Voucher No
         data: { cachedBalance: -25000n },
       })
       expect(tx.auditEvent.create).toHaveBeenCalledTimes(1)
+      expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'finance.ledger.adjustment_posted',
+          payload: expect.objectContaining({ outcome: 'allowed', balanceBeforeMinor: '-100000', balanceAfterMinor: '-25000', amountMinor: '75000', reference: 'booking:bk_1' }),
+        }),
+      }))
     })
 
     it('blocks excess refund when prior partial refunds plus new refund exceed authorized refundable amount', async () => {
@@ -186,6 +192,37 @@ describe('Phase 2: Supplier GDS Adapters, Wallet/Ledger Adjustments & Voucher No
         }),
       ).rejects.toBeInstanceOf(BadRequestException)
       expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
+      expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ action: 'finance.ledger.adjustment_denied', entityId: 'wal_aed_1', payload: expect.objectContaining({ outcome: 'denied', code: 'REFUND_EXCEEDS_AUTHORIZED' }) }),
+      }))
+    })
+
+    it('audits a refund that on its own exceeds the authorized amount and posts nothing', async () => {
+      const { service, tx } = setupLedger()
+      await expect(service.postB2BLedgerAdjustment({
+        tenantId: 'ten_1', userId: 'usr_1', walletId: 'wal_aed_1', currency: 'AED', type: 'REFUND', amountMinor: 150000n, authorizedRefundableMinor: 100000n, reference: 'booking:bk_1', idempotencyKey: 'cx-refund-over',
+      })).rejects.toBeInstanceOf(BadRequestException)
+      expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
+      expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ action: 'finance.ledger.adjustment_denied', payload: expect.objectContaining({ code: 'REFUND_EXCEEDS_AUTHORIZED', amountMinor: '150000' }) }),
+      }))
+    })
+
+    it('records a replay of the same refund and does not post again', async () => {
+      const { service, tx } = setupLedger()
+      tx.ledgerEntry.findUnique.mockResolvedValue({
+        id: 'le_refund_1', tenantId: 'ten_1', walletId: 'wal_aed_1', currency: 'AED', amountMinor: 75000n, type: 'REFUND', idempotencyKey: 'cx-refund-001', reference: 'booking:bk_1',
+      })
+      tx.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinor: -25000n } })
+      const result = await service.postB2BLedgerAdjustment({
+        tenantId: 'ten_1', userId: 'usr_1', walletId: 'wal_aed_1', currency: 'AED', type: 'REFUND', amountMinor: 75000n, authorizedRefundableMinor: 100000n, reference: 'booking:bk_1', idempotencyKey: 'cx-refund-001',
+      })
+      expect(result.entry.id).toBe('le_refund_1')
+      expect(tx.ledgerEntry.create).not.toHaveBeenCalled()
+      expect(tx.wallet.update).not.toHaveBeenCalled()
+      expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ action: 'finance.ledger.adjustment_replayed', entityId: 'le_refund_1', payload: expect.objectContaining({ outcome: 'replayed' }) }),
+      }))
     })
   })
 

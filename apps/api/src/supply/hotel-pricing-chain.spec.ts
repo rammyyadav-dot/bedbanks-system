@@ -1,5 +1,5 @@
 import { evaluateContractedStay, type StayDecision, type StayRequest } from './contracted-sellability'
-import { markupResolverFor, type MarkupRuleRow } from './markup-rules'
+import { markupResolverFor, type MarkupBuyer, type MarkupRuleRow } from './markup-rules'
 import { buildStaySnapshot, type StayPlanInput } from './stay-snapshot'
 
 /**
@@ -281,6 +281,70 @@ describe('availability', () => {
     const first = search(plan({}, 'NET', rows)); const second = search(plan({}, 'NET', rows))
     expect(second).toEqual(first)
     expect(JSON.stringify(rows, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).toBe(before)
+  })
+})
+
+describe('board inheritance with a stay that crosses markup seasons', () => {
+  const breakfast = { kind: 'BOARD', name: 'Breakfast', boardBasisId: 'bb-bb', ratePlanId: null, basis: 'PER_ADULT', frequency: 'PER_NIGHT', amountMinor: 4_000n, currency: 'AED', stayFrom: at('2026-10-16'), stayTo: null }
+  const halfBoard = { ...breakfast, name: 'Half board', boardBasisId: 'bb-hb', amountMinor: 9_000n, stayFrom: null }
+  const otherPlan = { ...breakfast, name: 'Other breakfast', ratePlanId: 'plan-2', stayFrom: null }
+  const gala = { kind: 'COMPULSORY', name: 'Gala dinner', boardBasisId: null, ratePlanId: null, basis: 'PER_ROOM', frequency: 'PER_STAY', amountMinor: 6_000n, currency: 'AED', stayFrom: at('2026-10-17'), stayTo: at('2026-10-17') }
+  const inherited = () => plan({ contract: { ...plan().contract, supplements: [halfBoard, otherPlan, breakfast, gala] } })
+  const low: MarkupRuleRow = { scope: 'SUPPLIER', supplierId: 's1', hotelId: null, basisPoints: 1_000, validFrom: '2026-01-01', validTo: null }
+  const high: MarkupRuleRow = { scope: 'HOTEL', supplierId: null, hotelId: 'h1', basisPoints: 2_500, validFrom: '2026-10-16', validTo: null }
+
+  it('marks the inherited board supplement up at the season of the night it lands on', () => {
+    // Half board and the other plan's breakfast are not this plan's. Breakfast starts 16 Oct (8,000 for 2 adults).
+    // Gala is per stay on 17 Oct only, so it is marked up at the hotel season, not the arrival night's season.
+    // 15 Oct: 30,000 + 10% supplier. 16 Oct overlaps the hotel season: (30,000 + 8,000) + 25%. 17 Oct: (30,000 + 8,000 + 6,000) + 25%.
+    const d = search(inherited(), [low, high])
+    expect(d.nightly).toEqual([
+      { date: '2026-10-15', netBeforeMinor: 30_000n, promotionMinor: 0n, supplementMinor: 0n, netMinor: 30_000n, markupMinor: 3_000n, sellMinor: 33_000n },
+      { date: '2026-10-16', netBeforeMinor: 30_000n, promotionMinor: 0n, supplementMinor: 8_000n, netMinor: 38_000n, markupMinor: 9_500n, sellMinor: 47_500n },
+      { date: '2026-10-17', netBeforeMinor: 30_000n, promotionMinor: 0n, supplementMinor: 14_000n, netMinor: 44_000n, markupMinor: 11_000n, sellMinor: 55_000n },
+    ])
+    expect(d.supplements).toEqual([
+      { name: 'Breakfast', kind: 'BOARD', amountMinor: 16_000n },
+      { name: 'Gala dinner', kind: 'COMPULSORY', amountMinor: 6_000n },
+    ])
+    expect(d.netMinor! + d.markupMinor!).toBe(d.totalMinor)
+    expect(d.totalMinor).toBe(135_500n)
+  })
+
+  it('a client season that starts on the last night outranks the hotel season for that night only', () => {
+    const client: MarkupRuleRow = { scope: 'HOTEL', supplierId: null, hotelId: 'h1', agencyId: 'a1', basisPoints: 500, validFrom: '2026-10-17', validTo: '2026-10-17' }
+    const buyer: MarkupBuyer = { agencyId: 'a1', market: null }
+    const snapshot = buildStaySnapshot(inherited(), { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, NIGHTS, markupResolverFor([low, high, client], 's1', 'h1', buyer))
+    const d = evaluateContractedStay(snapshot, request)
+    expect(d.nightly?.map((night) => night.markupMinor)).toEqual([3_000n, 9_500n, 2_200n])
+    expect(d.nightly?.[2]).toMatchObject({ netMinor: 44_000n, sellMinor: 46_200n })
+    const generic = search(inherited(), [low, high])
+    expect(generic.nightly?.[2]?.markupMinor).toBe(11_000n)
+  })
+
+  it('excluding this hotel from the high season marks the board supplement up at the supplier rate', () => {
+    const carved: MarkupRuleRow = { ...high, excludedHotelIds: ['h1'] }
+    const d = search(inherited(), [low, carved])
+    expect(d.nightly?.map((night) => night.markupMinor)).toEqual([3_000n, 3_800n, 4_400n])
+    expect(d.totalMinor).toBe(33_000n + 41_800n + 48_400n)
+  })
+
+  it('one night with no season refuses the stay, including the nights that do have one', () => {
+    const ended: MarkupRuleRow = { ...low, validTo: '2026-10-16' }
+    const d = search(inherited(), [ended])
+    expect(d).toMatchObject({ eligible: false, totalMinor: null, netMinor: null, markupMinor: null })
+    expect(d.reasons).toContain('NET_RATE_MARKUP_UNAVAILABLE')
+  })
+
+  it('rounds half up on the rate plus the seasonal supplement, not on the rate alone', () => {
+    const rates = [...NIGHTS, '2026-10-18'].map((d) => ({ stayDate: at(d), amountMinor: 10_004n, currency: 'AED', amountBasis: 'NET' as const }))
+    const shoulder = { kind: 'BOARD', name: 'Breakfast', boardBasisId: 'bb-bb', ratePlanId: null, basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: 1n, currency: 'AED', stayFrom: at('2026-10-17'), stayTo: at('2026-10-17') }
+    const p = plan({ dailyRates: rates, contract: { ...plan().contract, supplements: [shoulder] } })
+    const flat: MarkupRuleRow = { ...low, basisPoints: 1_000 }
+    const d = search(p, [flat])
+    // 10,004 x 10% = 1,000.4 -> 1,000. With the 1 minor supplement, 10,005 x 10% = 1,000.5 -> 1,001.
+    expect(d.nightly?.map((night) => night.markupMinor)).toEqual([1_000n, 1_000n, 1_001n])
+    expect(d.nightly?.[2]).toMatchObject({ supplementMinor: 1n, netMinor: 10_005n, sellMinor: 11_006n })
   })
 })
 

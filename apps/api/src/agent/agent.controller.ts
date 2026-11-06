@@ -28,9 +28,10 @@ import { OfferHoldService } from './offer-hold.service'
 import { AgentSearchService } from './agent-search.service'
 import { DestinationResolverService } from './destination-resolver.service'
 import { SmartSearchService } from './smart-search.service'
-import { DUPLICATE_BOOKING_SUSPECTED, SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
+import { BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE, DUPLICATE_BOOKING_SUSPECTED, SMART_SEARCH_TEXT_MAX } from '@bedbanks/contracts'
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingTransactionService, bookingEnabled, bookingServicingEnabled } from './booking-transaction.service'
+import { bookingTransactionConfigured } from './booking-transaction.database'
 import { fundingEnabled } from '../funding/funding.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService, documentKindFromRoute } from './booking-document.service'
@@ -107,6 +108,20 @@ export class AgentController {
     private readonly hotelImages: AgentHotelImageService,
   ) {}
 
+  /**
+   * BOOKING_ENABLED opens the route. It does not grant the API role booking or finance writes.
+   * The mutation continues only when the booking transaction credential is configured and distinct (ADR 0113).
+   */
+  private boundaryClosed(response: { status(code: number): unknown }): { status: 'booking_unavailable'; code: typeof BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE; message: string } | null {
+    if (bookingTransactionConfigured()) return null
+    response.status(HttpStatus.SERVICE_UNAVAILABLE)
+    return {
+      status: 'booking_unavailable',
+      code: BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE,
+      message: 'Booking mutations are unavailable until the booking transaction database role is configured. BOOKING_ENABLED does not grant them to the API role.',
+    }
+  }
+
   @Get('destinations')
   @ApiOperation({ summary: 'Resolve a canonical city or hotel. Free text is not a destination.' })
   @RequirePermission(PERMISSIONS.search)
@@ -162,6 +177,11 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
     }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.hold.unavailable', entityType: 'offer', entityId: params.offerId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     const result = await this.offerHolds.execute({ offerId: params.offerId, searchId: body.searchId,
       expectedCurrency: body.expectedCurrency, expectedSellAmountMinor: body.expectedSellAmountMinor,
       idempotencyKey: body.idempotencyKey, tenantId, user: identity, requestId: req.requestId ?? randomUUID() })
@@ -211,7 +231,9 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.prebook)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async releaseHold(@Param('holdId') holdId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+  async releaseHold(@Param('holdId') holdId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    const boundary = this.boundaryClosed(response)
+    if (boundary) return boundary
     return this.inventoryHolds.releaseOwn(tenantId, holdId, identity.user.id, req.requestId ?? randomUUID())
   }
 
@@ -242,6 +264,11 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck and finance gates are certified.' }
     }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.prebook.unavailable', entityType: 'inventory_hold', entityId: body.inventoryHoldId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     if (body.termsAccepted !== true) throw new BadRequestException({ code: 'TERMS_NOT_ACCEPTED', message: 'Accept the cancellation policy and booking terms to book.' })
     const requestId = req.requestId ?? randomUUID()
     // ADR 0066 amendment 1: a probable duplicate (same agency, hotel, dates and lead guest) needs the agent's explicit go-ahead. Nothing is held or charged yet.
@@ -270,6 +297,11 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', message: 'Booking is unavailable until supplier, recheck, persistence and finance gates are certified.' }
     }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.create.unavailable', entityType: 'booking', entityId: body.bookingId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     const requestId = req.requestId ?? randomUUID()
     const recipient = validRecipient(identity.user.email)
     const cc = normalizeCcEmails(body.ccEmails, recipient)
@@ -286,23 +318,27 @@ export class AgentController {
   }
 
   @Get('bookings')
-  @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'List the caller\'s agency bookings, newest first. Operators with booking.read and no agency see the tenant (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
-    return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
+    const boundary = this.boundaryClosed(response)
+    if (boundary) return boundary
+    return this.bookingQueries.list(tenantId, identity.user.id, { limit: Number(limit), offset: Number(offset), status: status || undefined })
   }
 
   @Get('bookings/:id')
-  @ApiOperation({ summary: 'Booking detail with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'Booking detail for the caller\'s agency, with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
-    return this.bookingQueries.detail(tenantId, bookingId)
+    const boundary = this.boundaryClosed(response)
+    if (boundary) return boundary
+    return this.bookingQueries.detail(tenantId, identity.user.id, bookingId)
   }
 
   @Get('bookings/:id/cancellation-quote')
@@ -312,6 +348,8 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async cancellationQuote(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Cancellation is unavailable until booking gates are certified.' } }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) return boundary
     return this.cancellations.quote({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId })
   }
 
@@ -322,6 +360,8 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocument(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Booking documents are unavailable until booking gates are certified.' } }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) return boundary
     return this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
   }
 
@@ -332,6 +372,7 @@ export class AgentController {
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
   async bookingDocumentHtml(@Param('id') bookingId: string, @Param('type') type: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res() response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE).type('text/plain').send('Booking documents are unavailable.'); return }
+    if (!bookingTransactionConfigured()) { response.status(HttpStatus.SERVICE_UNAVAILABLE).type('text/plain').send('Booking documents are unavailable until the booking transaction database role is configured.'); return }
     const document = await this.documents.get({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, type: documentKindFromRoute(type) })
     response.status(HttpStatus.OK).set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' })
       .send(renderBookingDocument({ type: document.type, number: document.number, issuedAt: document.issuedAt, bookingStatus: document.bookingStatus, payload: document.payload }))
@@ -348,6 +389,11 @@ export class AgentController {
       response.status(HttpStatus.SERVICE_UNAVAILABLE)
       return { status: 'booking_unavailable', bookingId, message: 'Cancellation is unavailable until booking gates are certified.' }
     }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.unavailable', entityType: 'booking', entityId: bookingId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     return this.cancellations.cancel({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, reason: body.reason })
   }
 
@@ -356,7 +402,17 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.reconcileBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request) {
+  async reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingServicingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.reconcile.unavailable', entityType: 'tenant', entityId: tenantId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Recovery is unavailable until booking gates are certified.' }
+    }
+    const boundary = this.boundaryClosed(response)
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.reconcile.unavailable', entityType: 'tenant', entityId: tenantId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     return this.reconciliation.reconcileStale({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), staleMinutes: body.staleMinutes, prebookMaxMinutes: body.prebookMaxMinutes, dryRun: body.dryRun })
   }
 

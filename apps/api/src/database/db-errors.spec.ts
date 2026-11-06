@@ -4,6 +4,7 @@ describe('database permission errors', () => {
   it('recognises 42501 by driver code and by message, and nothing else', () => {
     expect(isDatabasePermissionDenied(Object.assign(new Error('x'), { meta: { code: '42501' } }))).toBe(true)
     expect(isDatabasePermissionDenied(new Error('permission denied for table "Agency"'))).toBe(true)
+    expect(isDatabasePermissionDenied(new Error('permission denied for column "total_minor"'))).toBe(true)
     expect(isDatabasePermissionDenied(new Error('permission denied for sequence foo'))).toBe(true)
     expect(isDatabasePermissionDenied(new Error('new row violates row-level security policy for table "Agency"'))).toBe(false)
     expect(isDatabasePermissionDenied(new Error('connection lost'))).toBe(false)

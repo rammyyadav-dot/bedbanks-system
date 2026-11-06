@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import {
   LEDGER_INTEGRITY_ENTRY_LIMIT, LEDGER_INTEGRITY_FINDING_LIMIT, LEDGER_INTEGRITY_STALE_MINUTES_DEFAULT,
   type LedgerIntegrityCurrencyTotals, type LedgerIntegrityFindingView, type LedgerIntegrityReport, type LedgerIntegrityVerdict,
@@ -12,6 +13,11 @@ import { intParam } from './query-params'
 const CHUNK = 1_000
 const chunks = <T>(items: readonly T[]): T[][] => Array.from({ length: Math.ceil(items.length / CHUNK) }, (_, i) => items.slice(i * CHUNK, (i + 1) * CHUNK))
 const minorRecord = (amounts: Record<string, bigint>) => Object.fromEntries(Object.entries(amounts).map(([k, v]) => [k, v.toString()]))
+const ledgerEntryIdOf = (payload: Prisma.JsonValue): string | null => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const id = (payload as { ledgerEntryId?: unknown }).ledgerEntryId
+  return typeof id === 'string' && id.length > 0 ? id : null
+}
 
 const DEFINITIONS: Record<string, string> = {
   scope: 'Every ledger entry and account of the tenant, tied out to the bookings, cancellation records and funding receipts that caused them. Read-only: nothing is posted, corrected or locked.',
@@ -39,6 +45,7 @@ const DEFINITIONS: Record<string, string> = {
   CREDIT_WITHOUT_RECEIPT: 'A funding CREDIT has no POSTED receipt pointing at it.',
   ADJUSTMENT_WITHOUT_APPROVAL: 'An ADJUSTMENT or REVERSAL entry has no approved adjustment record with the same kind, account and amount, so it was posted around the maker-checker flow (ADR 0100).',
   REVERSAL_EXCEEDS_RECEIPT: 'Reversals of one funding receipt add up to more than the receipt paid, or the receipt was never posted: money was taken back that was never received (ADR 0100).',
+  ADJUSTMENT_AUDIT_MISSING: 'An approved ADJUSTMENT or REVERSAL has a ledger entry but no finance.ledger_adjustment.approved audit event naming that entry, so the posting cannot be tied to the person who approved it (ADR 0113).',
 }
 
 /**
@@ -85,11 +92,20 @@ export class OperationsLedgerIntegrityService {
         const refunds = new Map(cancellations.map(c => [c.bookingId, c.refundMinor]))
         for (const b of rows) bookings.push({ id: b.id, status: b.status, currency: b.currency, totalMinor: b.totalMinor, ...(refunds.has(b.id) ? { cancellationRefundMinor: refunds.get(b.id) ?? null } : {}) })
       }
+      const approvedIds = adjustments.filter(a => a.status === 'APPROVED' && a.ledgerEntryId).map(a => a.id)
+      const auditRows: Array<{ entityId: string; payload: Prisma.JsonValue }> = []
+      for (const ids of chunks(approvedIds)) {
+        auditRows.push(...await tx.auditEvent.findMany({
+          where: { tenantId, action: 'finance.ledger_adjustment.approved', entityType: 'ledger_adjustment', entityId: { in: ids } },
+          select: { entityId: true, payload: true },
+        }))
+      }
       const report = checkLedgerIntegrity({
         accounts: wallets.map(w => ({ id: w.id, currency: w.currency, agencyId: w.agencyId, creditLineMinor: line(w) })),
         entries: integrityEntries, bookings,
         receipts: receipts.map(r => ({ id: r.id, status: r.status, accountId: r.walletId, ledgerEntryId: r.ledgerEntryId, amountMinor: r.amountMinor, currency: r.currency })),
         adjustments: adjustments.map(a => ({ id: a.id, kind: a.kind, status: a.status, accountId: a.walletId, ledgerEntryId: a.ledgerEntryId, amountMinor: a.amountMinor, currency: a.currency, receiptId: a.fundingReceiptId })),
+        adjustmentAudits: auditRows.map(a => ({ adjustmentId: a.entityId, ledgerEntryId: ledgerEntryIdOf(a.payload) })),
         chainBreaks: chainBreaks.map(b => ({ accountId: b.wallet_id, entryId: b.entry_id, seq: b.seq, reason: b.reason })),
         now, staleReservationMinutes,
       })

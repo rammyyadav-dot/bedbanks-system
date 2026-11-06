@@ -21,7 +21,7 @@ type Env = Record<string, string | undefined>
  * Read-only: it writes nothing (no finding, no audit event, no correction), so a failure here can never move money.
  *
  * It runs only when explicitly enabled AND given its own credential (`LEDGER_INTEGRITY_DATABASE_URL`, a restricted login that can read the
- * ledger, wallets, funding receipts, bookings and cancellations under RLS). Same rules as the hold-expiry sweeper (ADR 0005): disabled by
+ * ledger, wallets, funding receipts, bookings, cancellations, ledger adjustments and audit events under RLS). Same rules as the hold-expiry sweeper (ADR 0005): disabled by
  * default, never the HTTP credential, identity-checked at startup, never overlapping itself. ISSUES is logged at error level with tenant id,
  * counts and rule codes only (no amounts, names or references), which is what the log alarm watches; WARNINGS and INCOMPLETE at warn level.
  */

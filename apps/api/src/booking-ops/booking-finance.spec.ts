@@ -1,4 +1,4 @@
-import { classifyPenaltyChange, documentBlock, effectivePenalty, parseFrozenRules, splitSell, type PenaltyFact, type StoredPenaltyQuote } from '@bedbanks/contracts'
+import { bookingConfirmedForDocuments, classifyPenaltyChange, confirmationEmailVoucherBlock, documentBlock, effectivePenalty, parseFrozenRules, splitSell, type PenaltyFact, type StoredPenaltyQuote } from '@bedbanks/contracts'
 import { renderBookingDocument } from '../agent/booking-document.render'
 import { buildDocumentPayload, type DocumentBooking } from './booking-finance-documents'
 import { buildPenaltyQuote } from './booking-penalty-quote'
@@ -90,9 +90,24 @@ describe('BF: document eligibility', () => {
     expect(documentBlock('VOUCHER', facts())).toBeNull()
     expect(documentBlock('INVOICE', facts())).toBeNull()
     expect(documentBlock('VOUCHER', facts({ hotelConfirmationNo: null }))).toBe('HOTEL_CONFIRMATION_REQUIRED')
+    expect(documentBlock('VOUCHER', facts({ hotelConfirmationNo: '  ' }))).toBe('HOTEL_CONFIRMATION_REQUIRED')
     expect(documentBlock('VOUCHER', facts({ hasConfirmedEvent: false }))).toBe('NOT_CONFIRMED')
     expect(documentBlock('VOUCHER', cancelled('1', '1'))).toBe('BOOKING_CANCELLED')
+    expect(documentBlock('VOUCHER', { ...cancelled('1', '1'), issued: ['VOUCHER', 'INVOICE'] })).toBe('ALREADY_ISSUED')
     expect(documentBlock('INVOICE', facts({ issued: ['INVOICE'] }))).toBe('ALREADY_ISSUED')
+  })
+
+  it('BF-12b: Agent confirmation (status, no finance event) and Admin (finance event) are the same confirmation, and a previously issued voucher is not emailed after cancellation', () => {
+    expect(bookingConfirmedForDocuments({ status: 'CONFIRMED', hasConfirmedFinanceEvent: false })).toBe(true)
+    expect(bookingConfirmedForDocuments({ status: 'CANCELLED', hasConfirmedFinanceEvent: false })).toBe(true)
+    expect(bookingConfirmedForDocuments({ status: 'PENDING_SUPPLIER', hasConfirmedFinanceEvent: false })).toBe(false)
+    expect(bookingConfirmedForDocuments({ status: 'PENDING_SUPPLIER', hasConfirmedFinanceEvent: true })).toBe(true)
+    const onFile = { ...facts({ status: 'CANCELLED' as const, issued: ['VOUCHER'] as never[] }) }
+    expect(documentBlock('VOUCHER', onFile)).toBe('ALREADY_ISSUED')
+    expect(confirmationEmailVoucherBlock(onFile)).toBe('BOOKING_CANCELLED')
+    expect(confirmationEmailVoucherBlock(facts({ issued: ['VOUCHER'] }))).toBeNull()
+    expect(confirmationEmailVoucherBlock(facts({ hotelConfirmationNo: null }))).toBe('HOTEL_CONFIRMATION_REQUIRED')
+    expect(confirmationEmailVoucherBlock(facts({ hasConfirmedEvent: false }))).toBe('NOT_CONFIRMED')
   })
 
   it('BF-13: cancellation documents need a cancelled booking, a determined penalty and (for the credit note) the invoice and something to credit', () => {

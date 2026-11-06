@@ -1,14 +1,15 @@
 import { cancellationTiers, rulesForPlan } from '../supply/cancellation-rules'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
 import { CancellationPolicyService, buyerRules, penaltyStartsAt, type CancellationRule } from './cancellation-policy.service'
 import { LedgerService } from './ledger.service'
+import { agencyConstraint, lockBookingSql, resolveAgentBookingScope } from './booking-agency-scope'
 
 export interface CancellationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; reason?: string; now?: Date }
 export type CancellationQuoteView = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
@@ -29,7 +30,7 @@ const nightsBetween = (checkIn: string, checkOut: string | undefined): number | 
 @Injectable()
 export class BookingCancellationService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly policy: CancellationPolicyService,
     private readonly ledger: LedgerService,
     private readonly audit: AgentAuditService,
@@ -37,7 +38,8 @@ export class BookingCancellationService {
 
   async quote(command: Omit<CancellationCommand, 'reason'>): Promise<CancellationQuoteView> {
     return this.prisma.withTenant(command.tenantId, async tx => {
-      const booking = await tx.booking.findFirst({ where: { id: command.bookingId, tenantId: command.tenantId } })
+      const scope = await resolveAgentBookingScope(tx, command.tenantId, command.userId)
+      const booking = await tx.booking.findFirst({ where: { ...agencyConstraint(scope), id: command.bookingId, tenantId: command.tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
       if (booking.status !== 'CONFIRMED') throw new ConflictException('Booking is not cancellable')
       return (await this.evaluate(tx, command.tenantId, booking, command.now ?? new Date())).view
@@ -48,9 +50,10 @@ export class BookingCancellationService {
     const { tenantId, userId, requestId, bookingId } = command
     try {
       return await this.prisma.withTenant(tenantId, async tx => {
-        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
+        const scope = await resolveAgentBookingScope(tx, tenantId, userId)
+        const locked = await tx.$queryRaw<Array<{ id: string }>>(lockBookingSql(tenantId, bookingId, scope))
         if (locked.length !== 1) throw new NotFoundException('Booking not found')
-        const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })
+        const booking = await tx.booking.findFirstOrThrow({ where: { ...agencyConstraint(scope), id: bookingId, tenantId } })
         if (booking.status === 'CANCELLED') {
           const done = await tx.cancellation.findUniqueOrThrow({ where: { bookingId } })
           const refund = done.refundMinor ?? 0n

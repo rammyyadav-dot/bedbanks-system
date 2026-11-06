@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
-import { PrismaService } from '../database/prisma.service'
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { bookingAccountFor } from './agency-account'
 import { BookingConfirmationService } from './booking-confirmation.service'
 import { SupplierPrebookOrchestrationService } from './supplier-prebook-orchestration.service'
@@ -39,7 +39,7 @@ const ACTIVE_STATUSES = ['PENDING_SUPPLIER', 'ON_REQUEST', 'CONFIRMED', 'AMEND_R
 @Injectable()
 export class BookingTransactionService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly prebookFlow: SupplierPrebookOrchestrationService,
     private readonly confirmation: BookingConfirmationService,
   ) {}
