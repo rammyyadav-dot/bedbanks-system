@@ -102,6 +102,15 @@ test('a provider failure never becomes availability, even if a demo flag is set'
   assert.equal(result.status, 'provider_unavailable')
   assert.deepEqual(result.liveHotels, [])
   assert.equal(result.total, 0)
+  assert.match(result.failureMessage, /Nothing was booked/)
+})
+test('a search that times out stays empty and says to search again before using a price', async () => {
+  globalThis.fetch = async () => { const error = new Error('aborted'); error.name = 'AbortError'; throw error }
+  const result = await new ApiHotelService('https://example.invalid').search(criteria, 'tenant-a')
+  assert.equal(result.status, 'provider_unavailable')
+  assert.deepEqual(result.liveHotels, [])
+  assert.match(result.failureMessage, /timed out/)
+  assert.match(result.failureMessage, /Nothing was booked/)
 })
 test('empty and forbidden responses are distinct', async () => {
   process.env.NODE_ENV = 'production'

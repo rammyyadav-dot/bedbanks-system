@@ -3,6 +3,7 @@ import 'server-only'
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { SupplierApiError, listOrganizations, loadContext, loadIdentity, type PortalUser, type SupplierOrganization } from './supplier-api'
+import { supplierWorkspaceFailureCopy, supplierRequestOutcome } from './request-outcome'
 import { SUPPLIER_CONTEXT_COOKIE } from './server-env'
 
 export type PortalState =
@@ -38,7 +39,7 @@ export const loadPortal = cache(async (): Promise<PortalState> => {
     return {
       kind: 'unavailable',
       user: { id: '', email: '', name: null },
-      message: 'The supplier workspace cannot be loaded because the API request failed. No preview data is shown.',
+      message: supplierWorkspaceFailureCopy(supplierRequestOutcome(error)),
     }
   }
 })

@@ -23,6 +23,7 @@ import type { HotelSearchResult, OfferRecheckResult } from '@/types/hotel'
 import { BookingCheckout } from '@/components/booking/booking-checkout'
 import { HotelThumbnail } from '@/components/search/hotel-thumbnail'
 import { agencySuspendedMessage, agencySuspendedTitle } from '@/lib/agency-suspension.mjs'
+import { searchOutcome } from '@/lib/search-outcome'
 import { ResultFilters } from '@/components/search/result-filters'
 import { nightCount } from '@/lib/stay-calendar'
 import { activeFilterChips, averageNightlyMinor, hotelBoards, roomFromMinor, visibleRooms } from '@/lib/listing'
@@ -199,14 +200,8 @@ function PageLinks({ limit, total, offset, disabled, onPage }: { limit: number; 
 
 function statusCopy(status: HotelSearchResult['status']) {
   if (status === 'available') return marketplaceHome.resultsQuote
-  if (status === 'partial') return 'Some hotel inventory is temporarily unavailable. We could not retrieve rates from one inventory source. Your other available results are still shown.'
-  if (status === 'mapping_unavailable') return 'Supplier offer mapping could not be verified. No rate is displayed.'
-  if (status === 'access_denied') return 'You do not have access to this workspace.'
   if (status === 'agency_suspended') return agencySuspendedMessage
-  if (status === 'auth_required') return 'Your session expired. Sign in again.'
-  if (status === 'destination_unavailable') return 'This saved destination is no longer in the canonical catalogue.'
-  if (status === 'empty') return 'No hotels matched this search. This is not a supplier outage.'
-  return 'Search is temporarily unavailable. Please try again.'
+  return searchOutcome(status).banner
 }
 
 function SearchLoadingState() {
@@ -214,11 +209,10 @@ function SearchLoadingState() {
 }
 function SearchOutcomeState({ status, onRetry, onEdit }: { status: HotelSearchResult['status']; onRetry: () => void; onEdit: () => void }) {
   if (status === 'agency_suspended') return <div className="portal-empty portal-outcome" role="alert" data-testid="agency-suspended"><Search size={20} /><h2>{agencySuspendedTitle}</h2><p>{agencySuspendedMessage}</p></div>
-  const unavailable = ['provider_unavailable', 'auth_required', 'access_denied', 'destination_unavailable'].includes(status)
-  const mapping = status === 'mapping_unavailable'
-  const title = unavailable ? 'Search is temporarily unavailable.' : mapping ? 'This offer is not available for booking yet' : status === 'empty' ? 'No hotels matched this search.' : 'We couldn’t complete this hotel search'
-  const copy = unavailable ? 'Please try again in a moment.' : mapping ? 'The supplier offer could not be verified against the fabBeds hotel and room catalogue.' : status === 'empty' ? 'Change the dates, broaden the destination, or clear filters. This is not a supplier outage.' : 'Your search details are preserved. Try again or adjust the search criteria.'
-  return <div className="portal-empty portal-outcome"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div>{unavailable ? <button className="portal-primary" onClick={onRetry}>Try again</button> : <button className="portal-primary" onClick={onEdit}>Modify search</button>}{!unavailable && <button className="portal-link" onClick={onRetry}>Try again</button>}</div></div>
+  const outcome = searchOutcome(status)
+  const title = outcome.title || 'We couldn’t complete this hotel search'
+  const copy = outcome.body || 'Your search details are preserved. Try again or adjust the search criteria.'
+  return <div className="portal-empty portal-outcome" role="alert"><Search size={20} /><h2>{title}</h2><p>{copy}</p><div>{outcome.retry ? <button className="portal-primary" onClick={onRetry}>Try again</button> : <button className="portal-primary" onClick={onEdit}>Modify search</button>}{outcome.retry && status !== 'provider_unavailable' && <button className="portal-link" onClick={onEdit}>Modify search</button>}</div></div>
 }
 function paymentLabel(paymentType: AgentRateOffer['paymentType']) { return paymentType === 'pay_at_hotel' ? 'Pay at hotel' : paymentType === 'prepaid' ? 'Prepaid' : paymentType === 'unspecified' ? 'Payment terms not stated' : 'Agency credit' }
 function formatTotal(total: AgentRateOffer['total']) { return formatMinorAmount(total.amountMinor, total.currency) ?? 'Price unavailable' }

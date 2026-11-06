@@ -58,6 +58,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+function transportFailure(error: unknown): SupplierApiError {
+  const name = error instanceof Error ? error.name : ''
+  return new SupplierApiError(name === 'TimeoutError' || name === 'AbortError' ? 504 : 503)
+}
+
 async function readSuccessData(response: Response): Promise<unknown> {
   let text: string
   try {
@@ -89,8 +94,8 @@ async function apiRequest(path: string, init: { method?: string; body?: unknown;
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
     })
-  } catch {
-    throw new SupplierApiError(503)
+  } catch (error) {
+    throw transportFailure(error)
   }
   return readSuccessData(response)
 }
@@ -107,8 +112,8 @@ export const loadIdentity = cache(async (): Promise<{ cookieHeader: string; tena
       cache: 'no-store',
       signal: AbortSignal.timeout(10000),
     })
-  } catch {
-    throw new SupplierApiError(503)
+  } catch (error) {
+    throw transportFailure(error)
   }
   if (response.status === 401) return null
   const payload = await readSuccessData(response)

@@ -248,7 +248,7 @@ export function AgentPortal({ identity, tenantId, providerStatus, finance, acces
       }
       setSearchResult(stampSearch(result))
       setRefreshError('')
-      rememberRecentSearch(window.sessionStorage, identity.user.id, {
+      if (result.status === 'available' || result.status === 'partial' || result.status === 'empty') rememberRecentSearch(window.sessionStorage, identity.user.id, {
         destination: destination || built.criteria.destination,
         cityName: built.criteria.destination,
         destinationRef: built.criteria.destinationRef,

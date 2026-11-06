@@ -5,6 +5,7 @@ import { StatusBadge } from '../../../components/ui/StatusBadge'
 import { SummaryStrip } from '../../../components/ui/SummaryStrip'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+import { supplierReadFailureCopy, supplierRequestOutcome } from '../../../lib/request-outcome'
 import { listContracts } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
 
@@ -67,7 +68,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
         </section>
       </div>
     )
-  } catch {
-    return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Contracts" description="Contracts could not be loaded. No substitute data is shown." />
+  } catch (error) {
+    return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Contracts" description={supplierReadFailureCopy('contracts', supplierRequestOutcome(error))} />
   }
 }

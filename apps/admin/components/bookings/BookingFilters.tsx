@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { BOOKING_DATE_TYPES, BOOKING_PAYMENT_MODES, BOOKING_PAYMENT_STATUSES, BOOKING_STATUSES, BOOKING_UNASSIGNED_AGENCY, type BookingAccessView, type BookingListQuery } from '@bedbanks/contracts'
+import { showAgencyFilter } from '@/lib/booking-list-journey'
 import { statusLabel } from '@/lib/booking-ui'
 import { minorToMajorInput, parseMajorToMinor } from '@/lib/minor-units'
 
@@ -28,7 +29,7 @@ export function BookingFilters({ query, access, agencies, onApply, onClear }: {
   const toggleStatus = (s: string) => { const next = new Set(statuses); if (next.has(s)) next.delete(s); else next.add(s); set({ status: [...next].join(',') || undefined }) }
   const agencySelected = new Set((draft.agencyId ?? '').split(',').filter(Boolean))
   const toggleAgency = (id: string) => { const next = new Set(agencySelected); if (next.has(id)) next.delete(id); else next.add(id); set({ agencyId: [...next].join(',') || undefined }) }
-  const operator = access?.level !== 'AGENCY'
+  const operator = showAgencyFilter(access)
   // Amounts are typed in major units and sent as integer minor units; a bad number blocks Apply instead of being guessed.
   const [amountText, setAmountText] = useState({ min: '', max: '' })
   useEffect(() => setAmountText({ min: query.amountMin && query.currency ? minorToMajorInput(query.amountMin, query.currency) : '', max: query.amountMax && query.currency ? minorToMajorInput(query.amountMax, query.currency) : '' }), [query.amountMin, query.amountMax, query.currency])
