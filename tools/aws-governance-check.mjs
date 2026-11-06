@@ -85,6 +85,8 @@ export function checkGovernance(root = process.cwd()) {
     if (/terraform[^\n]*\b(apply|destroy)\b/.test(src)) fail(`.github/workflows/${f}: runs terraform apply/destroy (apply is an owner action, never CI)`)
     if (/AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|aws-access-key-id/i.test(src)) fail(`.github/workflows/${f}: long-lived AWS keys; use OIDC`)
   }
+  const rollback = stripComments(read(root, '.github/workflows/aws-rollback.yml') ?? '')
+  if (!/tools\/ops\/ecs-rollback\.sh/.test(rollback)) fail('.github/workflows/aws-rollback.yml: must run tools/ops/ecs-rollback.sh (the tested rollback)')
 
   // 6b. WP3: secrets hygiene. Secret material may be in state ONLY where documented; outputs never carry it.
   const allowedGenerated = new Set(['redis_auth', 'origin_verify'])

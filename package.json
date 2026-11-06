@@ -33,6 +33,7 @@
     "ops:privacy-review": "node tools/ops/privacy-log-review.mjs",
     "ops:staging-signoff": "node tools/ops/staging-signoff.mjs",
     "ops:staging-acceptance": "node tools/ops/run-staging-acceptance.mjs",
+    "ops:alarm-delivery": "node tools/ops/alarm-delivery.mjs",
     "check:raw-sql": "node --import tsx tools/raw-sql-check.ts",
     "check:migration-safety": "node tools/migration-safety-check.mjs",
     "check:env-examples": "node tools/env-examples-check.mjs",
