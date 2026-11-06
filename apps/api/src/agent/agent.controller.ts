@@ -286,23 +286,23 @@ export class AgentController {
   }
 
   @Get('bookings')
-  @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'List the caller\'s agency bookings, newest first. Operators with booking.read and no agency see the tenant (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
-    return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
+    return this.bookingQueries.list(tenantId, identity.user.id, { limit: Number(limit), offset: Number(offset), status: status || undefined })
   }
 
   @Get('bookings/:id')
-  @ApiOperation({ summary: 'Booking detail with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'Booking detail for the caller\'s agency, with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
-    return this.bookingQueries.detail(tenantId, bookingId)
+    return this.bookingQueries.detail(tenantId, identity.user.id, bookingId)
   }
 
   @Get('bookings/:id/cancellation-quote')

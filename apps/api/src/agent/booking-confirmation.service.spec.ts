@@ -9,6 +9,7 @@ jest.mock('../ledger/ledger-core', () => ({ appendLedgerEntry: jest.fn().mockRes
 jest.mock('../booking-ops/booking-transition', () => ({ transitionBooking: jest.fn().mockResolvedValue(undefined) }))
 
 const command = { tenantId: 'tenant-a', userId: 'user-a', requestId: 'req-a', bookingId: 'booking-a' }
+const sqlText = (query: { strings?: string[]; sql?: string; text?: string }) => [...(query.strings ?? []), query.sql ?? '', query.text ?? ''].join(' ')
 const nights = [{ holdId: 'hold-a', tenantId: 'tenant-a' }, { holdId: 'hold-a', tenantId: 'tenant-a' }]
 
 function setup(opts: {
@@ -21,6 +22,9 @@ function setup(opts: {
   walletLocked?: boolean
   released?: boolean
   nights?: typeof nights
+  agencyId?: string | null
+  membershipRole?: string
+  operatorPermissions?: string[]
 } = {}) {
   const booking = {
     id: 'booking-a',
@@ -64,6 +68,15 @@ function setup(opts: {
     },
     inventoryHoldNight: { findMany: jest.fn().mockResolvedValue(opts.nights ?? nights) },
     inventoryHold: { update: jest.fn().mockResolvedValue({}) },
+    membership: {
+      findUnique: jest.fn().mockResolvedValue({ role: opts.membershipRole ?? 'agent', revokedAt: null, tenantId: 'tenant-a', tenant: { status: 'ACTIVE' } }),
+    },
+    agencyMember: {
+      findUnique: jest.fn().mockResolvedValue(opts.agencyId === null ? null : { agencyId: opts.agencyId ?? 'agency-a' }),
+    },
+    userRole: {
+      findMany: jest.fn().mockResolvedValue((opts.operatorPermissions ?? []).map((key) => ({ role: { permissions: [{ permission: { key } }] } }))),
+    },
   }
   const prisma = { withTenant: jest.fn(async (_tenant: string, work: (t: typeof tx) => Promise<unknown>) => work(tx)) }
   return { service: new BookingConfirmationService(prisma as never), tx, prisma }
@@ -84,6 +97,8 @@ describe('BookingConfirmationService (unit)', () => {
     expect(transitionBooking).toHaveBeenCalledWith(tx, expect.objectContaining({ bookingId: 'booking-a', action: 'systemConfirm', expectedStatus: 'PENDING_SUPPLIER', idempotencyKey: 'confirm:booking-a' }))
     expect(tx.inventoryHold.update).toHaveBeenCalledWith({ where: { id: 'hold-a', tenantId: 'tenant-a' }, data: { status: 'CONFIRMED' } })
     expect(tx.booking.update).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a' }, data: { supplier: 'contracted-inventory' } })
+    expect(tx.booking.findFirstOrThrow).toHaveBeenCalledWith({ where: { agencyId: 'agency-a', id: 'booking-a', tenantId: 'tenant-a' } })
+    expect(sqlText(tx.$queryRaw.mock.calls[0][0])).toContain('agency_id')
     expect(tx.auditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'booking.confirmed', entityId: 'booking-a' }) }))
   })
 
@@ -133,5 +148,31 @@ describe('BookingConfirmationService (unit)', () => {
     await expect(setup({ released: true }).service.confirm(command)).rejects.toThrow('was released')
     expect(appendLedgerEntry).not.toHaveBeenCalled()
     expect(transitionBooking).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm another agency booking in the same tenant', async () => {
+    const { service, tx } = setup({ agencyId: 'agency-b', locked: false })
+    await expect(service.confirm(command)).rejects.toBeInstanceOf(NotFoundException)
+    const query = tx.$queryRaw.mock.calls[0][0]
+    expect(sqlText(query)).toContain('agency_id')
+    expect(query.values).toEqual(['booking-a', 'tenant-a', 'agency-b'])
+    expect(tx.booking.findFirstOrThrow).not.toHaveBeenCalled()
+    expect(tx.booking.update).not.toHaveBeenCalled()
+    expect(moveNight).not.toHaveBeenCalled()
+    expect(appendLedgerEntry).not.toHaveBeenCalled()
+  })
+
+  it('lets an operator with no agency confirm any booking in the tenant', async () => {
+    const { service, tx } = setup({ agencyId: null, membershipRole: 'owner' })
+    await expect(service.confirm(command)).resolves.toMatchObject({ bookingId: 'booking-a', status: 'CONFIRMED' })
+    expect(sqlText(tx.$queryRaw.mock.calls[0][0])).not.toContain('agency_id')
+    expect(tx.booking.findFirstOrThrow).toHaveBeenCalledWith({ where: { id: 'booking-a', tenantId: 'tenant-a' } })
+  })
+
+  it('refuses a caller who has neither an agency nor operator read', async () => {
+    const { service, tx } = setup({ agencyId: null, membershipRole: 'agent' })
+    await expect(service.confirm(command)).rejects.toBeInstanceOf(ForbiddenException)
+    expect(tx.$queryRaw).not.toHaveBeenCalled()
+    expect(tx.booking.update).not.toHaveBeenCalled()
   })
 })

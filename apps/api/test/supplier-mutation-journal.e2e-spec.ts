@@ -198,7 +198,7 @@ describe('durable supplier mutation journal (PostgreSQL)', () => {
     const stored = await row(result.bookingId)
     expect(stored).toMatchObject({ status: 'ACKNOWLEDGED', supplierReference: result.supplierReference, supplierStatus: 'accepted' })
     expect(stored?.acknowledgedAt).toBeInstanceOf(Date)
-    const detail = await queries.detail(tenantId, result.bookingId)
+    const detail = await queries.detail(tenantId, userId, result.bookingId)
     expect(detail.supplierMutation).toMatchObject({
       bookingId: result.bookingId, mutationId: stored?.id, supplierKey: 'contracted-inventory', operation: 'PREBOOK', status: 'ACKNOWLEDGED', supplierReference: result.supplierReference,
     })
