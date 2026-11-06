@@ -143,13 +143,23 @@ export function promotionApplies(rule: PromotionRule, ctx: PromotionContext): bo
  * NIGHTS_IN_WINDOW promotion's window (or off a deal's weekdays) are untouched. Pure arithmetic; the caller decides whether the rule applies.
  */
 export function discountedNets(rule: PromotionRule, nets: readonly bigint[], dates: readonly string[], bases?: readonly bigint[]): bigint[] {
+  // A promotion that cannot be lined up with the stay is not applied. Guessing which night a short date list names would discount the wrong night.
+  if (dates.length !== nets.length) return [...nets]
+  if (rule.discountBase === 'ROOM_ONLY' && bases && bases.length !== nets.length) return [...nets]
   const eligible = (i: number) => nightEligible(rule, dates[i]!)
   const base = (i: number) => (rule.discountBase === 'ROOM_ONLY' && bases ? (bases[i]! < nets[i]! ? bases[i]! : nets[i]!) : nets[i]!)
   if (isFreeKind(rule.kind)) {
     // FREE_NIGHTS: a fixed number of nights, once. EVERY_NTH_FREE: one night per full block of N nights (ADR 0089).
     const freeCount = rule.kind === 'FREE_NIGHTS' ? (rule.freeNights ?? 0) : rule.minNights ? Math.floor(nets.length / rule.minNights) : 0
     const candidates = [...nets.keys()].filter(eligible)
-    const free = new Set(candidates.sort((a, b) => (nets[a]! === nets[b]! ? (dates[b]! < dates[a]! ? -1 : 1) : nets[a]! < nets[b]! ? -1 : 1)).slice(0, freeCount))
+    // Cheapest first; a tie goes to the later date, then the later index. Equal keys compare as 0 only for the same index.
+    const free = new Set(candidates.sort((a, b) => {
+      if (nets[a]! < nets[b]!) return -1
+      if (nets[a]! > nets[b]!) return 1
+      if (dates[a]! > dates[b]!) return -1
+      if (dates[a]! < dates[b]!) return 1
+      return b - a
+    }).slice(0, freeCount))
     // A free night waives its base: with ROOM_ONLY the guest lines of that night are still paid.
     return nets.map((net, i) => (free.has(i) ? net - base(i) : net))
   }
