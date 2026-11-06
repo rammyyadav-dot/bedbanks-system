@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import {
-  BOOKING_DOCUMENT_PREFIX, BOOKING_DOCUMENT_TYPES, BOOKING_FINANCE_FAILURE, DOCUMENT_BLOCK_TEXT, PENALTY_REASON_MAX, classifyPenaltyChange, documentBlock, parseFrozenRules, parseMinor,
+  BOOKING_DOCUMENT_PREFIX, BOOKING_DOCUMENT_TYPES, BOOKING_FINANCE_FAILURE, DOCUMENT_BLOCK_TEXT, PENALTY_REASON_MAX, bookingConfirmedForDocuments, classifyPenaltyChange, documentBlock, parseFrozenRules, parseMinor,
   type BookingAccessView, type BookingDocumentIssueResult, type BookingDocumentType, type BookingIssuedDocumentView, type BookingFinanceEventType, type BookingFinanceEventView, type BookingFinanceView,
   type BookingPenaltyRequest, type EffectivePenalty, type BookingPenaltyResult, type BookingStatus, type DocumentBlock, type StoredPenaltyQuote,
 } from '@bedbanks/contracts'
@@ -157,7 +157,7 @@ export class BookingFinanceService {
   }
 
   private block(type: BookingDocumentType, b: { status: string; totalMinor: bigint; hotelConfirmationNo: string | null }, s: { rows: Array<{ type: string }>; docs: Array<{ type: string }>; penalty: EffectivePenalty }): DocumentBlock {
-    return documentBlock(type, { status: b.status as BookingStatus, hasConfirmedEvent: s.rows.some((e) => e.type === 'CONFIRMED'), hotelConfirmationNo: b.hotelConfirmationNo, penalty: s.penalty, sellMinor: b.totalMinor.toString(), issued: s.docs.map((d) => d.type as BookingDocumentType) })
+    return documentBlock(type, { status: b.status as BookingStatus, hasConfirmedEvent: bookingConfirmedForDocuments({ status: b.status as BookingStatus, hasConfirmedFinanceEvent: s.rows.some((e) => e.type === 'CONFIRMED') }), hotelConfirmationNo: b.hotelConfirmationNo, penalty: s.penalty, sellMinor: b.totalMinor.toString(), issued: s.docs.map((d) => d.type as BookingDocumentType) })
   }
 
   /** The hotel, tenant and board names the booking role cannot read; fetched with the API role before the write transaction. */
