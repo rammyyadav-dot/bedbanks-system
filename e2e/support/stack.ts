@@ -83,7 +83,19 @@ export async function startStack(): Promise<StackState> {
   const passwords = (JSON.parse(readFileSync(secretFile, 'utf8')) as { accounts: Record<string, string> }).accounts
 
   // 5. API under the strict runtime role, secure cookies, booking disabled.
+  // e2e:booking is the only check that turns booking on. It also provisions the separate
+  // fbeds_booktx_ops login (ADR 0113). BOOKING_ENABLED alone does not grant booking writes.
+  const bookingOn = process.env.E2E_BOOKING_ENABLED === 'true'
   const runtimeUrl = urlFor(admin, DATABASE, RUNTIME_LOGIN, runtimePassword)
+  let bookingTransactionUrl: string | undefined
+  if (bookingOn) {
+    const bookingPassword = randomBytes(24).toString('base64url')
+    run('pnpm', ['--filter', '@bedbanks/api', 'ops:provision-booking-transaction-role'], {
+      PROVISION_DATABASE_URL: ownerUrl,
+      BOOKING_TRANSACTION_LOGIN_PASSWORD: bookingPassword,
+    }, 'provision booking transaction role')
+    bookingTransactionUrl = urlFor(admin, DATABASE, 'fbeds_booktx_ops', bookingPassword)
+  }
   const portalOrigins = [ORIGINS.agent, ORIGINS.admin, ORIGINS.supplier]
   const api = launch('api', 'pnpm', ['--filter', '@bedbanks/api', 'start'], {
     NODE_ENV: 'development',
@@ -93,7 +105,8 @@ export async function startStack(): Promise<StackState> {
     AUTH_COOKIE_SECURE: 'true',
     ADMIN_ORIGIN: ORIGINS.admin,
     TRUSTED_ORIGINS: [ORIGINS.agent, ORIGINS.supplier].join(','),
-    BOOKING_ENABLED: process.env.E2E_BOOKING_ENABLED ?? 'false', // only the mutation check overrides this
+    BOOKING_ENABLED: bookingOn ? 'true' : 'false',
+    ...(bookingTransactionUrl ? { BOOKING_TRANSACTION_DATABASE_URL: bookingTransactionUrl } : {}),
   })
   const pids = [api.pid!]
   await waitFor(`${ORIGINS.api}/api/v1/health`, (s) => s === 200, 120_000, 'API').catch(async (e) => {

@@ -53,8 +53,11 @@ export const BOOKTX_READ_COLUMNS = {
   tenants: ['id', 'name'],
   Agency: ['id', 'tenant_id', 'name'],
   AgencyMember: ['tenant_id', 'agency_id', 'user_id'],
-  AgencyCreditLimit: ['tenant_id', 'agency_id', 'currency', 'limit_minor'],
-  FxRate: ['tenant_id', 'base_currency', 'quote_currency', 'rate_scaled', 'buffer_bp', 'status', 'activated_at'],
+  // `id` is included because Prisma selects the primary key even when the caller names other columns.
+  AgencyCreditLimit: ['id', 'tenant_id', 'agency_id', 'currency', 'limit_minor'],
+  FxRate: ['id', 'tenant_id', 'base_currency', 'quote_currency', 'rate_scaled', 'buffer_bp', 'status', 'activated_at'],
+  // reserveNight reads the sales mode before it moves held stock. Reason, actor and batch stay hidden.
+  RoomSalesRule: ['tenant_id', 'room_type_id', 'stay_date', 'pool_key', 'plan_key', 'channel_key', 'market_key', 'contract_key', 'mode', 'sales_cap', 'consumes_inventory', 'override_expires_at'],
 } as const
 
 /** Must stay unreadable and unwritable. Checked by the verifier. */
@@ -187,6 +190,8 @@ export const BOOKTX_PROBES: readonly BooktxProbe[] = [
   { name: 'SELECT HotelProfile.check_in_time', sql: `SELECT "check_in_time", "local_charges" FROM "HotelProfile" WHERE false`, expect: 'allowed' },
   { name: 'SELECT HotelProfile.contacts', sql: `SELECT "contacts" FROM "HotelProfile" WHERE false`, expect: 'denied' },
   { name: 'SELECT AgencyCreditLimit.limit_minor', sql: `SELECT "limit_minor" FROM "AgencyCreditLimit" WHERE false`, expect: 'allowed' },
+  { name: 'SELECT RoomSalesRule.mode', sql: `SELECT "mode", "sales_cap", "consumes_inventory" FROM "RoomSalesRule" WHERE false`, expect: 'allowed' },
+  { name: 'SELECT RoomSalesRule.reason', sql: `SELECT "reason" FROM "RoomSalesRule" WHERE false`, expect: 'denied' },
   { name: 'UPDATE AgencyCreditLimit', sql: `UPDATE "AgencyCreditLimit" SET "limit_minor" = "limit_minor" WHERE false`, expect: 'denied' },
   { name: 'SELECT users', sql: `SELECT "id" FROM "users" WHERE false`, expect: 'denied' },
   { name: 'SELECT FundingReceipt', sql: `SELECT "id" FROM "FundingReceipt" WHERE false`, expect: 'denied' },

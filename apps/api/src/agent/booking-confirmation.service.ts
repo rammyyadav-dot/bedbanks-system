@@ -1,6 +1,7 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { PrismaService } from '../database/prisma.service'
 import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { lockWalletRow } from '../ledger/wallet-lock'
@@ -21,12 +22,16 @@ export interface BookingConfirmationResult { bookingId: string; reference: strin
  */
 @Injectable()
 export class BookingConfirmationService {
-  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
+  constructor(
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
+    /** Membership lives on the API role. The booking transaction login cannot read it (ADR 0113). */
+    @Optional() @Inject(PrismaService) private readonly identity?: PrismaService,
+  ) {}
 
   async confirm(command: BookingConfirmationCommand): Promise<BookingConfirmationResult> {
     const { tenantId, userId, requestId, bookingId } = command
+    const scope = await (this.identity ?? this.prisma).withTenant(tenantId, (tx) => resolveAgentBookingScope(tx, tenantId, userId))
     return this.prisma.withTenant(tenantId, async tx => {
-      const scope = await resolveAgentBookingScope(tx, tenantId, userId)
       const locked = await tx.$queryRaw<Array<{ id: string }>>(lockBookingSql(tenantId, bookingId, scope))
       if (locked.length !== 1) throw new NotFoundException('Booking not found')
       const booking = await tx.booking.findFirstOrThrow({ where: { ...agencyConstraint(scope), id: bookingId, tenantId } })
