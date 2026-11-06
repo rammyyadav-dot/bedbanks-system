@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { dropsBookingAccess, showAgencyFilter } from './booking-list-journey.ts'
+import { dropsBookingAccess, showAgencyFilter } from './booking-list-journey'
 
 test('permission denial, an expired session, and an unreadable source drop the previous booking controls', () => {
   assert.equal(dropsBookingAccess('forbidden'), true)

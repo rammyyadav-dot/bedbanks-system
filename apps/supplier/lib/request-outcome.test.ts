@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { supplierDraftFailureCopy, supplierOrganizationFailureCopy, supplierReadFailureCopy, supplierRequestOutcome, supplierWorkspaceFailureCopy } from './request-outcome.ts'
+import { supplierDraftFailureCopy, supplierOrganizationFailureCopy, supplierReadFailureCopy, supplierRequestOutcome, supplierWorkspaceFailureCopy } from './request-outcome'
 
 test('tenant and supplier failures stay distinct from a timeout', () => {
   assert.equal(supplierRequestOutcome({ status: 403 }), 'denied')

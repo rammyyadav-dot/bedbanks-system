@@ -11,9 +11,9 @@ export function supplierRequestOutcome(error: unknown): SupplierRequestOutcome {
   const status = statusOf(error)
   if (status === 0) return 'unavailable'
   if (status === 401) return 'unauthenticated'
-  if (error.status === 403) return 'denied'
-  if (error.status === 404) return 'not_found'
-  if (error.status === 504) return 'timeout'
+  if (status === 403) return 'denied'
+  if (status === 404) return 'not_found'
+  if (status === 504) return 'timeout'
   return 'unavailable'
 }
 
