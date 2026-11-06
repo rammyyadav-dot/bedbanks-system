@@ -7,6 +7,7 @@ import { isAwaitingConfirmation, statusLabel } from '../../../lib/status'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { StatusBadge } from '../../../components/ui/StatusBadge'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
+import { supplierReadFailureCopy, supplierRequestOutcome } from '../../../lib/request-outcome'
 import { listBookings } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
 import { formatNetMinor, NET_STATUS_LABEL, NOT_RECORDED } from '../../../lib/format'
@@ -82,7 +83,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: Pro
         </section>
       </div>
     )
-  } catch {
-    return <SupplyWorkflowUnavailable eyebrow="Operations" title="Bookings" description="Bookings could not be loaded. No substitute data is shown." />
+  } catch (error) {
+    return <SupplyWorkflowUnavailable eyebrow="Operations" title="Bookings" description={supplierReadFailureCopy('bookings', supplierRequestOutcome(error))} />
   }
 }

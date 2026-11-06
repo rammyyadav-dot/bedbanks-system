@@ -7,7 +7,8 @@ import { SummaryStrip } from '../../../components/ui/SummaryStrip'
 import { initialsOf } from '../../../lib/status'
 import { PageHeader } from '../../../components/ui/PageHeader'
 import { SupplyWorkflowUnavailable } from '../../../components/supply/SupplyWorkflowUnavailable'
-import { listHotels, SupplierApiError } from '../../../lib/supplier-api'
+import { supplierReadFailureCopy, supplierRequestOutcome } from '../../../lib/request-outcome'
+import { listHotels } from '../../../lib/supplier-api'
 import { loadPortal } from '../../../lib/portal'
 
 export default async function HotelsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -58,7 +59,7 @@ export default async function HotelsPage({ searchParams }: { searchParams: Promi
       </div>
     )
   } catch (error) {
-    const status = error instanceof SupplierApiError ? error.status : 0
-    return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Hotels unavailable" description={status === 403 ? 'Hotel access was denied for this organization.' : 'The hotel list could not be loaded. No substitute hotels are shown.'} />
+    const outcome = supplierRequestOutcome(error)
+    return <SupplyWorkflowUnavailable eyebrow="Portfolio" title="Hotels unavailable" description={outcome === 'denied' ? 'Hotel access was denied for this organization.' : supplierReadFailureCopy('hotels', outcome)} />
   }
 }

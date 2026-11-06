@@ -11,6 +11,7 @@ import { Pager } from '@/components/ops/Pager'
 import { useOpsQuery } from '@/components/ops/useOpsQuery'
 import { getAgencies } from '@/lib/data/departments'
 import { getOpsBookings } from '@/lib/data/operations'
+import { dropsBookingAccess } from '@/lib/booking-list-journey'
 import { BOOKING_COLUMN_LABEL, BOOKING_COLUMNS_STORAGE_KEY, DEFAULT_BOOKING_COLUMNS, bookingHref, bookingQueryString, effectiveChip, normalizeColumns, readBookingQuery, withFilters, type BookingColumnId } from '@/lib/booking-ui'
 import { VIEW_PARAM, viewHref, withView } from '@/lib/booking-views-ui'
 import { bulkCapabilities, EMPTY_SELECTION, failedIds, pageSelectionState, toggleSelected, togglePage, type Selection } from '@/lib/booking-bulk-ui'
@@ -60,7 +61,10 @@ export function BookingsWorkspace() {
   const [bulk, setBulk] = useState<BookingBulkAction | null>(null)
   const capabilities = bulkCapabilities(last?.access ?? null)
   useEffect(() => { setColumns(loadColumns()); setLayout(loadLayout()) }, [])
-  useEffect(() => { if (state.status === 'ready') { setLast(state.data); setNow(new Date()) } }, [state])
+  useEffect(() => {
+    if (state.status === 'ready') { setLast(state.data); setNow(new Date()); return }
+    if (state.status === 'failed' && dropsBookingAccess(state.failure)) { setLast(null); setSelection(EMPTY_SELECTION); setBulk(null) }
+  }, [state])
   const agencies = useOpsQuery(() => getAgencies({ pageSize: 100 }).then((p) => p.items.map((a) => ({ id: a.id, name: a.name }))).catch(() => null), [])
 
   // The active saved view is a UI marker in the URL; the list API never receives it (the query reader only knows filter keys).
@@ -105,7 +109,7 @@ export function BookingsWorkspace() {
       <BookingFilters query={query} access={last?.access ?? null} agencies={agencies.state.status === 'ready' ? agencies.state.data : null}
         onApply={(next) => router.replace(withView(bookingHref(withFilters({ chip: query.chip, sort: query.sort, dir: query.dir }, { ...next, chip: undefined })), viewId), { scroll: false })} onClear={clearFilters} />
       </div>
-      <p className="print-only" data-testid="print-heading" style={{ fontSize: 11, margin: '0 0 8px' }}>FBEDS Admin · Bookings · printed {new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC{last?.applied.length ? ` · ${last.applied.map((a) => `${a.label}: ${a.value}`).join(' · ')}` : ''}</p>
+      <p className="print-only" data-testid="print-heading" style={{ fontSize: 11, margin: '0 0 8px' }}>FBEDS Admin · Bookings · printed {new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC{state.status === 'ready' && state.data.applied.length ? ` · ${state.data.applied.map((a) => `${a.label}: ${a.value}`).join(' · ')}` : ''}</p>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', margin: '10px 0' }}>
         <span role="status" aria-live="polite" data-testid="result-count" style={{ fontSize: 12 }}>
           {state.status === 'ready' ? `${state.data.total} booking${state.data.total === 1 ? '' : 's'}` : state.status === 'loading' ? 'Loading…' : 'Not loaded'}
@@ -113,7 +117,7 @@ export function BookingsWorkspace() {
           {state.status === 'ready' && state.data.scanCapped ? ' · the newest 500 were examined for reconciliation flags' : ''}
         </span>
         <span className="no-print" style={{ display: 'inline-flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <BookingExport access={last?.access ?? null} query={apiQuery} total={last?.total ?? null} canPrint={kanban || (state.status === 'ready' && state.data.items.length > 0)} />
+          <BookingExport access={last?.access ?? null} query={apiQuery} total={state.status === 'ready' ? state.data.total : null} canPrint={state.status === 'ready' && (kanban || state.data.items.length > 0)} />
           {!kanban && <ColumnPicker columns={columns} onChange={saveColumns} />}
         </span>
       </div>

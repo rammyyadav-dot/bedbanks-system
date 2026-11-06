@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { SupplierApiError, confirmPasswordReset, loadContext, loginRequest, logoutRequest, requestPasswordReset, saveRoomDraft } from './supplier-api'
 import { parseSessionCookie } from './session-cookie'
+import { supplierDraftFailureCopy, supplierOrganizationFailureCopy, supplierRequestOutcome } from './request-outcome'
 import { SESSION_COOKIE_NAME, SUPPLIER_CONTEXT_COOKIE } from './server-env'
 
 export interface ActionState {
@@ -60,8 +61,8 @@ export async function selectOrganizationAction(_previous: ActionState, formData:
     const cookieStore = await cookies()
     cookieStore.set(SUPPLIER_CONTEXT_COOKIE, supplierId, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 8 })
   } catch (error) {
-    if (error instanceof SupplierApiError && error.status === 401) redirect('/login')
-    return { error: 'That organization is not available for this session.' }
+    if (supplierRequestOutcome(error) === 'unauthenticated') redirect('/login')
+    return { error: supplierOrganizationFailureCopy(supplierRequestOutcome(error)) }
   }
   redirect('/hotels')
 }
@@ -74,10 +75,8 @@ export async function saveRoomDraftAction(_previous: ActionState, formData: Form
   try {
     await saveRoomDraft(hotelId, roomId, supplierNotes, randomUUID())
   } catch (error) {
-    if (error instanceof SupplierApiError && error.status === 401) redirect('/login')
-    if (error instanceof SupplierApiError && error.status === 403) return { error: 'You cannot edit this draft. The note was not changed.' }
-    if (error instanceof SupplierApiError && error.status === 404) return { error: 'This room is not in your organization. The note was not changed.' }
-    return { error: 'The draft was not saved. No preview note was stored.' }
+    if (supplierRequestOutcome(error) === 'unauthenticated') redirect('/login')
+    return { error: supplierDraftFailureCopy(supplierRequestOutcome(error)) }
   }
   revalidatePath(`/hotels/${hotelId}/rooms`)
   return { error: null, saved: true }

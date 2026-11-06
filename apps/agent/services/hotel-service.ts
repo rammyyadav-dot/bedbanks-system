@@ -41,7 +41,7 @@ export class ApiHotelService implements HotelService {
             : 'Canonical destination is no longer available'
           return { ...empty('destination_unavailable'), failureMessage: message }
         }
-        if (!response.ok) return empty('provider_unavailable')
+        if (!response.ok) return { ...empty('provider_unavailable'), failureMessage: 'Search could not be completed. Nothing was booked. Try again.' }
         const envelope: unknown = await response.json()
         if (!isSuccessEnvelope(envelope)) return empty('mapping_unavailable')
         const validated = validateAgentSearchResponse(envelope.data, criteria, Date.now(), tenantId)
@@ -53,8 +53,11 @@ export class ApiHotelService implements HotelService {
           searchId: validated.response.searchId, requestId: validated.response.requestId,
           generatedAt: validated.response.generatedAt, providerSummary: validated.response.providerSummary }
       } finally { clearTimeout(timeout) }
-    } catch {
-      return empty('provider_unavailable')
+    } catch (error) {
+      const timedOut = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
+      return { ...empty('provider_unavailable'), failureMessage: timedOut
+        ? 'The search timed out. Nothing was booked. Run the search again before using a price.'
+        : 'Search could not be completed. Nothing was booked. Try again.' }
     }
   }
 
