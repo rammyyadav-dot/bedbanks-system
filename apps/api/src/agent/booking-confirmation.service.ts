@@ -7,6 +7,7 @@ import { lockWalletRow } from '../ledger/wallet-lock'
 import { moveNight } from '../inventory/inventory-counters'
 import { readSupplierPrebook } from './supplier-prebook-record'
 import { supplierMutationAcceptedReference } from './supplier-mutation-journal.service'
+import { agencyConstraint, lockBookingSql, resolveAgentBookingScope } from './booking-agency-scope'
 
 /** `recipient`/`cc`: the confirmation email (ADR 0066). The recipient is the booking agent's own account email from the session, never a request field. */
 export interface BookingConfirmationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; recipient?: string | null; cc?: string[] }
@@ -25,9 +26,10 @@ export class BookingConfirmationService {
   async confirm(command: BookingConfirmationCommand): Promise<BookingConfirmationResult> {
     const { tenantId, userId, requestId, bookingId } = command
     return this.prisma.withTenant(tenantId, async tx => {
-      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
+      const scope = await resolveAgentBookingScope(tx, tenantId, userId)
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(lockBookingSql(tenantId, bookingId, scope))
       if (locked.length !== 1) throw new NotFoundException('Booking not found')
-      const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })
+      const booking = await tx.booking.findFirstOrThrow({ where: { ...agencyConstraint(scope), id: bookingId, tenantId } })
       if (booking.status === 'CONFIRMED') {
         const queued = await tx.bookingEmail.findUnique({ where: { tenantId_bookingId_kind: { tenantId, bookingId, kind: 'BOOKING_CONFIRMATION' } }, select: { toAddress: true, ccAddresses: true } })
         return { bookingId, reference: booking.reference, status: 'CONFIRMED' as const, alreadyConfirmed: true, email: queued ? { to: queued.toAddress, cc: queued.ccAddresses } : null }
