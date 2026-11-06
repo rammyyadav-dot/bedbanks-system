@@ -22,6 +22,9 @@ test('Given an owner and no certification, When the portal is presented, Then pr
   assert.equal(access.cancel.enabled, false)
   assert.equal(access.documents.enabled, false)
   assert.equal(access.funding.enabled, false)
+  assert.equal(access.recover.shown, true)
+  assert.equal(access.recover.enabled, false)
+  assert.match(access.recover.message, /not certified/)
 })
 
 test('Given certification and an owner, When the portal is presented, Then every gated action is enabled', () => {
@@ -55,6 +58,7 @@ test('Given a booking agent, When booking is certified, Then hold, confirm, hist
   assert.equal(access.documents.enabled, true)
   assert.equal(access.funding.enabled, true)
   assert.equal(access.finance.shown, false)
+  assert.equal(access.recover.shown, false)
 })
 
 test('Given conflicting formal roles, When capabilities are combined, Then each control follows its own capability', () => {

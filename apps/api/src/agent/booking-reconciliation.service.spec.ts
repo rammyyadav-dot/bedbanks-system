@@ -163,6 +163,15 @@ describe('BookingReconciliationService', () => {
     expect(tx.supplierMutation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'RESOLVED', supplierStatus: 'not_sent' }) }))
   })
 
+  it('keeps a fulfilled supplier booking inside the confirmation window', async () => {
+    const mutation = { id: 'mutation-a', status: 'RESOLVED', operation: 'PREBOOK', supplierReference: 'supplier-fulfilled', supplierStatus: 'fulfilled', acknowledgedAt: new Date(NOW.getTime() - 10 * 60_000), updatedAt: NOW }
+    const { service, finance, holds, tx } = setup({ mutation })
+    expect((await run(service)).items[0].outcome).toBe('prebooked_awaiting_confirmation')
+    expect(finance.release).not.toHaveBeenCalled()
+    expect(holds.release).not.toHaveBeenCalled()
+    expect(tx.booking.updateMany).not.toHaveBeenCalled()
+  })
+
   it('keeps an acknowledged supplier reference inside the confirmation window', async () => {
     const mutation = { id: 'mutation-a', status: 'ACKNOWLEDGED', operation: 'PREBOOK', supplierReference: 'supplier-ref', supplierStatus: 'accepted', acknowledgedAt: new Date(NOW.getTime() - 10 * 60_000), updatedAt: NOW }
     const { service, finance, holds } = setup({ mutation })

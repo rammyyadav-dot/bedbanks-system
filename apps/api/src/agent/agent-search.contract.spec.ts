@@ -153,6 +153,31 @@ describe('Agent canonical search boundary', () => {
       await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED', documents: { voucher: null, invoice: null } })
     } finally { delete process.env.BOOKING_ENABLED }
   })
+  it('keeps recovery disabled unless booking servicing is certified, then delegates', async () => {
+    const { controller, audit } = setup(jest.fn())
+    const response = () => ({ status: jest.fn() }) as unknown as Response
+    const previousBooking = process.env.BOOKING_ENABLED
+    const previousServicing = process.env.BOOKING_SERVICING_ENABLED
+    delete process.env.BOOKING_ENABLED
+    delete process.env.BOOKING_SERVICING_ENABLED
+    try {
+      const off = response()
+      const unavailable = await controller.reconcileStale({}, 'tenant-a', identity, request(), off)
+      expect(unavailable).toMatchObject({ status: 'booking_unavailable' })
+      expect(off.status).toHaveBeenCalledWith(503)
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconcile.unavailable', payload: { reason: 'booking_disabled' } }))
+      const reconciliation = { reconcileStale: jest.fn().mockResolvedValue({ dryRun: false, examined: 1, items: [{ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'prebooked_awaiting_confirmation' }] }) }
+      const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, reconciliation as unknown as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
+      process.env.BOOKING_SERVICING_ENABLED = 'true'
+      await expect(enabled.reconcileStale({}, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ examined: 1, items: [expect.objectContaining({ outcome: 'prebooked_awaiting_confirmation' })] })
+      expect(reconciliation.reconcileStale).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', userId: 'user-a' }))
+    } finally {
+      if (previousBooking === undefined) delete process.env.BOOKING_ENABLED
+      else process.env.BOOKING_ENABLED = previousBooking
+      if (previousServicing === undefined) delete process.env.BOOKING_SERVICING_ENABLED
+      else process.env.BOOKING_SERVICING_ENABLED = previousServicing
+    }
+  })
   it('keeps cancellation and its quote disabled unless BOOKING_ENABLED=true, then delegates', async () => {
     const { controller, audit } = setup(jest.fn())
     const response = () => ({ status: jest.fn() }) as unknown as Response

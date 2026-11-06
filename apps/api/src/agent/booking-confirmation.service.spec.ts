@@ -119,6 +119,12 @@ describe('BookingConfirmationService (unit)', () => {
   it('refuses an unknown supplier outcome instead of confirming', async () => {
     await expect(setup({ mutation: { status: 'UNKNOWN', supplierStatus: 'unknown', supplierReference: null } }).service.confirm(command)).rejects.toThrow('unknown')
     await expect(setup({ mutation: { status: 'SENDING', supplierStatus: null, supplierReference: null } }).service.confirm(command)).rejects.toThrow('unknown')
+    await expect(setup({ mutation: { status: 'RESOLVED', supplierStatus: 'rejected', supplierReference: 'ref-a' } }).service.confirm(command)).rejects.toThrow('not been prebooked')
+  })
+
+  it('accepts a fulfilled supplier reference and confirms the booking', async () => {
+    const { service } = setup({ mutation: { status: 'RESOLVED', supplierStatus: 'fulfilled', supplierReference: 'supplier-fulfilled' } })
+    await expect(service.confirm(command)).resolves.toMatchObject({ status: 'CONFIRMED', alreadyConfirmed: false, bookingId: 'booking-a' })
   })
 
   it('refuses when the inventory hold is not PROCESSING, has no nights, or the wallet lock is missing', async () => {
