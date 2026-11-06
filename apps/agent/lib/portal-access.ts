@@ -36,6 +36,7 @@ const NOT_CERTIFIED = {
   cancel: 'You can cancel bookings, but cancellation is not certified for this workspace yet.',
   documents: 'You can open booking documents, but documents are not certified for this workspace yet.',
   funding: 'You can declare payments, but funding declarations are not enabled for this workspace yet. A declaration would not credit the wallet.',
+  recover: 'You can recover interrupted bookings, but recovery is not certified for this workspace yet.',
 } as const
 
 function gate(allowed: boolean, certified: boolean, message: string): ActionGate {
@@ -59,6 +60,7 @@ export function portalAccess(capabilities: readonly string[], flags: Certificati
     viewBookings: gate(allowed(AGENT_CAPABILITY.viewBookings), flags.bookingServicingEnabled, NOT_CERTIFIED.viewBookings),
     cancel: gate(allowed(AGENT_CAPABILITY.cancelBooking), flags.bookingServicingEnabled, NOT_CERTIFIED.cancel),
     documents: gate(allowed(AGENT_CAPABILITY.viewBookings), flags.bookingServicingEnabled, NOT_CERTIFIED.documents),
+    recover: gate(allowed(AGENT_CAPABILITY.reconcileBookings), flags.bookingServicingEnabled, NOT_CERTIFIED.recover),
   }
 }
 

@@ -1,3 +1,4 @@
+import { DOCUMENT_BLOCK_TEXT, bookingConfirmedForDocuments, documentBlock, type BookingStatus } from '@bedbanks/contracts'
 import { payAtHotel } from '../supply/local-charges'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
@@ -8,6 +9,7 @@ import { Prisma } from '@prisma/client'
 import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 import { readSpecialRequests, specialRequestLabels } from './special-requests'
+import { agencyConstraint, resolveAgentBookingScope } from './booking-agency-scope'
 
 export type DocumentKind = 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE'
 export const DOCUMENT_ROUTE_TYPES: Record<string, DocumentKind> = { voucher: 'VOUCHER', invoice: 'INVOICE', 'credit-note': 'CREDIT_NOTE' }
@@ -25,8 +27,9 @@ export function documentKindFromRoute(value: string): DocumentKind {
 /**
  * Issues each booking document exactly once and freezes its content. Numbers are derived from the booking reference
  * (no shared counter to race on); a database unique key plus an UPDATE-rejecting trigger make re-issue and edits
- * impossible. Eligibility: voucher needs a CONFIRMED booking, invoice a charged booking (CONFIRMED or CANCELLED),
- * credit note a CANCELLED booking.
+ * impossible. Voucher eligibility is `documentBlock` (the same rule Admin and the confirmation email use): a confirmed
+ * booking, the hotel confirmation number, and no new voucher once cancelled. A voucher already issued is returned unchanged,
+ * including after cancellation. Invoice needs a charged booking (CONFIRMED or CANCELLED); a credit note needs CANCELLED.
  */
 @Injectable()
 export class BookingDocumentService {
@@ -35,9 +38,9 @@ export class BookingDocumentService {
   async get(input: { tenantId: string; userId: string; requestId: string; bookingId: string; type: DocumentKind }): Promise<IssuedDocument> {
     const { tenantId, userId, requestId, bookingId, type } = input
     let issuedNow = false
-    const result = await this.issue(tenantId, bookingId, type).then(value => { issuedNow = !value.alreadyIssued; return value }, async error => {
+    const result = await this.issue(tenantId, userId, bookingId, type).then(value => { issuedNow = !value.alreadyIssued; return value }, async error => {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
-      return this.issue(tenantId, bookingId, type) // lost an issue race: read the winner
+      return this.issue(tenantId, userId, bookingId, type) // lost an issue race: read the winner
     })
     if (issuedNow) {
       await this.audit.record({ tenantId, userId, action: 'booking.document.issued', entityType: 'booking', entityId: bookingId, payload: { requestId, documentId: result.id, type, number: result.number } })
@@ -46,14 +49,25 @@ export class BookingDocumentService {
     return result
   }
 
-  private issue(tenantId: string, bookingId: string, type: DocumentKind): Promise<IssuedDocument> {
+  private issue(tenantId: string, userId: string, bookingId: string, type: DocumentKind): Promise<IssuedDocument> {
     return this.prisma.withTenant(tenantId, async tx => {
-      const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
+      const scope = await resolveAgentBookingScope(tx, tenantId, userId)
+      const booking = await tx.booking.findFirst({ where: { ...agencyConstraint(scope), id: bookingId, tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
       const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type }, tenantId } })
       if (existing) return this.view(existing, booking.status, true)
 
-      if (type === 'VOUCHER' && booking.status !== 'CONFIRMED') throw new ConflictException('A voucher is issued only for a confirmed booking')
+      if (type === 'VOUCHER') {
+        const block = documentBlock('VOUCHER', {
+          status: booking.status as BookingStatus,
+          hasConfirmedEvent: bookingConfirmedForDocuments({ status: booking.status as BookingStatus, hasConfirmedFinanceEvent: false }),
+          hotelConfirmationNo: booking.hotelConfirmationNo,
+          penalty: { state: 'NOT_REQUESTED' },
+          sellMinor: booking.totalMinor.toString(),
+          issued: [],
+        })
+        if (block) throw new ConflictException({ message: DOCUMENT_BLOCK_TEXT[block], code: block })
+      }
       if (type === 'INVOICE' && booking.status !== 'CONFIRMED' && booking.status !== 'CANCELLED') throw new ConflictException('An invoice is issued only for a charged booking')
       if (type === 'CREDIT_NOTE' && booking.status !== 'CANCELLED') throw new ConflictException('A credit note is issued only for a cancelled booking')
 

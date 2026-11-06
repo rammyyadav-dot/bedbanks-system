@@ -4,6 +4,7 @@ import { agentApiBase } from '../lib/api-config.mjs'
 import { authenticatedFetch } from '../lib/authenticated-fetch'
 import { DUPLICATE_BOOKING_SUSPECTED, isSuccessEnvelope, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
+import type { RecoveryItem } from '../lib/booking-recovery'
 
 /**
  * Typed client for the transactional booking API. Every call sends the active tenant header (validated server-side)
@@ -31,6 +32,7 @@ export type BookingDetail = BookingSummary & {
 }
 export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
 export type CancellationData = CancellationQuote & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
+export type RecoveryData = { dryRun: boolean; examined: number; items: RecoveryItem[] }
 export type DocumentType = 'voucher' | 'invoice' | 'credit-note'
 export type GuestInput = { adults: number; children: number; childAges: number[]; firstName: string; lastName: string
   /** ADR 0066 checkout details. */
@@ -144,6 +146,12 @@ export class BookingService {
     return this.parse(await this.call(routes.agent.cancellationQuote.replace(':id', encodeURIComponent(bookingId)), tenantId), isQuote)
   }
 
+  /** Recovers interrupted holds. The server decides which ones are old enough and never releases a fulfilled booking still inside its window. */
+  async recover(tenantId: string): Promise<BookingResult<RecoveryData>> {
+    return this.parse(await this.call(routes.agent.reconcileStaleBookings, tenantId, { method: 'POST', body: JSON.stringify({}) }),
+      (data): data is RecoveryData => isRecord(data) && data.dryRun === false && Number.isSafeInteger(data.examined) && (data.examined as number) >= 0 && Array.isArray(data.items) && data.items.length <= (data.examined as number) && data.items.every(isRecoveryItem))
+  }
+
   async cancel(bookingId: string, reason: string, tenantId: string): Promise<BookingResult<CancellationData>> {
     return this.parse(await this.call(routes.agent.cancelBooking.replace(':id', encodeURIComponent(bookingId)), tenantId, { method: 'DELETE', body: JSON.stringify({ reason: reason.trim().slice(0, 500) }) }),
       (data): data is CancellationData => isQuote(data) && (data as Record<string, unknown>).status === 'CANCELLED')
@@ -172,6 +180,9 @@ function isBookingPage(value: unknown): value is BookingPage {
 }
 function isBookingSummary(value: unknown): value is BookingSummary {
   return isRecord(value) && typeof value.id === 'string' && typeof value.reference === 'string' && typeof value.status === 'string' && typeof value.currency === 'string' && typeof value.totalMinor === 'string' && MINOR.test(value.totalMinor)
+}
+function isRecoveryItem(value: unknown): value is RecoveryItem {
+  return isRecord(value) && typeof value.holdId === 'string' && value.holdId.length > 0 && (value.bookingId === null || typeof value.bookingId === 'string') && typeof value.outcome === 'string' && value.outcome.length > 0
 }
 function isQuote(value: unknown): value is CancellationQuote {
   return isRecord(value) && typeof value.bookingId === 'string' && typeof value.currency === 'string' && ['totalMinor', 'penaltyMinor', 'refundMinor'].every((key) => typeof value[key] === 'string' && MINOR.test(value[key] as string))

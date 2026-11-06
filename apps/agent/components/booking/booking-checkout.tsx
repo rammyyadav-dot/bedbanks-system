@@ -255,7 +255,7 @@ export function BookingCheckout({ tenantId, hotelName, roomName, rate, searchId,
       </div>
       {summary}
     </div>}
-    {phase === 'uncertain' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Outcome unknown</strong><span>{message} Open My bookings and use reconciliation before trying again. A new booking is not offered from this screen.</span>{bookingId && <button type="button" className="portal-link" onClick={() => onViewBooking(bookingId)}>View booking status</button>}</div>}
+    {phase === 'uncertain' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Outcome unknown</strong><span>{message} Open My bookings and run recovery before trying again. A new booking is not offered from this screen.</span>{bookingId && <button type="button" className="portal-link" onClick={() => onViewBooking(bookingId)}>View booking status</button>}</div>}
     {phase === 'failed' && <div className="portal-hold-outcome" role="alert"><ShieldAlert size={16} /><strong>Booking not completed</strong><span>{message || 'Nothing was charged.'}</span><button className="portal-link" onClick={reset}>Start over</button></div>}
     {message && phase !== 'failed' && <p className="portal-field-error" role="alert">{message}</p>}
   </div>

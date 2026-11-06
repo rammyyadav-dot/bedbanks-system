@@ -75,3 +75,9 @@ Residual risk: a crash in the instant between a successful supplier prebook and 
 a failure; the supplier prebook uses the deterministic key `booking:<id>:prebook` and expires on its own.
 Migration `202610020001_inventory_hold_processing_state` is additive; PostgreSQL cannot drop enum values, so
 rollback means resolving all `PROCESSING` holds and leaving the unused value in place.
+
+## Addendum: fulfilled booking acceptance (2026-11-06)
+
+A supplier mutation counts as fulfilled when it carries a supplier reference and is either `ACKNOWLEDGED`, or `RESOLVED` with supplier status `accepted`, `fulfilled` or `confirmed`. Confirmation accepts that reference and settles the booking. Recovery leaves it inside the confirmation window (`prebooked_awaiting_confirmation`) and does not return inventory or wallet credit. `rejected`, `not_sent`, `expired` and `unknown` are not fulfillment.
+
+`POST /agent/bookings/reconcile-stale` stays behind `booking.reconcile` and now also requires booking servicing (`BOOKING_ENABLED=true` or `BOOKING_SERVICING_ENABLED=true`). Otherwise it audits `booking.reconcile.unavailable` and returns 503. The Agent portal shows Run recovery only for that permission plus the servicing flag.

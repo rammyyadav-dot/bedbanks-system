@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import type { Prisma } from '@prisma/client'
 import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { isAgentBookingStatus, statusesForAgentFilter, toAgentBookingStatus } from './agent-booking-status'
+import { agencyConstraint, resolveAgentBookingScope } from './booking-agency-scope'
 
 export interface BookingSummaryView {
   id: string; reference: string; status: string; currency: string; totalMinor: string; createdAt: string
@@ -39,18 +40,21 @@ const DEFAULT_LIMIT = 20
 const MAX_LIST = 50
 const MAX_OFFSET = 10_000
 
-/** Read-only tenant-scoped booking views for the Agent portal. Amounts are integer minor-unit strings. */
+/** Read-only booking views for the Agent portal, limited to the caller's agency unless they are an operator. Amounts are integer minor-unit strings. */
 @Injectable()
 export class BookingQueryService {
   constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
-  async list(tenantId: string, options: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingListPage> {
+  async list(tenantId: string, userId: string, options: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingListPage> {
     const limit = Number.isFinite(options.limit) ? Math.min(MAX_LIST, Math.max(1, Math.trunc(options.limit!))) : DEFAULT_LIMIT
     const offset = Number.isFinite(options.offset) ? Math.trunc(options.offset!) : 0
     if (offset < 0 || offset > MAX_OFFSET) throw new BadRequestException('Offset is outside the supported window')
-    if (options.status !== undefined && !isAgentBookingStatus(options.status)) throw new BadRequestException('Unknown booking status')
-    const where = { tenantId, ...(options.status ? { status: { in: statusesForAgentFilter(options.status) } } : {}) }
+    const requested = options.status
+    if (requested !== undefined && !isAgentBookingStatus(requested)) throw new BadRequestException('Unknown booking status')
+    const statuses = requested !== undefined && isAgentBookingStatus(requested) ? statusesForAgentFilter(requested) : undefined
     return this.prisma.withTenant(tenantId, async tx => {
+      const scope = await resolveAgentBookingScope(tx, tenantId, userId)
+      const where = { ...agencyConstraint(scope), tenantId, ...(statuses ? { status: { in: statuses } } : {}) }
       const total = await tx.booking.count({ where })
       const bookings = await tx.booking.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit, skip: offset })
       const names = await this.hotelNames(tx, tenantId, bookings)
@@ -58,10 +62,11 @@ export class BookingQueryService {
     })
   }
 
-  async detail(tenantId: string, bookingId: string, now = new Date()): Promise<BookingDetailView> {
+  async detail(tenantId: string, userId: string, bookingId: string, now = new Date()): Promise<BookingDetailView> {
     return this.prisma.withTenant(tenantId, async tx => {
+      const scope = await resolveAgentBookingScope(tx, tenantId, userId)
       const booking = await tx.booking.findFirst({
-        where: { id: bookingId, tenantId },
+        where: { ...agencyConstraint(scope), id: bookingId, tenantId },
         include: {
           documents: { select: { type: true, number: true }, orderBy: { issuedAt: 'asc' } },
           supplierMutations: { where: { operation: 'PREBOOK' }, orderBy: { createdAt: 'desc' }, take: 1 },

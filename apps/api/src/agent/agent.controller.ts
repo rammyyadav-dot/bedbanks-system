@@ -318,27 +318,27 @@ export class AgentController {
   }
 
   @Get('bookings')
-  @ApiOperation({ summary: 'List the tenant\'s bookings, newest first (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'List the caller\'s agency bookings, newest first. Operators with booking.read and no agency see the tenant (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async listBookings(@Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Query('status') status: string | undefined, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     const boundary = this.boundaryClosed(response)
     if (boundary) return boundary
-    return this.bookingQueries.list(tenantId, { limit: Number(limit), offset: Number(offset), status: status || undefined })
+    return this.bookingQueries.list(tenantId, identity.user.id, { limit: Number(limit), offset: Number(offset), status: status || undefined })
   }
 
   @Get('bookings/:id')
-  @ApiOperation({ summary: 'Booking detail with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
+  @ApiOperation({ summary: 'Booking detail for the caller\'s agency, with issued documents and whether it can still be cancelled (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.viewBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @Res({ passthrough: true }) response: Response) {
+  async bookingDetail(@Param('id') bookingId: string, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Res({ passthrough: true }) response: Response) {
     if (!bookingServicingEnabled()) { response.status(HttpStatus.SERVICE_UNAVAILABLE); return { status: 'booking_unavailable', message: 'Bookings are unavailable until booking gates are certified.' } }
     const boundary = this.boundaryClosed(response)
     if (boundary) return boundary
-    return this.bookingQueries.detail(tenantId, bookingId)
+    return this.bookingQueries.detail(tenantId, identity.user.id, bookingId)
   }
 
   @Get('bookings/:id/cancellation-quote')
@@ -402,9 +402,17 @@ export class AgentController {
   @RequirePermission(PERMISSIONS.reconcileBookings)
   @AllowWhenAgencySuspended()
   @UseGuards(TenantContextGuard, AgentRbacGuard, AgencySuspensionGuard)
-  reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+  async reconcileStale(@Body() body: ReconcileBookingsDto, @ActiveTenant() tenantId: string, @CurrentUser() identity: AuthenticatedUser, @Req() req: Request, @Res({ passthrough: true }) response: Response) {
+    if (!bookingServicingEnabled()) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.reconcile.unavailable', entityType: 'tenant', entityId: tenantId, payload: { reason: 'booking_disabled' } })
+      response.status(HttpStatus.SERVICE_UNAVAILABLE)
+      return { status: 'booking_unavailable', message: 'Recovery is unavailable until booking gates are certified.' }
+    }
     const boundary = this.boundaryClosed(response)
-    if (boundary) return boundary
+    if (boundary) {
+      await this.audit.record({ tenantId, user: identity, action: 'booking.reconcile.unavailable', entityType: 'tenant', entityId: tenantId, payload: { reason: 'privilege_boundary' } })
+      return boundary
+    }
     return this.reconciliation.reconcileStale({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), staleMinutes: body.staleMinutes, prebookMaxMinutes: body.prebookMaxMinutes, dryRun: body.dryRun })
   }
 

@@ -100,6 +100,7 @@ test('Given a protected booking call, When the API answers 401, Then every workf
     () => service().confirm('b', 't'),
     () => service().cancellationQuote('b', 't'),
     () => service().cancel('b', 'guest request', 't'),
+    () => service().recover('t'),
     () => service().documentHtml('b', 'voucher', 't'),
   ]
   try {
@@ -116,6 +117,22 @@ test('Given a protected booking call, When the API answers 401, Then every workf
     if (previous === undefined) delete globalThis.window
     else globalThis.window = previous
   }
+})
+
+test('recovery posts to the reconcile route and only trusts a real run', async () => {
+  let seen
+  globalThis.fetch = async (url, init) => {
+    seen = { url, method: init.method, body: JSON.parse(init.body), tenant: init.headers['x-fbeds-tenant-id'] }
+    return new Response(JSON.stringify({ success: true, data: { dryRun: false, examined: 1, staleMinutes: 30, prebookMaxMinutes: 60, items: [{ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'prebooked_awaiting_confirmation' }] } }), { status: 200 })
+  }
+  const result = await service().recover('tenant-a')
+  assert.equal(result.ok, true)
+  assert.equal(result.ok && result.data.items[0].outcome, 'prebooked_awaiting_confirmation')
+  assert.deepEqual(seen, { url: 'https://api.invalid/agent/bookings/reconcile-stale', method: 'POST', body: {}, tenant: 'tenant-a' })
+  globalThis.fetch = reply(200, { success: true, data: { dryRun: true, examined: 1, items: [] } })
+  assert.equal((await service().recover('t')).ok, false)
+  globalThis.fetch = reply(503, { success: true, data: { status: 'booking_unavailable' } })
+  assert.equal((await service().recover('t')).kind, 'unavailable')
 })
 
 test('document html returns the text only on success', async () => {
