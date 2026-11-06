@@ -73,6 +73,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     const held = await holdOffer(key)
     const pre = await prebook(key, held.holdId!)
     await confirm(pre.bookingId)
+    await prisma.booking.update({ where: { id: pre.bookingId }, data: { hotelConfirmationNo: 'HC-CHAIN' } })
     return { holdId: held.holdId!, bookingId: pre.bookingId }
   }
 
@@ -160,7 +161,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     expect(await ledgerTypes(pre.bookingId)).toEqual([{ type: 'HOLD', amountMinor: -BigInt(price) }])
 
     // no voucher before confirmation
-    await expect(doc(pre.bookingId, 'VOUCHER')).rejects.toThrow('confirmed booking')
+    await expect(doc(pre.bookingId, 'VOUCHER')).rejects.toThrow('never confirmed')
 
     // confirm: held -> sold, reservation -> debit, replay is a no-op
     const first = await confirm(pre.bookingId)
@@ -172,6 +173,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     const events = await prisma.bookingEvent.findMany({ where: { bookingId: pre.bookingId }, orderBy: { createdAt: 'asc' }, select: { action: true, toStatus: true } })
     expect(events.map(e => e.toStatus)).toContain('CONFIRMED')
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.confirmed', entityId: pre.bookingId } })).toBe(1)
+    await prisma.booking.update({ where: { id: pre.bookingId }, data: { hotelConfirmationNo: 'HC-LIFE' } })
 
     // voucher and invoice: issued once, frozen, replay returns the same number
     const voucher = await doc(pre.bookingId, 'VOUCHER')

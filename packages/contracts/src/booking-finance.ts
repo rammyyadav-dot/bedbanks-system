@@ -121,6 +121,16 @@ export interface DocumentEligibilityFacts {
   sellMinor: string
   issued: readonly BookingDocumentType[]
 }
+
+/**
+ * Statuses that exist only after a booking has been confirmed. Agent confirmation posts the wallet ledger and does not write a
+ * CONFIRMED finance event; Admin does. Either fact means the booking was confirmed, so both paths give one answer.
+ */
+export const DOCUMENT_CONFIRMED_STATUSES = ['CONFIRMED', 'AMEND_REQUESTED', 'CANCEL_REQUESTED', 'CANCELLED', 'CHECKED_OUT', 'NO_SHOW'] as const satisfies readonly BookingStatus[]
+
+export function bookingConfirmedForDocuments(input: { status: BookingStatus; hasConfirmedFinanceEvent: boolean }): boolean {
+  return input.hasConfirmedFinanceEvent || (DOCUMENT_CONFIRMED_STATUSES as readonly string[]).includes(input.status)
+}
 export type DocumentBlock = null | 'ALREADY_ISSUED' | 'NOT_CONFIRMED' | 'HOTEL_CONFIRMATION_REQUIRED' | 'BOOKING_CANCELLED' | 'NOT_CANCELLED' | 'PENALTY_DECISION_REQUIRED' | 'NOTHING_TO_CREDIT' | 'INVOICE_REQUIRED'
 export const DOCUMENT_BLOCK_TEXT: Readonly<Record<Exclude<DocumentBlock, null>, string>> = {
   ALREADY_ISSUED: 'This document was already issued and cannot be changed.',
@@ -133,13 +143,13 @@ export const DOCUMENT_BLOCK_TEXT: Readonly<Record<Exclude<DocumentBlock, null>, 
   INVOICE_REQUIRED: 'Issue the invoice first.',
 }
 
-/** Pure eligibility: what blocks issuing `type` now. The first block wins. Issuing is idempotent, so ALREADY_ISSUED is reported, not an error. */
+/** Pure eligibility: what blocks issuing `type` now. The first block wins. Issuing is idempotent, so ALREADY_ISSUED is reported, not an error. A voucher issued before cancellation stays on file (ALREADY_ISSUED) and is not replaced. */
 export function documentBlock(type: BookingDocumentType, f: DocumentEligibilityFacts): DocumentBlock {
   if (f.issued.includes(type)) return 'ALREADY_ISSUED'
   if (!f.hasConfirmedEvent) return 'NOT_CONFIRMED'
   if (type === 'VOUCHER') {
     if (f.status === 'CANCELLED' || f.status === 'CANCEL_REQUESTED' || f.status === 'NO_SHOW') return 'BOOKING_CANCELLED'
-    return f.hotelConfirmationNo ? null : 'HOTEL_CONFIRMATION_REQUIRED'
+    return f.hotelConfirmationNo?.trim() ? null : 'HOTEL_CONFIRMATION_REQUIRED'
   }
   if (type === 'INVOICE') return null
   if (f.status !== 'CANCELLED' && !(f.status === 'NO_SHOW' && type === 'CREDIT_NOTE')) return 'NOT_CANCELLED'
@@ -148,6 +158,19 @@ export function documentBlock(type: BookingDocumentType, f: DocumentEligibilityF
     if (f.penalty.refundMinor === '0') return 'NOTHING_TO_CREDIT'
     return f.issued.includes('INVOICE') ? null : 'INVOICE_REQUIRED'
   }
+  return null
+}
+
+/**
+ * What blocks the confirmation email from carrying a voucher. Reprint of a voucher issued before cancellation stays allowed
+ * (`documentBlock` returns ALREADY_ISSUED); the email must not announce that booking as confirmed.
+ * null means the voucher may be attached: it can be issued now, or it is already on file and a new one would still be allowed.
+ */
+export function confirmationEmailVoucherBlock(f: DocumentEligibilityFacts): DocumentBlock {
+  const block = documentBlock('VOUCHER', f)
+  if (block !== 'ALREADY_ISSUED') return block
+  const fresh = documentBlock('VOUCHER', { ...f, issued: f.issued.filter((type) => type !== 'VOUCHER') })
+  if (fresh === 'BOOKING_CANCELLED' || fresh === 'NOT_CONFIRMED') return fresh
   return null
 }
 

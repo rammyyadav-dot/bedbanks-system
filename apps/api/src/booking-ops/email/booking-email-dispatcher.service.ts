@@ -1,3 +1,4 @@
+import { bookingConfirmedForDocuments, confirmationEmailVoucherBlock, type BookingStatus } from '@bedbanks/contracts'
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common'
 import { BookingOpsDatabase } from '../booking-ops-database'
 import { renderConfirmationEmail } from './booking-email.render'
@@ -78,14 +79,22 @@ export class BookingEmailDispatcher implements OnModuleInit, OnModuleDestroy {
     let message: ReturnType<typeof renderConfirmationEmail>
     try {
       const facts = await this.db.withTenantWrite(email.tenantId, async (tx) => {
-        const booking = await tx.booking.findFirst({ where: { id: email.bookingId, tenantId: email.tenantId }, select: { status: true } })
-        const docs = await tx.bookingDocument.findMany({ where: { bookingId: email.bookingId, tenantId: email.tenantId, type: { in: ['VOUCHER', 'INVOICE'] } }, select: { type: true, number: true, issuedAt: true, payload: true } })
-        return { booking, voucher: docs.find((d) => d.type === 'VOUCHER'), invoice: docs.find((d) => d.type === 'INVOICE') }
+        const booking = await tx.booking.findFirst({ where: { id: email.bookingId, tenantId: email.tenantId }, select: { status: true, hotelConfirmationNo: true } })
+        const [docs, confirmedFinance] = await Promise.all([
+          tx.bookingDocument.findMany({ where: { bookingId: email.bookingId, tenantId: email.tenantId, type: { in: ['VOUCHER', 'INVOICE'] } }, select: { type: true, number: true, issuedAt: true, payload: true } }),
+          tx.bookingFinanceEvent.count({ where: { bookingId: email.bookingId, tenantId: email.tenantId, type: 'CONFIRMED' } }),
+        ])
+        return { booking, confirmedFinance, voucher: docs.find((d) => d.type === 'VOUCHER'), invoice: docs.find((d) => d.type === 'INVOICE') }
       })
       if (!facts.booking) return this.finish(email, 'FAILED', 'BOOKING_NOT_FOUND', now())
-      // A booking cancelled before its confirmation went out must not be announced as confirmed.
-      if (facts.booking.status !== 'CONFIRMED') return this.finish(email, 'FAILED', 'BOOKING_NOT_CONFIRMED', now())
-      if (!facts.voucher || !facts.invoice) return this.retryOrStop(email, 'DOCUMENTS_PENDING', now())
+      // Same voucher rule as Agent and Admin. A voucher already issued is still printable after cancellation; this email must not announce the stay as confirmed.
+      const status = facts.booking.status as BookingStatus
+      const block = confirmationEmailVoucherBlock({
+        status, hasConfirmedEvent: bookingConfirmedForDocuments({ status, hasConfirmedFinanceEvent: facts.confirmedFinance > 0 }), hotelConfirmationNo: facts.booking.hotelConfirmationNo,
+        penalty: { state: 'NOT_REQUESTED' }, sellMinor: '0', issued: facts.voucher ? ['VOUCHER'] : [],
+      })
+      if (block === 'NOT_CONFIRMED' || block === 'BOOKING_CANCELLED') return this.finish(email, 'FAILED', 'BOOKING_NOT_CONFIRMED', now())
+      if (block || !facts.voucher || !facts.invoice) return this.retryOrStop(email, 'DOCUMENTS_PENDING', now())
       const doc = (d: NonNullable<typeof facts.voucher>) => ({ number: d.number, issuedAt: d.issuedAt.toISOString(), payload: d.payload as Record<string, any> })
       message = renderConfirmationEmail({ voucher: doc(facts.voucher), invoice: doc(facts.invoice), bookingStatus: facts.booking.status, portalUrl: this.env.AGENT_PORTAL_URL })
     } catch (error) {

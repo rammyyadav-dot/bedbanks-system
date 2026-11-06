@@ -1,3 +1,4 @@
+import { DOCUMENT_BLOCK_TEXT, bookingConfirmedForDocuments, documentBlock, type BookingStatus } from '@bedbanks/contracts'
 import { payAtHotel } from '../supply/local-charges'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
@@ -25,8 +26,9 @@ export function documentKindFromRoute(value: string): DocumentKind {
 /**
  * Issues each booking document exactly once and freezes its content. Numbers are derived from the booking reference
  * (no shared counter to race on); a database unique key plus an UPDATE-rejecting trigger make re-issue and edits
- * impossible. Eligibility: voucher needs a CONFIRMED booking, invoice a charged booking (CONFIRMED or CANCELLED),
- * credit note a CANCELLED booking.
+ * impossible. Voucher eligibility is `documentBlock` (the same rule Admin and the confirmation email use): a confirmed
+ * booking, the hotel confirmation number, and no new voucher once cancelled. A voucher already issued is returned unchanged,
+ * including after cancellation. Invoice needs a charged booking (CONFIRMED or CANCELLED); a credit note needs CANCELLED.
  */
 @Injectable()
 export class BookingDocumentService {
@@ -53,7 +55,17 @@ export class BookingDocumentService {
       const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type }, tenantId } })
       if (existing) return this.view(existing, booking.status, true)
 
-      if (type === 'VOUCHER' && booking.status !== 'CONFIRMED') throw new ConflictException('A voucher is issued only for a confirmed booking')
+      if (type === 'VOUCHER') {
+        const block = documentBlock('VOUCHER', {
+          status: booking.status as BookingStatus,
+          hasConfirmedEvent: bookingConfirmedForDocuments({ status: booking.status as BookingStatus, hasConfirmedFinanceEvent: false }),
+          hotelConfirmationNo: booking.hotelConfirmationNo,
+          penalty: { state: 'NOT_REQUESTED' },
+          sellMinor: booking.totalMinor.toString(),
+          issued: [],
+        })
+        if (block) throw new ConflictException({ message: DOCUMENT_BLOCK_TEXT[block], code: block })
+      }
       if (type === 'INVOICE' && booking.status !== 'CONFIRMED' && booking.status !== 'CANCELLED') throw new ConflictException('An invoice is issued only for a charged booking')
       if (type === 'CREDIT_NOTE' && booking.status !== 'CANCELLED') throw new ConflictException('A credit note is issued only for a cancelled booking')
 

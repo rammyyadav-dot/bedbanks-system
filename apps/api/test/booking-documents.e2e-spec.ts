@@ -83,6 +83,7 @@ describe('booking documents (PostgreSQL)', () => {
     const hold = await newHold(key)
     const pre = await tx.prebook({ tenantId, userId, requestId: `${key}-req`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
     await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
+    await prisma.booking.update({ where: { id: pre.bookingId }, data: { hotelConfirmationNo: `HC-${key.slice(-20)}` } })
     return pre.bookingId
   }
   const get = (bookingId: string, type: 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE', t = tenantId) => docs.get({ tenantId: t, userId, requestId: `doc-${Math.random()}`, bookingId, type })
@@ -104,7 +105,7 @@ describe('booking documents (PostgreSQL)', () => {
 
     const voucher = await get(bookingId, 'VOUCHER')
     expect(voucher).toMatchObject({ type: 'VOUCHER', number: `VCH-${reference}`, alreadyIssued: false, bookingStatus: 'CONFIRMED' })
-    expect(voucher.payload).toMatchObject({ bookingReference: reference, hotel: { city: 'Dubai' }, stay: { checkIn: '2099-03-01', checkOut: '2099-03-03', nights: 2, rooms: 1, adults: 2 }, leadGuest: guest, cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '100% of the booking total' }] })
+    expect(voucher.payload).toMatchObject({ bookingReference: reference, hotelConfirmationNo: expect.stringMatching(/^HC-/), hotel: { city: 'Dubai' }, stay: { checkIn: '2099-03-01', checkOut: '2099-03-03', nights: 2, rooms: 1, adults: 2 }, leadGuest: guest, cancellationPolicy: [{ daysBeforeCheckin: 7, penalty: '100% of the booking total' }] })
     expect(JSON.stringify(voucher.payload)).not.toContain('125099') // a voucher carries no price
 
     const invoice = await get(bookingId, 'INVOICE')
@@ -139,7 +140,10 @@ describe('booking documents (PostgreSQL)', () => {
     await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('only for a cancelled booking')
     const hold = await newHold(`${suffix}-pending`)
     const pending = await tx.prebook({ tenantId, userId, requestId: 'p', inventoryHoldId: hold.holdId, idempotencyKey: `${suffix}-pending`, adults: 2, children: 0, childAges: [], leadGuest: guest })
-    await expect(get(pending.bookingId, 'VOUCHER')).rejects.toThrow('only for a confirmed booking')
+    await expect(get(pending.bookingId, 'VOUCHER')).rejects.toThrow('never confirmed')
+    await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: null } })
+    await expect(get(bookingId, 'VOUCHER')).rejects.toThrow('hotel confirmation number')
+    await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: 'HC-RESTORED' } })
     await expect(get(pending.bookingId, 'INVOICE')).rejects.toThrow('only for a charged booking')
     await expect(get('does-not-exist', 'VOUCHER')).rejects.toThrow('Booking not found')
     const other = await prisma.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })
