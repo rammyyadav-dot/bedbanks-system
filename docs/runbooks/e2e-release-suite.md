@@ -11,6 +11,7 @@ This is the plain-language guide. The suite signs in to the three real portals i
 | Hotel admin drafts | Policy and local-charge drafts stay independent, edits typed during a slow save survive, a failed or malformed save keeps the draft and retries safely, a stale version is explained, Back/Forward, tab and hotel switches, reload and sign-out ask once, a draft returns after a confirmed leave, the lifecycle control submits exactly what it shows (`08-hotel-admin-drafts.spec.ts`; it grants the throwaway preview admin role `supply.hotels.manage` in the disposable database) | P1–P6, N1–N6, S1, L1 |
 | Supplier extranet | Each supplier sees only its own hotel; read-only members; a revoked member sees nothing | X1–X6 |
 | Booking stays closed | Holding or prebooking an offer is refused (503), a recheck changes nothing, a wrong price is not accepted, and the database shows no new booking, hold, ledger or finance rows | B1–B4 |
+| Agent booking (opt-in) | With booking turned on for this disposable database only: sign in, search Dubai, recheck, hold AED 900.00, name both adults, accept terms, confirm on agency credit, and see the voucher and invoice actions. The row is `CONFIRMED`, the hold is sold, and the other tenant has no booking | `10-agent-booking.spec.ts` (`pnpm --filter @bedbanks/e2e e2e:booking`) |
 | Whole chain | The same hotel is seen by the supplier, the admin and the agent at one whole-number AED price; another tenant's hotel is never in the chain | J1 |
 | Admin browser and security | Every live Admin module renders; 1280/768/390 layouts stay in the viewport; axe on sign-in, dashboard and hotels; a cleared session returns to sign-in; a forged tenant cookie cannot show the other tenant; a malformed or dropped dashboard response shows an outage; a caller without the module permission sees no submit control and sends no mutation | `09-admin-browser-security.spec.ts` |
 
@@ -21,6 +22,8 @@ Needs: Node 24, pnpm, a local PostgreSQL 16 with pgvector on 127.0.0.1:5432, and
 3. Build the portals fresh: `pnpm --filter ./apps/agent build`, then the same for `admin` and `supplier`
 4. `pnpm --filter @bedbanks/e2e exec playwright install chromium` (first time)
 5. `pnpm --filter @bedbanks/e2e e2e`
+
+To exercise the real booking path on that same disposable database: `pnpm --filter @bedbanks/e2e e2e:booking`. It sets `E2E_BOOKING_ENABLED=true` for its own stack, provisions `fbeds_booktx_ops` for that database only (ADR 0113), links the preview agent to an agency with an AED credit line, and runs only `tests/10-agent-booking.spec.ts`. Do not point it at a stack that was started with booking off.
 
 The database login defaults to `postgres:postgres@127.0.0.1`. Override with `E2E_PG_ADMIN_URL`. The suite refuses any host that is not this computer.
 
@@ -34,7 +37,7 @@ Live Agent screenshots: `tests/07-agent-screenshots.spec.ts` (opt-in like the Ad
 Live Admin screenshots: `pnpm --filter @bedbanks/e2e e2e:screenshots` signs in as the preview admin and writes full-page PNGs of the primary Admin pages to `e2e/.artifacts/screenshots/admin/`. It is opt-in (`E2E_SCREENSHOTS=1`) and skipped in the normal suite. Pages show what the preview admin's role is permitted to see, so some dashboard tiles read "Not permitted".
 
 ## Safety
-It only ever drops and recreates the database named `fbeds_preview_xt`. Test passwords are random per run, kept in a private temporary file and deleted afterwards. It never turns on booking, payments or live suppliers.
+It only ever drops and recreates the database named `fbeds_preview_xt`. Test passwords are random per run, kept in a private temporary file and deleted afterwards. The release command `pnpm --filter @bedbanks/e2e e2e` never turns on booking, payments or live suppliers, and it does not provision the booking transaction login. `e2e:booking` turns booking on for that disposable database only, provisions `fbeds_booktx_ops` there, and still does not enable payments or live suppliers.
 
 ## When it fails
 Open the CI artifact `e2e-release-suite-report`: screenshots, traces and the API and portal logs. First check that the portals were rebuilt from the current code; a stale build looks like "no hotels matched" with a "mapping could not be verified" notice.
