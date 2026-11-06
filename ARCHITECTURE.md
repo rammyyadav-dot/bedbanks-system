@@ -219,6 +219,10 @@ Connectors run synchronously only when necessary for the user journey. Imports, 
 | Secrets | Managed secret store; no plaintext production secrets in repository or Vercel client variables |
 | Monitoring | Centralized structured logs, metrics, traces, alerting and error tracking |
 
+### Observed public surface (6 November 2026)
+
+The table above is the target. It is not a description of what `fbeds.com` serves. On that date the apex was a Rediff placeholder, `www.fbeds.com` CNAMEd to Vercel and returned `DEPLOYMENT_NOT_FOUND`, and the portal names were NXDOMAIN. One Vercel project answered the marketing site on the Agent, Admin, and Supplier `*.vercel.app` aliases. Hostinger and Cloudflare were not on that path. AWS ECS and the Neon-to-RDS cutover remain unapplied procedures. The evidence and the acceptance checks are in [core architecture readiness](docs/core-architecture-infrastructure-readiness-2026-11-06.md). `node tools/core-infra-readiness.mjs` prints the same classification.
+
 ### Environment policy
 
 Use isolated `local`, `development`, `staging` and `production` environments with separate databases, secrets and connector credentials. Production data must not be copied into lower environments without approved anonymization. Database migrations are reviewed, replayable from an empty database, backward-compatible during rolling deployment and verified before release.

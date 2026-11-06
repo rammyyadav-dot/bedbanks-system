@@ -6,6 +6,7 @@ on:
     paths:
       - 'infra/aws/**'
       - 'tools/aws-*'
+      - 'tools/core-infra-readiness*'
       - 'tools/workflow-lint*'
       - 'tools/ecs-migrate*'
       - 'scripts/ecs-migrate.sh'
@@ -42,7 +43,7 @@ jobs:
       - name: Operator scripts and plan reviewer (ShellCheck, stubbed script tests, plan reviewer tests)
         run: |
           shellcheck scripts/set-staging-github-vars.sh infra/aws/plan-staging.sh infra/aws/audit/account-audit.sh scripts/neon-staging-branch.sh scripts/ecs-migrate.sh
-          node --test tools/aws-plan-review.test.mjs tools/aws-plan-staging.test.mjs tools/aws-account-audit.test.mjs tools/aws-golive-preflight.test.mjs tools/ecs-migrate.test.mjs
+          node --test tools/aws-plan-review.test.mjs tools/aws-plan-staging.test.mjs tools/aws-account-audit.test.mjs tools/aws-golive-preflight.test.mjs tools/ecs-migrate.test.mjs tools/core-infra-readiness.test.mjs
       - name: Static security analysis (checkov, baseline in infra/aws/terraform/.checkov.yaml)
         run: |
           python3 -m pip install --quiet checkov==3.2.0
