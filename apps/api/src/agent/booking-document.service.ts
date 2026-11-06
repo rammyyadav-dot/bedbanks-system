@@ -4,9 +4,9 @@ import { readFrozenTerms } from './booking-cancellation-terms'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { buyerRules, describePenalty } from './cancellation-policy.service'
 import { formatMinor } from './booking-document.render'
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 import { readSpecialRequests, specialRequestLabels } from './special-requests'
 import { agencyConstraint, resolveAgentBookingScope } from './booking-agency-scope'
@@ -33,7 +33,7 @@ export function documentKindFromRoute(value: string): DocumentKind {
  */
 @Injectable()
 export class BookingDocumentService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient, private readonly audit: AgentAuditService) {}
 
   async get(input: { tenantId: string; userId: string; requestId: string; bookingId: string; type: DocumentKind }): Promise<IssuedDocument> {
     const { tenantId, userId, requestId, bookingId, type } = input

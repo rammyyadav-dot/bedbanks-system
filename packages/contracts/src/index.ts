@@ -8,6 +8,7 @@ export * from './hotel-commercial';
 export * from './hotel-readiness';
 export * from './hotel-onboarding-funnel';
 export * from './booking-ops';
+export * from './booking-activation';
 export * from './admin-departments';
 export * from './admin-console';
 export * from './commercial';

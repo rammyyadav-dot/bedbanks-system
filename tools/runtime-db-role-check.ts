@@ -5,7 +5,7 @@ import { join, relative } from 'node:path'
 import { checkRuntimeUrl, describeDatabaseUrl, forbiddenUserReason } from '../apps/api/src/database/runtime-db-identity'
 
 /** Variables a deployed service reads at runtime. Their literal values must be the restricted logins. */
-export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'BOOKING_OPS_READ_REPLICA_URL', 'HOLD_EXPIRY_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL', 'COMPLIANCE_DATABASE_URL'] as const
+export const RUNTIME_DB_VARS = ['DATABASE_URL', 'BOOKING_OPS_DATABASE_URL', 'BOOKING_OPS_READ_REPLICA_URL', 'HOLD_EXPIRY_DATABASE_URL', 'TENANT_CONTROL_DATABASE_URL', 'COMPLIANCE_DATABASE_URL', 'BOOKING_TRANSACTION_DATABASE_URL'] as const
 /** Variables that carry owner or administrator credentials. They belong to release jobs and operators only, never to a service definition. */
 export const OWNER_ONLY_VARS = ['MIGRATION_DATABASE_URL', 'PROVISION_DATABASE_URL', 'OWNER_DATABASE_URL', 'DIRECT_URL', 'DATABASE_URL_UNPOOLED'] as const
 
@@ -24,6 +24,8 @@ export const APPROVED_CLIENTS: ReadonlyArray<{ file: string; purpose: string; ur
   { file: 'apps/api/src/database/verify-reconciliation-role.cli.ts', purpose: 'operator: read-only certification run AS the reconciliation login (no owner credential)', url: 'FINANCE_RECONCILIATION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-finance-posting-role.cli.ts', purpose: 'operator: provisions the booking finance posting login (ADR 0076)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-finance-posting-role.cli.ts', purpose: 'operator: read-only certification run AS the finance posting login (no owner credential)', url: 'BOOKING_FINANCE_POSTING_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/provision-booking-transaction-role.cli.ts', purpose: 'operator: provisions the Agent booking transaction login (ADR 0113)', url: 'PROVISION_DATABASE_URL', runtime: false },
+  { file: 'apps/api/src/database/verify-booking-transaction-role.cli.ts', purpose: 'operator: read-only certification run AS the booking transaction login (no owner credential)', url: 'BOOKING_TRANSACTION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-supplier-ingest-role.cli.ts', purpose: 'operator: provisions the supplier ingestion login (ADR 0079)', url: 'PROVISION_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/verify-supplier-ingest-role.cli.ts', purpose: 'operator: read-only certification run AS the supplier ingestion login (no owner credential)', url: 'SUPPLIER_INGEST_DATABASE_URL', runtime: false },
   { file: 'apps/api/src/database/provision-supplier-promotion-role.cli.ts', purpose: 'operator: provisions the supplier promotion login (ADR 0084)', url: 'PROVISION_DATABASE_URL', runtime: false },
@@ -127,7 +129,7 @@ export const APPROVED_POOL_HOLDERS: ReadonlyArray<{ file: string; url: string }>
   { file: 'apps/api/src/agent/hold-expiry-sweeper.service.ts', url: 'HOLD_EXPIRY_DATABASE_URL' },
   { file: 'apps/api/src/admin-operations/ledger-integrity-monitor.service.ts', url: 'LEDGER_INTEGRITY_DATABASE_URL' },
   { file: 'apps/api/src/platform-admin/tenant-control.database.ts', url: 'TENANT_CONTROL_DATABASE_URL' },
-  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL / BOOKING_FINANCE_POSTING_DATABASE_URL / SUPPLIER_INGEST_DATABASE_URL / SUPPLIER_PROMOTION_DATABASE_URL / BOOKING_OPS_READ_REPLICA_URL (ADR 0074, 0079, 0084)' },
+  { file: 'apps/api/src/supply/narrow-role-database.ts', url: 'RATE_PLAN_OPS_DATABASE_URL / RATE_PLAN_CLONE_DATABASE_URL / FINANCE_RECONCILIATION_DATABASE_URL / BOOKING_FINANCE_POSTING_DATABASE_URL / SUPPLIER_INGEST_DATABASE_URL / SUPPLIER_PROMOTION_DATABASE_URL / BOOKING_OPS_READ_REPLICA_URL / BOOKING_TRANSACTION_DATABASE_URL (ADR 0074, 0079, 0084, 0113)' },
 ]
 
 export function checkClientSource(file: string, text: string): string[] {

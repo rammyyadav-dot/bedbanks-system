@@ -1,7 +1,7 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { lockWalletRow } from '../ledger/wallet-lock'
 import { moveNight } from '../inventory/inventory-counters'
@@ -21,7 +21,7 @@ export interface BookingConfirmationResult { bookingId: string; reference: strin
  */
 @Injectable()
 export class BookingConfirmationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
   async confirm(command: BookingConfirmationCommand): Promise<BookingConfirmationResult> {
     const { tenantId, userId, requestId, bookingId } = command

@@ -135,6 +135,14 @@ describe('Agent canonical search boundary', () => {
     const tx = { findDuplicates: jest.fn().mockResolvedValue([]), prebook: jest.fn().mockResolvedValue({ status: 'prebooked', bookingId: 'booking-a' }), confirm: jest.fn().mockResolvedValue({ bookingId: 'booking-a', status: 'CONFIRMED', alreadyConfirmed: false }) }
     const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, tx as unknown as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
     process.env.BOOKING_ENABLED = 'true'
+    const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
+    delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+    const boundary = response()
+    expect((await enabled.prebook({ ...prebookBody, termsAccepted: true }, 'tenant-a', identity, request(), boundary)).status).toBe('booking_unavailable')
+    expect(boundary.status).toHaveBeenCalledWith(503)
+    expect(tx.prebook).not.toHaveBeenCalled()
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.prebook.unavailable', payload: { reason: 'privilege_boundary' } }))
+    process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
     try {
       // ADR 0066: the terms must be accepted; nothing is prebooked without it.
       await expect(enabled.prebook(prebookBody, 'tenant-a', identity, request(), response())).rejects.toMatchObject({ response: { code: 'TERMS_NOT_ACCEPTED' } })
@@ -151,13 +159,18 @@ describe('Agent canonical search boundary', () => {
       tx.findDuplicates.mockResolvedValue([])
       // Documents that cannot be issued are reported as null, never as a failed booking.
       await expect(enabled.createBooking({ bookingId: 'booking-a' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CONFIRMED', documents: { voucher: null, invoice: null } })
-    } finally { delete process.env.BOOKING_ENABLED }
+    } finally {
+      delete process.env.BOOKING_ENABLED
+      if (previousBoundary === undefined) delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      else process.env.BOOKING_TRANSACTION_DATABASE_URL = previousBoundary
+    }
   })
   it('keeps recovery disabled unless booking servicing is certified, then delegates', async () => {
     const { controller, audit } = setup(jest.fn())
     const response = () => ({ status: jest.fn() }) as unknown as Response
     const previousBooking = process.env.BOOKING_ENABLED
     const previousServicing = process.env.BOOKING_SERVICING_ENABLED
+    const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
     delete process.env.BOOKING_ENABLED
     delete process.env.BOOKING_SERVICING_ENABLED
     try {
@@ -169,6 +182,13 @@ describe('Agent canonical search boundary', () => {
       const reconciliation = { reconcileStale: jest.fn().mockResolvedValue({ dryRun: false, examined: 1, items: [{ holdId: 'hold-a', bookingId: 'booking-a', outcome: 'prebooked_awaiting_confirmation' }] }) }
       const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, reconciliation as unknown as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
       process.env.BOOKING_SERVICING_ENABLED = 'true'
+      delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      const closed = response()
+      expect((await enabled.reconcileStale({}, 'tenant-a', identity, request(), closed) as { status: string }).status).toBe('booking_unavailable')
+      expect(closed.status).toHaveBeenCalledWith(503)
+      expect(reconciliation.reconcileStale).not.toHaveBeenCalled()
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.reconcile.unavailable', payload: { reason: 'privilege_boundary' } }))
+      process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
       await expect(enabled.reconcileStale({}, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ examined: 1, items: [expect.objectContaining({ outcome: 'prebooked_awaiting_confirmation' })] })
       expect(reconciliation.reconcileStale).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', userId: 'user-a' }))
     } finally {
@@ -176,6 +196,8 @@ describe('Agent canonical search boundary', () => {
       else process.env.BOOKING_ENABLED = previousBooking
       if (previousServicing === undefined) delete process.env.BOOKING_SERVICING_ENABLED
       else process.env.BOOKING_SERVICING_ENABLED = previousServicing
+      if (previousBoundary === undefined) delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      else process.env.BOOKING_TRANSACTION_DATABASE_URL = previousBoundary
     }
   })
   it('keeps cancellation and its quote disabled unless BOOKING_ENABLED=true, then delegates', async () => {
@@ -190,11 +212,17 @@ describe('Agent canonical search boundary', () => {
     const cancellations = { cancel: jest.fn().mockResolvedValue({ status: 'CANCELLED' }), quote: jest.fn().mockResolvedValue({ refundMinor: '1' }) }
     const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, cancellations as unknown as BookingCancellationService, {} as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
     process.env.BOOKING_ENABLED = 'true'
+    const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
+    process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
     try {
       await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
       expect(cancellations.cancel).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', bookingId: 'booking-a', reason: 'guest' }))
       await expect(enabled.cancellationQuote('booking-a', 'tenant-a', identity, request(), response())).resolves.toEqual({ refundMinor: '1' })
-    } finally { delete process.env.BOOKING_ENABLED }
+    } finally {
+      delete process.env.BOOKING_ENABLED
+      if (previousBoundary === undefined) delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      else process.env.BOOKING_TRANSACTION_DATABASE_URL = previousBoundary
+    }
   })
   it('keeps booking documents disabled unless BOOKING_ENABLED=true, serves locked-down HTML when enabled, and rejects unknown types', async () => {
     const { controller } = setup(jest.fn())
@@ -209,13 +237,19 @@ describe('Agent canonical search boundary', () => {
     const documents = { get: jest.fn().mockResolvedValue({ type: 'VOUCHER', number: 'VCH-1', issuedAt: '2099-01-01T00:00:00.000Z', bookingStatus: 'CONFIRMED', payload: { bookingReference: 'FB-1' } }) }
     const enabled = new AgentController({ name: 's', search: jest.fn() } as unknown as SupplierAdapter, {} as AgentFinanceService, setup(jest.fn()).audit, {} as OfferHoldService, {} as AgentSearchService, {} as BookingReconciliationService, {} as BookingTransactionService, {} as BookingCancellationService, documents as unknown as BookingDocumentService, {} as BookingQueryService, {} as InventoryHoldService, { apply: async (_tenant: string, value: unknown) => value } as never, {} as PrismaService, {} as never)
     process.env.BOOKING_ENABLED = 'true'
+    const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
+    process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
     try {
       const res = { status: jest.fn().mockReturnThis(), set: jest.fn().mockReturnThis(), send: jest.fn() }
       await enabled.bookingDocumentHtml('booking-a', 'voucher', 'tenant-a', identity, request(), res as unknown as Response)
       expect(res.set).toHaveBeenCalledWith(expect.objectContaining({ 'Content-Security-Policy': expect.stringContaining("default-src 'none'"), 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }))
       expect(res.send).toHaveBeenCalledWith(expect.stringContaining('VCH-1'))
       await expect(enabled.bookingDocument('booking-a', 'receipt', 'tenant-a', identity, request(), { status: jest.fn() } as unknown as Response)).rejects.toThrow('Unknown document type')
-    } finally { delete process.env.BOOKING_ENABLED }
+    } finally {
+      delete process.env.BOOKING_ENABLED
+      if (previousBoundary === undefined) delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      else process.env.BOOKING_TRANSACTION_DATABASE_URL = previousBoundary
+    }
   })
 
   it('does not create an inventory hold while booking is disabled, and delegates only for the exact enabled value', async () => {
@@ -224,6 +258,7 @@ describe('Agent canonical search boundary', () => {
     const body = { searchId: 'search-a', expectedCurrency: 'AED' as const, expectedSellAmountMinor: 125099, idempotencyKey: 'hold-key-1' }
     const response = () => ({ status: jest.fn() }) as unknown as Response
     const previous = process.env.BOOKING_ENABLED
+    const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
     try {
       for (const value of [undefined, 'false', '', 'TRUE', '1']) {
         if (value === undefined) delete process.env.BOOKING_ENABLED
@@ -235,12 +270,21 @@ describe('Agent canonical search boundary', () => {
       expect(offerHolds.execute).not.toHaveBeenCalled()
       expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.hold.unavailable', payload: { reason: 'booking_disabled' } }))
       process.env.BOOKING_ENABLED = 'true'
+      delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      const closed = response()
+      expect((await controller.holdOffer({ offerId: 'offer-a' }, body, identity, holdRequest(), closed)).status).toBe('booking_unavailable')
+      expect(closed.status).toHaveBeenCalledWith(503)
+      expect(offerHolds.execute).not.toHaveBeenCalled()
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'booking.hold.unavailable', payload: { reason: 'privilege_boundary' } }))
+      process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
       ;(offerHolds.execute as jest.Mock).mockResolvedValue({ status: 'held', holdId: 'hold-a' })
       await expect(controller.holdOffer({ offerId: 'offer-a' }, body, identity, holdRequest(), response())).resolves.toMatchObject({ status: 'held', holdId: 'hold-a' })
       expect(offerHolds.execute).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', offerId: 'offer-a' }))
     } finally {
       if (previous === undefined) delete process.env.BOOKING_ENABLED
       else process.env.BOOKING_ENABLED = previous
+      if (previousBoundary === undefined) delete process.env.BOOKING_TRANSACTION_DATABASE_URL
+      else process.env.BOOKING_TRANSACTION_DATABASE_URL = previousBoundary
     }
   })
 

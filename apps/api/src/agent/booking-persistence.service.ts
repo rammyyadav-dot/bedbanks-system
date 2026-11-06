@@ -1,8 +1,8 @@
-import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { createHash } from 'crypto'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { freezeCancellationTerms } from './booking-cancellation-terms'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
@@ -74,7 +74,7 @@ function bookingReference(command: BookingTransactionCommand): string {
 
 @Injectable()
 export class BookingPersistenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
   async persistPending(command: BookingTransactionCommand): Promise<BookingRecord> {
     const snapshot = immutableSnapshot(command)

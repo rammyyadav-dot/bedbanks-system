@@ -19,7 +19,7 @@ Status: accepted (owner, 2026-10-27). Accepting the policy enables nothing: book
 1. **Default off, everywhere, until the owner accepts this ADR for a named environment.** Enabling is an owner decision recorded per environment (ADR 0055 #6), not a code change. No pull request flips a default.
 2. **Gates before the flag may be `true` outside a disposable database.** All must hold and be evidenced:
    1. A live, authoritative supplier recheck is configured. the supplier adapter is not the `unconfigured` one (`supplier.name !== 'unconfigured'`); a recheck failure returns `provider_unavailable`, never a stale or zero price (invariant 5).
-   2. The API runtime role has a reviewed privilege design for the booking, hold, ledger and document tables (ADR 0039 question 1). Today it has none, so a strict-role deployment cannot book.
+   2. The API runtime role has a reviewed privilege design for the booking, hold, ledger and document tables (ADR 0039 question 1). Today it has none, so a strict-role deployment cannot book. Amendment (ADR 0113): that design is a separate login, `fbeds_booktx_ops`, not a grant on `fbeds_api`. `BOOKING_ENABLED=true` still does nothing until `BOOKING_TRANSACTION_DATABASE_URL` names that login and differs from `DATABASE_URL`.
    3. The hold-expiry sweeper and `reconcile-stale` run on a schedule, so abandoned holds and prebooks cannot pin inventory or credit.
    4. `pnpm check:architecture`, `pnpm type-check`, `pnpm lint`, `pnpm test` and the lifecycle suite pass on the release commit against disposable PostgreSQL.
    5. The known gaps below are fixed or explicitly accepted by the owner for the environment.
