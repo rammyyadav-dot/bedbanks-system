@@ -183,7 +183,7 @@ NOT BUILT: R5 stalled attempts, the receivables ageing snapshot and the supplier
 | Funding verify / post / compliance | `funding.manage` | different person; second person above threshold | BUILT |
 | Penalty waiver | requester | `booking.penalty.waive.approve`, different person | BUILT |
 | Reconciliation run | `booking.reconcile` | optional approval, different person (ADR 0017) | BUILT (optional) |
-| Ledger adjustment and payment reversal | `finance.adjustment.propose` | `finance.adjustment.approve`, different person | BUILT (ADR 0100); no higher tier above a threshold yet |
+| Ledger adjustment and payment reversal | `finance.adjustment.propose` | `finance.adjustment.approve`, different person; a self-decision is audited as `approval.denied` | BUILT (ADR 0100, 0113); no higher tier above a threshold yet |
 | Refund to source, write-off | finance | second finance approver above a threshold | PROPOSED |
 | Read finance | `finance.read` | | BUILT |
 
@@ -193,7 +193,7 @@ Decided 2026-10-18 "as per global bedbanks workflow and functioning" and built i
 effective penalty (F3), database ledger guards (F4), and a daily read-only reconciliation run. Still open:
 
 1. **Provision the monitor's read-only login** (`LEDGER_INTEGRITY_DATABASE_URL`) and the log alarm on its error lines.
-2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a browser test for the screen, and house-account adjustments.
+2. **ADJUSTMENT and REVERSAL** are built (ADR 0100). Proposals, decisions, replays and financial refusals are audited, and an approved posting with no approval audit is a critical integrity finding (ADR 0113). Still open: an amount threshold for a higher approver tier, whether a recalled payment keeps the age of the charge it paid, a browser test for the screen, and house-account adjustments.
 3. **Scheduling R5** (stalled attempts) unattended: it writes SYSTEM audit events, which needs a governed role.
 4. **Per-agency terms**, temporary increases, review dates, security.
 5. **Accounting-package layout** for the GL export and the accountants' review of the default chart (ADR 0102); gapless credit-note numbering if a jurisdiction requires it; VAT presentation.
