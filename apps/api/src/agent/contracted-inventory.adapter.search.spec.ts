@@ -83,6 +83,7 @@ class Store {
         },
       },
       hotelDealRatePlan: { findMany: async ({ where }: any) => store.deals.filter((d) => where.ratePlanId.in.includes(d.ratePlanId)) },
+      roomSalesRule: { findMany: async () => [] },
       fxRate: { findMany: async () => [] },
       commercialMarkupRule: { findMany: async () => store.markupRules },
       agency: { findFirst: async () => ({ id: 'agency-a', countryCode: 'AE' }) },

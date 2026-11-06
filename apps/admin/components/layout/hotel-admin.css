@@ -148,3 +148,30 @@
 @media (prefers-reduced-motion: reduce) { .hotel-readiness-progress > span { transition: none; } }
 
 @media (max-width: 600px) { .hotel-management-tab-row { justify-content: flex-start; } }
+
+.room-sales { display: grid; gap: 12px; }
+.room-sales-board { display: grid; gap: 12px; }
+.room-sales-heading h2, .room-sales h3 { margin: 0; font-size: 16px; }
+.room-sales-heading p, .room-sales-note { margin: 0; color: var(--c-444444); font-size: 12px; }
+.room-sales-filters, .room-sales-toolbar, .room-sales-bulk, .room-sales-nav, .room-sales-settings, .status-legend { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.room-sales label { display: grid; gap: 4px; font-size: 12px; }
+.room-sales-toolbar button, .room-sales-nav button, .room-sales-bulk button, .room-sales-dialog button { min-height: 36px; }
+.paint { border: 1px solid var(--c-e4e4e0); background: white; border-radius: 6px; display: inline-flex; gap: 6px; align-items: center; padding: 6px 10px; }
+.paint.is-selected { outline: 2px solid var(--c-111111); }
+.paint-FREE_SALE { color: var(--c-2a2a2a); } .paint-STOP_SALE { color: var(--c-b3141b); } .paint-ON_REQUEST { color: var(--c-b8890f); } .paint-LIMITED { color: var(--c-c29312); }
+.paint-save { background: var(--c-111111); color: var(--c-ffffff); }
+.room-sales-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--c-e4e4e0); }
+.room-sales-grid { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+.room-sales-grid th, .room-sales-grid td { border-bottom: 1px solid var(--c-e4e4e0); border-right: 1px solid var(--c-e4e4e0); padding: 4px; vertical-align: top; font-size: 11px; font-weight: 500; }
+.room-sales-sticky { position: sticky; left: 0; z-index: 2; background: var(--c-ffffff); min-width: 140px; text-align: left; }
+.room-sales-grid thead th { position: sticky; top: 0; background: var(--c-f6f6f4); z-index: 1; }
+.room-sales-grid thead .room-sales-sticky { z-index: 3; }
+.sales-cell { width: 92px; min-height: 44px; border: 0; background: var(--c-f6f6f4); display: grid; place-items: center; }
+.sales-FREE_SALE { background: var(--c-ffffff); color: var(--c-2a2a2a); } .sales-STOP_SALE { background: var(--c-fbe3e4); color: var(--c-b3141b); } .sales-ON_REQUEST { background: var(--c-faf0d2); color: var(--c-b8890f); } .sales-LIMITED { background: var(--c-faf0d2); color: var(--c-c29312); }
+.sales-cell.is-dirty { outline: 2px dashed var(--c-111111); }
+.room-sales-warn { color: var(--c-b3141b); font-size: 13px; }
+.room-sales-details, .room-sales-dialog { border: 1px solid var(--c-e4e4e0); border-radius: 8px; padding: 12px; display: grid; gap: 8px; background: var(--c-ffffff); }
+.room-sales-details dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 0; }
+.room-sales-count { font-weight: 700; }
+.allocation-grid small { display: block; color: var(--c-444444); }
+@media (max-width: 700px) { .sales-cell { width: 76px; } .room-sales-sticky { min-width: 108px; } }

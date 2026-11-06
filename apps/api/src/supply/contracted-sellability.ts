@@ -7,6 +7,7 @@ import { marketReasons, normalizeCountry, planMarketReasons, type BuyerContext, 
 import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
 import { eventSupplementNights, type EventSupplementRule } from './event-supplements'
 import { convertMinor, type FxQuote } from './fx'
+import { resolveRoomSales, type RoomSalesRuleView } from '../inventory/room-sales/engine'
 /**
  * Shared commercial gates for contracted inventory: the ONE evaluator Agent search, recheck, hold, Admin readiness, the hotel assessment, rate
  * certification and the Sellability Inspector all use (ADR 0067, F-07).
@@ -38,12 +39,17 @@ export interface StayNightSnapshot {
     /** Set when the plan draws stock from a shared pool. `remaining` is capacity-sold-held of the pool day, or null when that pool day does not exist. */
     pool?: { id: string; remaining: number | null; source?: string; freshUntil?: string | null } | null
   }
+  /** Confirmed bookings plus active holds on the counter this night sells from. Set only when sales rules were loaded. Null means that counter row is missing. */
+  counterConsumed?: number | null
 }
 
 export type InventoryModeName = 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED'
 export type AvailabilityStatus = 'available' | 'on_request' | 'unavailable'
 
 export interface ContractedStaySnapshot {
+  /** Sales-control rules for the room. Absent means this caller did not load them, so legacy inventory mode still decides. An empty list means none are saved. */
+  salesRules?: RoomSalesRuleView[]
+  salesContext?: { roomTypeId: string; ratePlanId: string; poolId: string | null; contractId: string }
   /** Parsed contract sales markets and nationalities (ADR 0035). Absent means the caller does not model them; they are only enforced when the request names a buyer. */
   marketRules?: ContractMarketRules
   /** The plan's own allow-lists (ADR 0057, S3). Required so a caller cannot omit them and skip the rule. */
@@ -263,6 +269,35 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
           const remaining = night.availability.allotment - night.availability.sold - night.availability.held
           minRemaining = minRemaining === null ? remaining : Math.min(minRemaining, remaining)
           if (remaining < request.rooms) sawNoInventory = true
+        }
+      }
+      if (snapshot.salesRules && snapshot.salesContext) {
+        const resolved = resolveRoomSales({
+          rules: snapshot.salesRules, roomTypeId: snapshot.salesContext.roomTypeId, ratePlanId: snapshot.salesContext.ratePlanId,
+          poolId: snapshot.salesContext.poolId, contractId: snapshot.salesContext.contractId, stayDate: night.date,
+          channel: request.channel ?? null, market: request.buyer?.market ?? null, now: request.now, consumed: night.counterConsumed ?? null,
+        })
+        if (resolved.stopSale) sawStopSell = true
+        if (resolved.onRequest) sawOnRequest = true
+        if (resolved.capUnknown) sawMissingAvailability = true
+        if (resolved.capRemaining !== null) {
+          const left = Math.max(0, resolved.capRemaining)
+          minRemaining = minRemaining === null ? left : Math.min(minRemaining, left)
+          if (left < request.rooms) sawNoInventory = true
+        }
+        if (resolved.consumesInventory && mode === 'FREE_SALE') {
+          const pool = night.availability.pool
+          if (pool) {
+            if (pool.remaining === null) sawMissingAvailability = true
+            else {
+              minRemaining = minRemaining === null ? pool.remaining : Math.min(minRemaining, pool.remaining)
+              if (pool.remaining < request.rooms) sawPoolExhausted = true
+            }
+          } else {
+            const finite = night.availability.allotment - night.availability.sold - night.availability.held
+            minRemaining = minRemaining === null ? finite : Math.min(minRemaining, finite)
+            if (finite < request.rooms) sawNoInventory = true
+          }
         }
       }
     }

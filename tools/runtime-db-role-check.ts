@@ -64,6 +64,7 @@ export const APPROVED_TOOL_CLIENTS: ReadonlyArray<{ file: string; purpose: strin
   { file: 'tools/admin-ops-verify/seed-hotel-journey.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/seed-hotels.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/seed-inventory.ts', purpose: 'operator: disposable verification seed' },
+  { file: 'tools/admin-ops-verify/seed-room-sales.ts', purpose: 'operator: disposable verification seed for room sales controls' },
   { file: 'tools/admin-ops-verify/seed-pool-capacity.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/seed-rate-certification.ts', purpose: 'operator: disposable verification seed' },
   { file: 'tools/admin-ops-verify/verify-rate-plans.cjs', purpose: 'operator: rate plan verification script' },
