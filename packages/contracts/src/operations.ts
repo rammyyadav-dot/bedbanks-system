@@ -83,7 +83,7 @@ export type BookingStatus = (typeof BOOKING_STATUSES)[number]
  * Server-evaluated consistency flags. Documents are issued lazily on first view, so an absent document is never a flag.
  * A flag is evidence to investigate, not an automatic verdict; nothing here changes booking state.
  */
-export type BookingAttention = 'RECONCILIATION_REQUIRED' | 'PREBOOK_EXPIRED_UNRESOLVED' | 'FINANCIAL_MISMATCH' | 'INVENTORY_MISMATCH' | 'INVENTORY_NOT_RELEASED' | 'REFUND_MISSING' | 'CANCELLATION_RECORD_MISSING'
+export type BookingAttention = 'RECONCILIATION_REQUIRED' | 'PREBOOK_EXPIRED_UNRESOLVED' | 'FINANCIAL_MISMATCH' | 'INVENTORY_MISMATCH' | 'INVENTORY_NOT_RELEASED' | 'REFUND_MISSING' | 'CANCELLATION_RECORD_MISSING' | 'ACKNOWLEDGEMENT_MISMATCH' | 'VOUCHER_MISMATCH' | 'MONEY_FACT_MISMATCH'
 export interface BookingRow {
   id: string; reference: string; status: BookingStatus; tenantId: string; supplier: string
   hotelId: string; hotelName: string | null; roomName: string | null; checkIn: string | null; checkOut: string | null

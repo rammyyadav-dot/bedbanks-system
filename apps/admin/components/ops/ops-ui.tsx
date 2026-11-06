@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { BookingAttention } from '@bedbanks/contracts'
 import { formatMinorUnits, isMinorUnits } from '@/lib/minor-units'
 
 /** Integer minor units + ISO currency, formatted for display only (never parsed as a float). */
@@ -18,7 +19,7 @@ export const bookingTone = (status: string) => (status === 'CONFIRMED' || status
 export const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—')
 
 /** Plain-language meaning of each consistency flag, so an operator knows what to check. */
-export const ATTENTION_HELP: Record<string, string> = {
+export const ATTENTION_HELP: Record<BookingAttention, string> = {
   RECONCILIATION_REQUIRED: 'Attempt claimed inventory and stalled. Run reconciliation (idempotent).',
   PREBOOK_EXPIRED_UNRESOLVED: 'Supplier prebook succeeded but was never confirmed inside its window.',
   FINANCIAL_MISMATCH: 'Confirmed booking with no DEBIT in the wallet ledger.',
@@ -26,8 +27,11 @@ export const ATTENTION_HELP: Record<string, string> = {
   INVENTORY_NOT_RELEASED: 'Failed or cancelled booking whose inventory hold was not released.',
   REFUND_MISSING: 'Cancellation records a refund that the ledger does not show.',
   CANCELLATION_RECORD_MISSING: 'Booking is CANCELLED but has no cancellation record.',
+  ACKNOWLEDGEMENT_MISMATCH: 'The supplier acknowledgement does not match the booking. Stock and the wallet follow the booking, so check both.',
+  VOUCHER_MISMATCH: 'A voucher is on file, but the booking, the sold stock, or the wallet charge does not match a stay that voucher can describe.',
+  MONEY_FACT_MISMATCH: 'The cancellation refund, the recorded money fact, and the sell amount do not agree, or a refund was posted without a charge.',
 }
 export function AttentionTags({ flags }: { flags: string[] }) {
   if (flags.length === 0) return <span style={{ color: 'var(--c-444444)' }}>—</span>
-  return <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>{flags.map(f => <span key={f} title={ATTENTION_HELP[f]}><Tag tone="bad">{f}</Tag></span>)}</span>
+  return <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>{flags.map(f => <span key={f} title={f in ATTENTION_HELP ? ATTENTION_HELP[f as BookingAttention] : f}><Tag tone="bad">{f}</Tag></span>)}</span>
 }

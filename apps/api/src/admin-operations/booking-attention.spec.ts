@@ -1,4 +1,4 @@
-import { bookingAttention, type AttentionFacts } from './booking-attention'
+import { acknowledgementOf, bookingAttention, type AttentionFacts } from './booking-attention'
 
 const now = new Date('2026-10-02T12:00:00Z')
 const minutesAgo = (m: number) => new Date(now.getTime() - m * 60_000)
@@ -42,6 +42,58 @@ describe('bookingAttention (read-only consistency flags)', () => {
     expect(bookingAttention({ ...cancelled, cancellation: null })).toEqual(['CANCELLATION_RECORD_MISSING'])
     expect(bookingAttention({ ...cancelled, holdStatus: 'CONFIRMED' })).toEqual(['INVENTORY_NOT_RELEASED'])
     expect(bookingAttention({ ...cancelled, cancellation: { refundMinor: 0n }, refundPostedMinor: 0n })).toEqual([])
+  })
+
+  const accepted = { status: 'ACKNOWLEDGED', supplierStatus: 'accepted', supplierReference: 'SUP-1' }
+  const rejected = { status: 'REJECTED', supplierStatus: 'rejected', supplierReference: null }
+  const none = { prebook: 'absent' as const, book: 'absent' as const, cancel: 'absent' as const }
+
+  it('keeps the latest acknowledgement per operation and ignores an older row', () => {
+    expect(acknowledgementOf([
+      { operation: 'PREBOOK', ...accepted },
+      { operation: 'PREBOOK', ...rejected },
+      { operation: 'BOOK', ...rejected },
+      { operation: 'CANCEL', status: 'RESOLVED', supplierStatus: 'confirmed', supplierReference: 'CXL-1' },
+    ])).toEqual({ prebook: 'accepted', book: 'not_accepted', cancel: 'accepted' })
+    expect(acknowledgementOf([])).toEqual(none)
+  })
+
+  it('flags an acknowledgement that disagrees with the booking, and leaves an accepted prebook that later failed alone', () => {
+    const sold = { ...base, acknowledgement: { ...none, prebook: 'accepted' as const } }
+    expect(bookingAttention(sold)).toEqual([])
+    expect(bookingAttention({ ...sold, acknowledgement: { ...none, prebook: 'not_accepted' } })).toEqual(['ACKNOWLEDGEMENT_MISMATCH'])
+    expect(bookingAttention({ ...sold, acknowledgement: { ...none, book: 'not_accepted', prebook: 'accepted' } })).toEqual(['ACKNOWLEDGEMENT_MISMATCH'])
+    expect(bookingAttention({ ...base, bookingStatus: 'PENDING_SUPPLIER', holdStatus: 'PROCESSING', hasDebit: false, acknowledgement: { ...none, book: 'accepted' } })).toEqual(['ACKNOWLEDGEMENT_MISMATCH'])
+    expect(bookingAttention({ ...base, bookingStatus: 'FAILED', holdStatus: 'RELEASED', hasDebit: false, acknowledgement: { ...none, prebook: 'accepted' } })).toEqual([])
+    expect(bookingAttention({ ...base, bookingStatus: 'CANCELLED', holdStatus: 'RELEASED', hasDebit: true, cancellation: { refundMinor: 0n }, acknowledgement: { ...none, cancel: 'not_accepted' } })).toEqual(['ACKNOWLEDGEMENT_MISMATCH'])
+    expect(bookingAttention({ ...base, bookingStatus: 'CONFIRMED', acknowledgement: { ...none, cancel: 'accepted', prebook: 'accepted' } })).toEqual(['ACKNOWLEDGEMENT_MISMATCH'])
+  })
+
+  it('flags a voucher that does not match a sold or released stay, and ignores a voucher that was never issued', () => {
+    expect(bookingAttention({ ...base, voucherIssued: false })).toEqual([])
+    expect(bookingAttention({ ...base, voucherIssued: true })).toEqual([])
+    expect(bookingAttention({ ...base, voucherIssued: true, hasDebit: false })).toEqual(['FINANCIAL_MISMATCH', 'VOUCHER_MISMATCH'])
+    expect(bookingAttention({ ...base, voucherIssued: true, holdStatus: 'PROCESSING' })).toEqual(['INVENTORY_MISMATCH', 'VOUCHER_MISMATCH'])
+    expect(bookingAttention({ ...base, bookingStatus: 'FAILED', holdStatus: 'RELEASED', hasDebit: false, voucherIssued: true })).toEqual(['VOUCHER_MISMATCH'])
+    const cancelled = { ...base, bookingStatus: 'CANCELLED', holdStatus: 'RELEASED', cancellation: { refundMinor: 0n }, voucherIssued: true }
+    expect(bookingAttention(cancelled)).toEqual([])
+    expect(bookingAttention({ ...cancelled, holdStatus: 'CONFIRMED' })).toEqual(['INVENTORY_NOT_RELEASED', 'VOUCHER_MISMATCH'])
+  })
+
+  it('matches the cancellation refund to the sell and to the finance fact, without treating an unread fact as a match', () => {
+    const cancelled = { ...base, bookingStatus: 'CANCELLED', holdStatus: 'RELEASED', hasDebit: true, cancellation: { refundMinor: 25_000n }, refundPostedMinor: 25_000n, sellMinor: 100_000n }
+    expect(bookingAttention(cancelled)).toEqual([])
+    expect(bookingAttention({ ...cancelled, refundPostedMinor: 100_001n })).toEqual(['REFUND_MISSING', 'MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, cancellation: { refundMinor: 100_001n }, refundPostedMinor: 100_001n })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, hasDebit: false })).toEqual(['MONEY_FACT_MISMATCH'])
+    const fact = { refundMinor: 25_000n, penaltyMinor: 75_000n, sellMinor: 100_000n }
+    expect(bookingAttention({ ...cancelled, financeCancellation: fact })).toEqual([])
+    expect(bookingAttention({ ...cancelled, financeCancellation: { ...fact, penaltyMinor: 70_000n } })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, financeCancellation: { ...fact, refundMinor: null } })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, financeCancellation: { ...fact, sellMinor: 90_000n } })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...base, financeCancellation: fact })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, cancellation: { refundMinor: 20_000n }, refundPostedMinor: 20_000n, financeCancellation: fact })).toEqual(['MONEY_FACT_MISMATCH'])
+    expect(bookingAttention({ ...cancelled, financeCancellation: null })).toEqual([])
   })
 
   it('never infers a status: UNKNOWN-like pending evidence is not turned into FAILED', () => {
