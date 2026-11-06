@@ -10,7 +10,7 @@ const authority = {
   offerId: 'offer-a', searchId: 'search-a', supplierId: 'supplier-a', supplierHotelId: 'supplier-hotel-a',
   supplierRoomId: 'supplier-room-a', canonicalHotelId: 'hotel-a', canonicalRoomTypeId: 'room-a',
   ratePlanId: 'plan-a', boardBasisId: 'board-a', checkIn: '2099-01-01', checkOut: '2099-01-03',
-  rooms: 1, adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: 125099,
+  rooms: 1, adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: 125099, netAmountMinor: 110_000,
   expiresAt: '2099-01-01T12:00:00.000Z',
 }
 const command = { offerId: 'offer-a', searchId: 'search-a', expectedCurrency: 'AED', expectedSellAmountMinor: 125099,
@@ -42,7 +42,7 @@ describe('authoritative supplier recheck and hold boundary', () => {
   it('holds only after authoritative recheck and mapping verification', async () => {
     const fixture = setup({ status: 'available', offer: authority })
     await expect(fixture.service.execute(command)).resolves.toMatchObject({ status: 'held', holdId: 'hold-a' })
-    expect(fixture.holds.create).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', offerId: 'offer-a', sellAmountMinor: 125099 }))
+    expect(fixture.holds.create).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', offerId: 'offer-a', sellAmountMinor: 125099, netAmountMinor: 110_000 }))
   })
 
   it('returns price_changed without creating a hold', async () => {
@@ -64,6 +64,11 @@ describe('authoritative supplier recheck and hold boundary', () => {
     expect(unmapped.holds.create).not.toHaveBeenCalled()
     const malformed = setup({ status: 'available', offer: { ...authority, currency: 'aed' } })
     await expect(malformed.service.execute(command)).resolves.toMatchObject({ status: 'rejected' })
+    for (const netAmountMinor of [undefined, 0, 125100]) {
+      const badNet = setup({ status: 'available', offer: { ...authority, netAmountMinor: netAmountMinor as number } })
+      await expect(badNet.service.execute(command)).resolves.toMatchObject({ status: 'rejected' })
+      expect(badNet.holds.create).not.toHaveBeenCalled()
+    }
   })
 
   it('sanitizes supplier errors and creates no hold', async () => {

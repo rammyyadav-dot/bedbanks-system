@@ -52,7 +52,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
 
   const offerFor = (key: string, over: Partial<{ checkIn: string; checkOut: string; sellAmountMinor: number }> = {}) => ({
     offerId: `offer-${key}`, searchId: `search-${key}`, supplierId, supplierHotelId: `${suffix}-sh`, supplierRoomId: `${suffix}-sr`, canonicalHotelId: hotelId, canonicalRoomTypeId: roomId,
-    ratePlanId, boardBasisId: boardId, ...stay, rooms: 1, adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: price, expiresAt: '2099-03-01T12:00:00.000Z', ...over,
+    ratePlanId, boardBasisId: boardId, ...stay, rooms: 1, adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: price, netAmountMinor: 100_000, expiresAt: '2099-03-01T12:00:00.000Z', ...over,
   })
   const holdOffer = (key: string, requestKey = key, expectedSellAmountMinor = price) => {
     recheckResult = { status: 'available', offer: offerFor(key) }
@@ -158,6 +158,9 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     expect(pre.status).toBe('prebooked')
     expect((await prebook(key, held.holdId!)).bookingId).toBe(pre.bookingId)
     expect(await prisma.booking.count({ where: { tenantId, idempotencyKey: key } })).toBe(1)
+    const stored = await prisma.booking.findUniqueOrThrow({ where: { id: pre.bookingId }, include: { rooms: { select: { sellMinor: true, netMinor: true } } } })
+    expect(stored).toMatchObject({ netMinor: 100_000n, markupMinor: BigInt(price - 100_000), totalMinor: BigInt(price) })
+    expect(stored.rooms).toEqual([{ sellMinor: BigInt(price), netMinor: 100_000n }])
     expect(await ledgerTypes(pre.bookingId)).toEqual([{ type: 'HOLD', amountMinor: -BigInt(price) }])
 
     // no voucher before confirmation

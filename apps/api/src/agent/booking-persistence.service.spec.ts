@@ -148,9 +148,24 @@ describe('BookingPersistenceService', () => {
     expect(tx.booking.create.mock.calls[0][0].data.cancellationPolicy).toMatchObject({ rules: [{ daysBeforeCheckin: 7, penaltyPercent: 50 }], setName: null, source: 'CONTRACT_AT_BOOKING' })
     expect(tx.agencyMember.findUnique).toHaveBeenCalledWith({ where: { tenantId_userId: { tenantId: 'tenant-a', userId: 'user-a' } }, select: { agencyId: true } })
     expect(tx.bookingRoom.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-a', bookingId: 'booking-a', quantity: 2, roomName: 'Deluxe Sea View', boardCode: 'BB', adults: 2, children: 0, sellMinor: 125099n })
+    expect(tx.booking.create.mock.calls[0][0].data).not.toHaveProperty('netMinor')
+    expect(tx.bookingRoom.create.mock.calls[0][0].data).not.toHaveProperty('netMinor')
     expect(tx.bookingGuest.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-a', bookingId: 'booking-a', roomId: 'room-row-a', firstName: 'Test', lastName: 'Guest', isLead: true })
     expect(tx.bookingEvent.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-a', bookingId: 'booking-a', fromStatus: null, toStatus: 'PENDING_SUPPLIER', actorType: 'USER', actorId: 'user-a' })
     expect(JSON.stringify(tx.bookingEvent.create.mock.calls[0][0].data)).not.toMatch(/Guest|Test/) // no guest name in the log
+  })
+
+  it('copies the supplier net frozen on the hold onto the booking and its room line', async () => {
+    const { service, tx } = setup({ hold: { ...hold, netAmountMinor: 100_000n } })
+    await service.persistPending(command)
+    expect(tx.booking.create.mock.calls[0][0].data).toMatchObject({ totalMinor: 125099n, netMinor: 100_000n, markupMinor: 25_099n })
+    expect(tx.bookingRoom.create.mock.calls[0][0].data).toMatchObject({ sellMinor: 125099n, netMinor: 100_000n })
+  })
+
+  it('refuses a hold whose frozen supplier net exceeds the sell', async () => {
+    const { service, tx } = setup({ hold: { ...hold, netAmountMinor: 125100n } })
+    await expect(service.persistPending(command)).rejects.toBeInstanceOf(ConflictException)
+    expect(tx.booking.create).not.toHaveBeenCalled()
   })
 
   it('leaves the agency null (Unassigned) when the booking user has no agency membership', async () => {

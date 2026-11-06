@@ -11,6 +11,8 @@ export interface AuthoritativeHoldCommand extends InventoryHoldRequest {
   tenantId: string
   userId: string
   requestId: string
+  /** Supplier net in the hold currency, frozen from recheck. Omitted only by callers that are not a portal recheck. */
+  netAmountMinor?: number
 }
 
 export function stayDates(checkIn: string, checkOut: string): Date[] {
@@ -22,12 +24,14 @@ export function stayDates(checkIn: string, checkOut: string): Date[] {
   return Array.from({ length: nights }, (_, index) => new Date(start + index * 86_400_000))
 }
 
-export function holdFingerprint(input: InventoryHoldRequest): string {
+export function holdFingerprint(input: InventoryHoldRequest & { netAmountMinor?: number }): string {
   const canonical = {
     offerId: input.offerId, searchId: input.searchId, ratePlanId: input.ratePlanId,
     canonicalHotelId: input.canonicalHotelId, canonicalRoomTypeId: input.canonicalRoomTypeId,
     boardBasisId: input.boardBasisId, checkIn: input.checkIn, checkOut: input.checkOut,
     rooms: input.rooms, currency: input.currency, sellAmountMinor: input.sellAmountMinor,
+    // Present only when the hold freezes a supplier net, so older keys keep their fingerprint.
+    ...(input.netAmountMinor !== undefined ? { netAmountMinor: input.netAmountMinor } : {}),
     offerExpiresAt: input.offerExpiresAt,
   }
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
@@ -55,6 +59,7 @@ export class InventoryHoldService {
           canonicalRoomTypeId: command.canonicalRoomTypeId, boardBasisId: command.boardBasisId,
           checkIn: new Date(`${command.checkIn}T00:00:00.000Z`), checkOut: new Date(`${command.checkOut}T00:00:00.000Z`),
           rooms: command.rooms, currency: command.currency, sellAmountMinor: BigInt(command.sellAmountMinor),
+          ...(command.netAmountMinor !== undefined ? { netAmountMinor: BigInt(command.netAmountMinor) } : {}),
           idempotencyKey: command.idempotencyKey, requestFingerprint: fingerprint, requestId: command.requestId,
           createdByUserId: command.userId, status: 'HOLD_PENDING', expiresAt: holdExpiry,
         } })
@@ -164,6 +169,7 @@ export class InventoryHoldService {
     if (!/^[A-Za-z0-9._:-]{8,128}$/.test(command.idempotencyKey)) throw new BadRequestException('Invalid idempotency key')
     if (!Number.isSafeInteger(command.rooms) || command.rooms < 1 || command.rooms > 8) throw new BadRequestException('Invalid room quantity')
     if (!Number.isSafeInteger(command.sellAmountMinor) || command.sellAmountMinor < 0) throw new BadRequestException('Invalid sell amount')
+    if (command.netAmountMinor !== undefined && (!Number.isSafeInteger(command.netAmountMinor) || command.netAmountMinor < 1 || command.netAmountMinor > command.sellAmountMinor)) throw new BadRequestException('Invalid supplier net')
     assertSupportedSettlementCurrency(command.currency)
     stayDates(command.checkIn, command.checkOut)
     if (!Number.isFinite(Date.parse(command.offerExpiresAt)) || Date.parse(command.offerExpiresAt) <= Date.now()) throw new ConflictException('Offer expired')
