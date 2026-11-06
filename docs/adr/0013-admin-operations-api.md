@@ -23,6 +23,16 @@ Until grants exist, the transaction views return `OPERATIONS_READ_DENIED` on the
 - **B.** Widen `fbeds_api` with the same SELECTs and update the self-check. Simpler, but it enlarges the blast radius of the process that serves Agent traffic.
 Reconciliation needs write privileges that neither option grants; it remains an operator action through a privileged path until a human decides. This ADR does not change any grant.
 
+## Amendment: acknowledgement, voucher and cancellation money facts
+
+The same pure function also compares three facts the booking role can read with the stock and wallet evidence the operations read already uses:
+
+- Supplier acknowledgement (latest prebook, book and cancel journal row). An accepted book on a stay that was never confirmed, a confirmed stay whose prebook or book was not accepted, and a cancel acknowledgement that disagrees with the booking are `ACKNOWLEDGEMENT_MISMATCH`. An accepted prebook that later expires is not this flag.
+- Voucher. A voucher on a stay that was never confirmed, on a sold stay whose hold is not `CONFIRMED` or whose wallet has no charge, or on a cancelled stay whose hold was not released, is `VOUCHER_MISMATCH`. A missing voucher is not a flag: vouchers are issued on first view.
+- Cancellation money. A posted refund or a recorded refund above the sell, a refund posted with no charge, or a `CANCELLED` finance fact whose penalty and refund do not add to its sell, whose sell differs from the booking, whose refund differs from the cancellation record, or which exists while the booking is not cancelled, is `MONEY_FACT_MISMATCH`. That fact is not compared with the wallet until Finance posts it.
+
+When the booking role is not configured or cannot read, those three facts are left unread. The stock and wallet flags still run. An unread fact is not reported as a match.
+
 ## Consequences
 - Runtime RLS for these tables is proven under a non-bypass test role (`ADMIN-RLS`), not under the production login role: `RUNTIME_RLS=BLOCKED` for transaction tables until the grants above exist.
 - Rollback: remove `AdminOperationsModule` and the `admin/operations` routes; Admin pages revert to placeholders. No schema or migration was changed.

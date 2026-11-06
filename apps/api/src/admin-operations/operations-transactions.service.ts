@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import type {
   AuditEventView, BookingAttention, BookingOperations, BookingRow, CancellationRow, ConnectorExecutionView, ConnectorRow,
@@ -14,7 +14,8 @@ import { accountAging, agencyPosition, creditLineResolver, creditRiskMode, overd
 import { BookingReconciliationService } from '../agent/booking-reconciliation.service'
 import { documentKindFromRoute } from '../agent/booking-document.service'
 import { renderBookingDocument } from '../agent/booking-document.render'
-import { bookingAttention, DEFAULT_PREBOOK_MAX_MINUTES, DEFAULT_STALE_MINUTES } from './booking-attention'
+import { acknowledgementOf, bookingAttention, DEFAULT_PREBOOK_MAX_MINUTES, DEFAULT_STALE_MINUTES, type AcknowledgementFacts, type FinanceCancellationFact } from './booking-attention'
+import { BookingOpsDatabase } from '../booking-ops/booking-ops-database'
 import { supplierMutationAcceptedReference } from '../agent/supplier-mutation-journal.service'
 import { day, guardedRead, iso, sectionRead } from './operations-read'
 import { dayParam, endOfDay, enumParam, idParam, intParam, likeLiteral, pageParams, paged, textParam } from './query-params'
@@ -36,10 +37,13 @@ export function auditView(row: { id: string; createdAt: Date; action: string; en
   return { id: row.id, at: row.createdAt.toISOString(), action: row.action, entityType: row.entityType, entityId: row.entityId, actorType: row.actorType, userId: row.userId, requestId: str(payload.requestId), correlationId: str(payload.correlationId), payload }
 }
 
+/** Supplier acknowledgement, the voucher, and the cancellation money fact for one booking. Absent when that read did not run. */
+type JournalSlice = { acknowledgement: AcknowledgementFacts; voucherIssued: boolean; financeCancellation: FinanceCancellationFact | null }
+
 /** Read-only, tenant-scoped transaction views for Admin. Tenant always comes from the authenticated server context. */
 @Injectable()
 export class OperationsTransactionsService {
-  constructor(private readonly prisma: PrismaService, private readonly reconciliation: BookingReconciliationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly reconciliation: BookingReconciliationService, @Optional() private readonly bookingOps?: BookingOpsDatabase) {}
 
   // ---- holds -------------------------------------------------------------------------------------------------------
   async holds(tenantId: string, query: Record<string, unknown>): Promise<Paged<HoldRow>> {
@@ -111,12 +115,46 @@ export class OperationsTransactionsService {
    */
   async attentionByBooking(tenantId: string, rows: Array<{ id: string; status: string; searchSnapshot: Prisma.JsonValue }>): Promise<Map<string, BookingAttention[]> | null> {
     if (rows.length === 0) return new Map()
+    const journal = await this.loadJournal(tenantId, rows.map((b) => b.id))
     const read = await sectionRead(() => this.prisma.withTenant(tenantId, async tx => {
       const ev = await this.evidence(tx, tenantId, rows)
       const now = new Date()
-      return new Map(rows.map(b => [b.id, this.attentionFor(b, ev, now)] as const))
+      return new Map(rows.map(b => [b.id, this.attentionFor(b, ev, now, journal)] as const))
     }))
     return read.state === 'available' ? read.data : null
+  }
+
+  /**
+   * Supplier acknowledgement, voucher and cancellation money fact, read on the booking role.
+   * Null when that role is not configured or cannot read: the stock and wallet flags still run, and an unread fact is not treated as a match.
+   */
+  private async loadJournal(tenantId: string, ids: string[]): Promise<Map<string, JournalSlice> | null> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0 || !this.bookingOps?.configured()) return null
+    try {
+      return await this.bookingOps.withTenant(tenantId, async (tx) => {
+        const [mutations, vouchers, finance] = await Promise.all([
+          tx.supplierMutation.findMany({ where: { tenantId, bookingId: { in: unique } }, select: { bookingId: true, operation: true, status: true, supplierStatus: true, supplierReference: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
+          tx.bookingDocument.findMany({ where: { tenantId, bookingId: { in: unique }, type: 'VOUCHER' }, select: { bookingId: true } }),
+          tx.bookingFinanceEvent.findMany({ where: { tenantId, bookingId: { in: unique }, type: 'CANCELLED' }, select: { bookingId: true, refundMinor: true, penaltyMinor: true, sellMinor: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
+        ])
+        const mutationsByBooking = new Map<string, typeof mutations>()
+        for (const row of mutations) {
+          const list = mutationsByBooking.get(row.bookingId) ?? []
+          list.push(row)
+          mutationsByBooking.set(row.bookingId, list)
+        }
+        const voucherIds = new Set(vouchers.map((row) => row.bookingId))
+        const financeByBooking = new Map<string, FinanceCancellationFact>()
+        for (const row of finance) {
+          if (!financeByBooking.has(row.bookingId)) financeByBooking.set(row.bookingId, { refundMinor: row.refundMinor, penaltyMinor: row.penaltyMinor, sellMinor: row.sellMinor })
+        }
+        return new Map(unique.map((id) => [id, { acknowledgement: acknowledgementOf(mutationsByBooking.get(id) ?? []), voucherIssued: voucherIds.has(id), financeCancellation: financeByBooking.get(id) ?? null }]))
+      })
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) return null
+      throw error
+    }
   }
 
   private async evidence(tx: Prisma.TransactionClient, tenantId: string, bookings: Array<{ id: string; searchSnapshot: Prisma.JsonValue }>) {
@@ -141,20 +179,23 @@ export class OperationsTransactionsService {
     return rows
   }
 
-  private attentionFor(booking: { id: string; status: string; searchSnapshot: Prisma.JsonValue }, ev: Awaited<ReturnType<OperationsTransactionsService['evidence']>>, now: Date): BookingAttention[] {
+  private attentionFor(booking: { id: string; status: string; searchSnapshot: Prisma.JsonValue; totalMinor?: bigint }, ev: Awaited<ReturnType<OperationsTransactionsService['evidence']>>, now: Date, journal: Map<string, JournalSlice> | null): BookingAttention[] {
     const hold = ev.holds.get(snap(booking.searchSnapshot).inventoryHoldId ?? '')
     const entries = ev.ledger.filter(e => e.reference === `booking:${booking.id}` || e.idempotencyKey.startsWith(`booking:${booking.id}:`))
     const refund = entries.filter(e => e.type === 'REFUND').reduce((sum, e) => sum + e.amountMinor, 0n)
     const cancellation = ev.cancellations.get(booking.id)
+    const facts = journal?.get(booking.id)
     return bookingAttention({
       bookingStatus: booking.status, holdStatus: hold?.status ?? null, holdUpdatedAt: hold?.updatedAt ?? null, prebookAt: ev.prebooks.get(booking.id) ?? null,
       hasDebit: entries.some(e => e.type === 'DEBIT'), refundPostedMinor: refund, cancellation: cancellation ? { refundMinor: cancellation.refundMinor } : null, now,
       staleMinutes: DEFAULT_STALE_MINUTES, prebookMaxMinutes: DEFAULT_PREBOOK_MAX_MINUTES,
+      ...(booking.totalMinor !== undefined ? { sellMinor: booking.totalMinor } : {}),
+      ...(facts ? { acknowledgement: facts.acknowledgement, voucherIssued: facts.voucherIssued, financeCancellation: facts.financeCancellation } : {}),
     })
   }
 
   private async bookingRows(tx: Prisma.TransactionClient, tenantId: string, bookings: Array<Prisma.BookingGetPayload<object>>): Promise<BookingRow[]> {
-    const ev = await this.evidence(tx, tenantId, bookings)
+    const [ev, journal] = await Promise.all([this.evidence(tx, tenantId, bookings), this.loadJournal(tenantId, bookings.map((b) => b.id))])
     const hotelIds = [...new Set(bookings.map(b => b.hotelId))]
     const hotels = hotelIds.length ? await tx.hotel.findMany({ where: { tenantId, id: { in: hotelIds } }, select: { id: true, name: true } }) : []
     const roomIds = [...new Set(bookings.map(b => str(snap(b.searchSnapshot).roomTypeId ?? snap(b.searchSnapshot).canonicalRoomTypeId)).filter((v): v is string => v !== null))]
@@ -167,7 +208,7 @@ export class OperationsTransactionsService {
       return {
         id: b.id, reference: b.reference, status: b.status, tenantId: b.tenantId, supplier: b.supplier, hotelId: b.hotelId, hotelName: hn.get(b.hotelId) ?? null,
         roomName: rn.get(str(s.roomTypeId ?? s.canonicalRoomTypeId) ?? '') ?? null, checkIn: str(s.checkIn), checkOut: str(s.checkOut), currency: b.currency, totalMinor: b.totalMinor.toString(),
-        createdAt: b.createdAt.toISOString(), holdId: str(s.inventoryHoldId), attention: this.attentionFor(b, ev, now),
+        createdAt: b.createdAt.toISOString(), holdId: str(s.inventoryHoldId), attention: this.attentionFor(b, ev, now, journal),
       }
     })
   }
@@ -182,12 +223,13 @@ export class OperationsTransactionsService {
       const holdId = str(s.inventoryHoldId)
       const roomTypeId = str(s.roomTypeId ?? s.canonicalRoomTypeId)
       const boardBasisId = str(s.boardBasisId)
-      const [hotel, room, board, hold, ev] = await Promise.all([
+      const [hotel, room, board, hold, ev, journal] = await Promise.all([
         tx.hotel.findFirst({ where: { tenantId, id: booking.hotelId }, select: { name: true } }),
         roomTypeId ? tx.roomType.findFirst({ where: { hotel: { tenantId }, id: roomTypeId }, select: { name: true } }) : null,
         boardBasisId ? tx.boardBasis.findFirst({ where: { tenantId, id: boardBasisId }, select: { code: true } }) : null,
         holdId ? tx.inventoryHold.findFirst({ where: { tenantId, id: holdId }, include: { nights: { orderBy: { stayDate: 'asc' } } } }) : null,
         this.evidence(tx, tenantId, [booking]),
+        this.loadJournal(tenantId, [booking.id]),
       ])
       const availability = hold ? await this.availabilityFor(tx, tenantId, hold.nights.map(n => n.availabilityId)) : new Map()
       const entries = await tx.ledgerEntry.findMany({ where: { tenantId, OR: [{ reference: `booking:${booking.id}` }, { idempotencyKey: { startsWith: likeLiteral(`booking:${booking.id}:`) } }] }, orderBy: [{ immutableAt: 'asc' }, { id: 'asc' }] })
@@ -214,7 +256,7 @@ export class OperationsTransactionsService {
         documents: booking.documents.map(d => ({ type: d.type as 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE', number: d.number, issuedAt: d.issuedAt.toISOString() })),
         issuableDocuments: issuable,
         cancellation: { record: cancellation ? { reason: cancellation.reason, refundMinor: cancellation.refundMinor === null ? null : cancellation.refundMinor.toString(), createdAt: cancellation.createdAt.toISOString() } : null, refundPosted: refundPosted.toString() },
-        attention: this.attentionFor(booking, ev, new Date()),
+        attention: this.attentionFor(booking, ev, new Date(), journal),
         audit: views,
       }
     }))
@@ -562,7 +604,7 @@ export class OperationsTransactionsService {
         holds: { held: hc('HELD'), processing: hc('PROCESSING'), total: holds.reduce((n, h) => n + h._count._all, 0) },
         bookings: { pending: bc('PENDING_SUPPLIER'), confirmed: bc('CONFIRMED'), failed: bc('FAILED'), cancelled: bc('CANCELLED'), total: bookings.reduce((n, b) => n + b._count._all, 0) },
         reconciliationRequired: rows.filter(r => r.attention.includes('RECONCILIATION_REQUIRED') || r.attention.includes('PREBOOK_EXPIRED_UNRESOLVED')).length,
-        cancellationsMissingRefund: rows.filter(r => r.attention.includes('REFUND_MISSING') || r.attention.includes('CANCELLATION_RECORD_MISSING')).length,
+        cancellationsMissingRefund: rows.filter(r => r.attention.includes('REFUND_MISSING') || r.attention.includes('CANCELLATION_RECORD_MISSING') || r.attention.includes('MONEY_FACT_MISMATCH')).length,
       }
     }))
   }

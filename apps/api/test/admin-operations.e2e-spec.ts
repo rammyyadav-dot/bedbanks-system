@@ -50,11 +50,11 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
   const supplier = { prebook: async () => ({ supplierReference: 'contracted:test' }) } as unknown as SupplierAdapter
   const bookingTx = new BookingTransactionService(prisma, new SupplierPrebookOrchestrationService(persistence, finance, recovery, holds, audit, new SupplierMutationJournalService(prisma, audit), supplier), confirmation)
   const reconciliation = new BookingReconciliationService(prisma, finance, holds, audit)
-  const tx = new OperationsTransactionsService(prisma, reconciliation)
   // The booking list now reads through the booking module's own limited role (ADR 0039), provisioned in beforeAll on this disposable database.
   const opsPassword = `ops-${randomBytes(20).toString('hex')}`
   const opsUrl = (() => { const u = new URL(ownerUrl as string); u.username = BOOKING_OPS_LOGIN_ROLE; u.password = opsPassword; return u.toString() })()
   const opsDb = new BookingOpsDatabase({ DATABASE_URL: ownerUrl, BOOKING_OPS_DATABASE_URL: opsUrl })
+  const tx = new OperationsTransactionsService(prisma, reconciliation, opsDb)
   const bookingsRead = new OperationsBookingsService(opsDb, prisma, tx, new BookingSupplierRegistry({}), new BookingOpsQueueService(opsDb, prisma, new BookingSupplierRegistry({})), new BookingQueryService(opsDb, prisma))
   const operator: BookingAccessView = { level: 'OPERATOR', canViewNet: false, canViewPii: false, agencyId: null, permissions: [], manualEntry: false, supplierDispatch: false, opsQueue: false }
   const listBookings = (tenantId: string, query: Record<string, unknown> = {}) => bookingsRead.list(tenantId, 'test-user', operator, query, 'req-test')
@@ -393,6 +393,18 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
       const bBookings = await asRole(B.tenantId, async t => (await t.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM "Booking"')).map(r => r.id))
       expect(bBookings).not.toContain(confirmedA.bookingId)
     } finally { await raw.$disconnect() }
+  })
+
+  it('ADMIN-FACTS: a voucher on an unconfirmed booking and a cancellation money fact on a live booking are flagged', async () => {
+    await prisma.bookingDocument.create({ data: { tenantId: A.tenantId, bookingId: stuckA.bookingId, type: 'VOUCHER', number: `VCH-${suffix}`, payload: {} } })
+    const stuck = await tx.booking(A.tenantId, stuckA.bookingId)
+    expect(stuck.booking.status === 'PENDING_SUPPLIER' || stuck.booking.status === 'FAILED').toBe(true)
+    expect(stuck.attention).toContain('VOUCHER_MISMATCH')
+    expect(stuck.attention).not.toContain('ACKNOWLEDGEMENT_MISMATCH')
+    await prisma.bookingFinanceEvent.create({ data: { tenantId: A.tenantId, bookingId: confirmedA.bookingId, type: 'CANCELLED', currency: 'AED', sellMinor: 125_100n, penaltyMinor: 125_100n, refundMinor: 0n } })
+    const confirmed = await tx.booking(A.tenantId, confirmedA.bookingId)
+    expect(confirmed.attention).toContain('MONEY_FACT_MISMATCH')
+    expect(confirmed.attention).not.toContain('ACKNOWLEDGEMENT_MISMATCH')
   })
 
   // ---- privilege boundary -------------------------------------------------------------------------------------------------
