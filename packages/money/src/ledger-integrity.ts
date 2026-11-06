@@ -24,6 +24,8 @@ export type IntegrityCode =
   | 'RECEIPT_NOT_IN_LEDGER' | 'CREDIT_WITHOUT_RECEIPT'
   // ledger <-> adjustments and reversals (ADR 0100): each such entry is an approved, reasoned record; a reversal never takes back more than the receipt paid
   | 'ADJUSTMENT_WITHOUT_APPROVAL' | 'REVERSAL_EXCEEDS_RECEIPT'
+  // the approval that posted the entry has an immutable audit event naming that entry (ADR 0113)
+  | 'ADJUSTMENT_AUDIT_MISSING'
   // tamper evidence (ADR 0094): the per-wallet hash chain over the ledger
   | 'LEDGER_CHAIN_BROKEN' | 'LEDGER_CHAIN_ENTRY_UNCHAINED'
 
@@ -38,6 +40,8 @@ export const INTEGRITY_SEVERITY: Readonly<Record<IntegrityCode, IntegritySeverit
   RECEIPT_NOT_IN_LEDGER: 'critical', CREDIT_WITHOUT_RECEIPT: 'critical',
   // An ADJUSTMENT or REVERSAL with no approved record was posted around the maker-checker flow; a reversal above its receipt means money was taken back that was never received.
   ADJUSTMENT_WITHOUT_APPROVAL: 'critical', REVERSAL_EXCEEDS_RECEIPT: 'critical',
+  // An approved posting with no audit event cannot be tied to the person who approved it.
+  ADJUSTMENT_AUDIT_MISSING: 'critical',
   // A broken link means an entry was changed, removed or inserted outside the application. There is no benign cause.
   LEDGER_CHAIN_BROKEN: 'critical', LEDGER_CHAIN_ENTRY_UNCHAINED: 'critical',
 }
@@ -49,6 +53,8 @@ export interface IntegrityBooking { id: string; status: string; currency: string
 export interface IntegrityReceipt { id: string; status: string; accountId: string | null; ledgerEntryId: string | null; amountMinor: bigint; currency: string }
 /** An ADJUSTMENT or REVERSAL record (ADR 0100). `amountMinor` is the signed amount the ledger entry carries; a REVERSAL names the receipt it takes back. */
 export interface IntegrityAdjustment { id: string; kind: 'ADJUSTMENT' | 'REVERSAL'; status: string; accountId: string; ledgerEntryId: string | null; amountMinor: bigint; currency: string; receiptId: string | null }
+/** One `finance.ledger_adjustment.approved` audit event. Present only when the caller loaded the audit log (ADR 0113). */
+export interface IntegrityAdjustmentAudit { adjustmentId: string; ledgerEntryId: string | null }
 
 /** One fault found by the database's chain verifier (`fbeds_ledger_chain_breaks`). `seq` is null for an entry that has no link at all. */
 export interface ChainBreak { accountId: string; entryId: string | null; seq: number | null; reason: 'SEQUENCE_GAP' | 'PREV_HASH_MISMATCH' | 'ENTRY_MISSING' | 'ENTRY_HASH_MISMATCH' | 'ENTRY_UNCHAINED' }
@@ -61,6 +67,8 @@ export interface IntegrityInput {
   receipts: readonly IntegrityReceipt[]
   /** Adjustment and reversal records. Omit when they were not loaded; the adjustment rules are then not applied. */
   adjustments?: readonly IntegrityAdjustment[]
+  /** Approval audit events. Omit when the audit log was not loaded; the audit tie-out is then not applied. */
+  adjustmentAudits?: readonly IntegrityAdjustmentAudit[]
   /** Faults from the hash chain verifier. Omit when the chain was not checked. */
   chainBreaks?: readonly ChainBreak[]
   now: Date
@@ -223,6 +231,17 @@ export function checkLedgerIntegrity(input: IntegrityInput): IntegrityReport {
     for (const [receiptId, reversed] of reversedByReceipt) {
       const r = receipts.get(receiptId)
       if (!r || r.status !== 'POSTED' || reversed > r.amountMinor) add('REVERSAL_EXCEEDS_RECEIPT', { currency: r?.currency ?? null, receiptId, accountId: r?.accountId ?? null }, { receiptMinor: r?.amountMinor ?? 0n, reversedMinor: reversed })
+    }
+
+    // An approved posting is auditable only when its approval event names that exact entry. The rule is off when the audit log was not loaded.
+    if (input.adjustmentAudits) {
+      const evidence = new Set(input.adjustmentAudits.flatMap(a => (a.ledgerEntryId ? [`${a.adjustmentId}:${a.ledgerEntryId}`] : [])))
+      for (const e of input.entries) {
+        if (e.type !== 'ADJUSTMENT' && e.type !== 'REVERSAL') continue
+        const a = approved.get(e.id)
+        if (!a || a.kind !== e.type || a.accountId !== e.accountId || a.amountMinor !== e.amountMinor || a.currency !== e.currency) continue
+        if (!evidence.has(`${a.id}:${e.id}`)) add('ADJUSTMENT_AUDIT_MISSING', { currency: e.currency, accountId: e.accountId, entryId: e.id }, { amountMinor: e.amountMinor })
+      }
     }
   }
 

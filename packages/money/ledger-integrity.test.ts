@@ -147,6 +147,17 @@ test('an adjustment or reversal entry with no approved record, or one that diffe
   assert.deepEqual(codes({ entries: [fee] }), [])
 })
 
+test('an approved adjustment whose approval audit does not name the posted entry is critical, and a matching audit is clean', () => {
+  const fee = e('ADJUSTMENT', -2_500n, 'adjustment:a1', 'adjustment:a1')
+  const adjustments = [adj('a1', 'ADJUSTMENT', fee)]
+  assert.deepEqual(codes({ entries: [fee], adjustments, adjustmentAudits: [] }), ['ADJUSTMENT_AUDIT_MISSING'])
+  assert.deepEqual(codes({ entries: [fee], adjustments, adjustmentAudits: [{ adjustmentId: 'a1', ledgerEntryId: 'other' }] }), ['ADJUSTMENT_AUDIT_MISSING'])
+  assert.deepEqual(codes({ entries: [fee], adjustments, adjustmentAudits: [{ adjustmentId: 'a1', ledgerEntryId: fee.id }] }), [])
+  // The rule is off when the audit log was not loaded, and it does not double-count an entry that already has no approval.
+  assert.deepEqual(codes({ entries: [fee], adjustments }), [])
+  assert.deepEqual(codes({ entries: [fee], adjustments: [], adjustmentAudits: [] }), ['ADJUSTMENT_WITHOUT_APPROVAL'])
+})
+
 test('reversals above what the receipt paid, or of a receipt that was never posted, are critical', () => {
   const credit = e('CREDIT', 1_000n, 'funding:r1', 'funding:r1')
   const r1 = e('REVERSAL', -700n, 'funding:r1:reversal:a1', 'funding:r1')
