@@ -41,8 +41,20 @@ Create `docs/ops/staging-acceptance-signoff.json` (do not commit a signature you
     { "role": "operations", "name": "<person>", "signedAt": "2026-11-04T18:00:00+05:30", "statement": "I accept the staging evidence for this SHA." },
     { "role": "security", "name": "<person>", "signedAt": "2026-11-04T18:00:00+05:30", "statement": "I accept the staging evidence for this SHA." },
     { "role": "product", "name": "<person>", "signedAt": "2026-11-04T18:00:00+05:30", "statement": "I accept the staging evidence for this SHA." }
-  ]
+  ],
+  "accessReview": {
+    "reviewer": "<the security signer, same name>",
+    "reviewedAt": "2026-11-06T11:30:00+05:30",
+    "generatedAt": "<generatedAt from the Access reviews summary>",
+    "surface": "admin:/access-review",
+    "staleLoginDays": 90,
+    "statement": "I reviewed tenant access assignments for this SHA on the staging Access reviews page and recorded a disposition for every flag.",
+    "counts": { "total": 0, "holdingSensitive": 0, "noRole": 0, "inactive": 0, "neverLoggedIn": 0, "staleLogin": 0 },
+    "dispositions": { "HOLDS_SENSITIVE": "accepted", "NO_ROLE": "accepted", "INACTIVE": "accepted", "NEVER_LOGGED_IN": "accepted", "STALE_LOGIN": "accepted" }
+  }
 }
 ```
 
-`node tools/ops/staging-signoff.mjs --sha <sha>` prints `OPEN` or `SIGNED`. Four distinct people, one per role, the exact statement, and the deployed SHA are required. The search budget, the restore drill and a recorded staging deploy must also be clear before anyone treats the gate as closed. Product and security signatures are not legal approval of the privacy notice (`privacyPolicyApproved` stays false).
+The security owner completes `docs/release-checklists/staging-access-review.md` on the staging Admin **Access reviews** page before signing. The `accessReview` object is that checklist: aggregate counts and one disposition (`accepted` or `remediated`) for every flag. It names no member and contains no email address. A record without it stays `OPEN`.
+
+`node tools/ops/staging-signoff.mjs --sha <sha>` prints `OPEN` or `SIGNED`. Four distinct people, one per role, the exact statement, the access-assignment review, and the deployed SHA are required. The search budget, the restore drill and a recorded staging deploy must also be clear before anyone treats the gate as closed. Product and security signatures are not legal approval of the privacy notice (`privacyPolicyApproved` stays false).
