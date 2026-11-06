@@ -267,7 +267,7 @@ describe('inventory hold PostgreSQL concurrency', () => {
     const offer = { offerId: 'verified-offer', searchId: 'verified-search', supplierId, supplierHotelId: `${suffix}-supplier-hotel`,
       supplierRoomId: `${suffix}-supplier-room`, canonicalHotelId: hotelId, canonicalRoomTypeId: roomId,
       ratePlanId, boardBasisId: boardId, checkIn: '2099-01-01', checkOut: '2099-01-03', rooms: 1,
-      adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: 125099, expiresAt: '2099-01-01T12:00:00.000Z' }
+      adults: 2, children: 0, childAges: [], currency: 'AED', sellAmountMinor: 125099, netAmountMinor: 100_000, expiresAt: '2099-01-01T12:00:00.000Z' }
     const supplier = { name: 'postgres-test-adapter', search: jest.fn(), recheck: jest.fn().mockResolvedValue({ status: 'available', offer }),
       prebook: jest.fn(), cancel: jest.fn() } as unknown as SupplierAdapter
     const service = new OfferHoldService(supplier, prisma, holds, new AgentAuditService(prisma))

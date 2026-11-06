@@ -167,7 +167,8 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
         childAges: [...stored.childAges],
         currency: stored.currency,
         ...(stored.contractCurrency ? { contractCurrency: stored.contractCurrency } : {}),
-        sellAmountMinor: decision,
+        sellAmountMinor: decision.sellAmountMinor,
+        netAmountMinor: decision.netAmountMinor,
         expiresAt: stored.expiresAt,
       }
       return { status: 'available', offer }
@@ -567,7 +568,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     return { hotel, rate }
   }
 
-  private async reprice(tenantId: string, userId: string | undefined, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<number | null> {
+  private async reprice(tenantId: string, userId: string | undefined, stored: StoredOffer, restrictions: DistributionRestrictions): Promise<{ sellAmountMinor: number; netAmountMinor: number } | null> {
     const criteria: SearchCriteria = {
       destination: '',
       canonicalHotelIds: [stored.canonicalHotelId],
@@ -591,7 +592,11 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
     const priced = this.pricePlan(plan, { ...criteria, destination: plan.roomType.hotel.city }, tenantId, nights, new Date(), stored.expiresAt, rules, buyer, false, fx)
     // An on-request night is never confirmed inventory: a recheck of it is unavailable, never an upgrade to held.
     if (!priced || !priced.rate.available || priced.rate.ratePlanId !== stored.ratePlanId || priced.rate.supplierRoomId !== stored.supplierRoomId) return null
-    return priced.rate.sellAmountMinor
+    const sellAmountMinor = priced.rate.sellAmountMinor
+    const netAmountMinor = priced.rate.netAmountMinor
+    // The evaluator's supplier cost: the marked-up NET stay's net, or the contracted amount when the basis is SELL (markup is zero).
+    if (!Number.isSafeInteger(sellAmountMinor) || !Number.isSafeInteger(netAmountMinor) || netAmountMinor < 1 || netAmountMinor > sellAmountMinor) return null
+    return { sellAmountMinor, netAmountMinor }
   }
 
   private remember(offer: StoredOffer): void {

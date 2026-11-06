@@ -205,6 +205,10 @@ describe.each([1, 100])('contracted inventory search and recheck over %i hotel(s
       expect(rate).toMatchObject({ netAmountMinor: net, markupAmountMinor: markup, sellAmountMinor: net + markup, totalAmountMinor: net })
       expect(rate.sellAmountMinor).toBe(rate.netAmountMinor! + rate.markupAmountMinor)
     })
+    const [{ rate }] = flat(result.offers)
+    const rechecked = await adapter.recheck({ offerId: rate!.offerId, searchId: 'search-a' } as never, context)
+    expect(rechecked).toMatchObject({ status: 'available', offer: { sellAmountMinor: rate!.sellAmountMinor, netAmountMinor: rate!.netAmountMinor } })
+    expect(rate!.netAmountMinor).toBeLessThan(rate!.sellAmountMinor)
   })
 
   it('promotions and supplements: discount the net, add supplements after it, mark up the sum, and name both on the offer', async () => {
@@ -269,7 +273,7 @@ describe.each([1, 100])('contracted inventory search and recheck over %i hotel(s
     const pick = [rows[0]!, rows[Math.floor(rows.length / 2)]!, rows[rows.length - 1]!]
     for (const { rate } of pick) {
       const result = await adapter.recheck({ offerId: rate.offerId, searchId: 'search-a' } as never, context)
-      expect(result).toMatchObject({ status: 'available', offer: { offerId: rate.offerId, sellAmountMinor: rate.sellAmountMinor, currency: 'AED', rooms: 1, adults: 2, canonicalHotelId: rate.canonicalHotelId, expiresAt: rate.expiresAt } })
+      expect(result).toMatchObject({ status: 'available', offer: { offerId: rate.offerId, sellAmountMinor: rate.sellAmountMinor, netAmountMinor: rate.netAmountMinor, currency: 'AED', rooms: 1, adults: 2, canonicalHotelId: rate.canonicalHotelId, expiresAt: rate.expiresAt } })
     }
     const [first, middle, last] = pick
     const firstFixture = store.fixtures.find((f) => f.hotel.id === first!.hotel.hotelId)!

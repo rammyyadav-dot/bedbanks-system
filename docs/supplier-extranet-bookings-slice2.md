@@ -58,7 +58,7 @@ supplier_id is null · channel is `PORTAL` · snapshot names exactly one hold an
 Not covered, by design: supplier-aware RLS on `Booking` (shared with the booking role; application filter plus column grants instead), read auditing of guest names (no invariant requires it; reconsider if suppliers get guest contact data), rate limiting beyond the global limits, MFA.
 
 ## 6. Known limitations
-1. **Net is not captured at booking time.** The creation path stores `BookingRoom.sell_minor` only. Every contracted booking therefore shows net as **Not recorded** until a slice stores the supplier net per room at creation. This is the main gap for the "room-level net" requirement: the plumbing, reconciliation rules and UI are done and tested with fixture data, but there is no production data to show yet.
+1. **Portal bookings created after the supplier-net column freeze their net.** Recheck writes `InventoryHold.net_amount_minor`, and creation copies it onto the booking and its room line. Bookings made earlier, and holds that were not repriced, still show **Not recorded**. Nothing backfills a net from current rates.
 2. Booking creation itself is gated off in this deployment ("booking is disabled"); ownership therefore applies to new bookings only once booking is enabled, and the backfill covers what exists.
 3. The booking status shown is the platform status; supplier-side statuses and SLA clocks are slice 3.
 4. Hotel name is shown even if the hotel's mapping for the supplier was later rejected (the booking is the supplier's own).
@@ -66,7 +66,7 @@ Not covered, by design: supplier-aware RLS on `Booking` (shared with the booking
 6. The older single `Booking.supplier` string is untouched.
 
 ## 7. Slice 3 prerequisites (supplier answers: accept / reject / on request)
-- Store supplier net per room at creation (limitation 1) so answers and invoices reconcile.
+- Supplier net is now stored per room for a portal booking created from a repriced hold (limitation 1). Answers and invoices can reconcile those bookings. Older rows stay **Not recorded**.
 - ADR amendment for the answer state machine, reusing the `booking-ops` supplier-answer path and `transitionBooking`; per-answer idempotency key, audit event, optimistic version.
 - A booking-role write path for the extranet (the API role must stay write-less on booking tables) or a dedicated narrow role, with column-level UPDATE grants and its own strict-role e2e.
 - Notification and SLA design; supplier-side status vocabulary.

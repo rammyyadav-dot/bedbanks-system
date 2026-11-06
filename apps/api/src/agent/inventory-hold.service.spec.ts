@@ -12,6 +12,8 @@ describe('inventory hold contract helpers', () => {
     expect(holdFingerprint(input)).toHaveLength(64)
     expect(holdFingerprint({ ...input })).toBe(holdFingerprint(input))
     expect(holdFingerprint({ ...input, sellAmountMinor: input.sellAmountMinor + 1 })).not.toBe(holdFingerprint(input))
+    expect(holdFingerprint({ ...input, netAmountMinor: 100_000 })).not.toBe(holdFingerprint(input))
+    expect(holdFingerprint({ ...input, netAmountMinor: 100_000 })).toBe(holdFingerprint({ ...input, netAmountMinor: 100_000 }))
   })
   it('rejects invalid and excessive stay ranges', () => {
     expect(() => stayDates('2026-10-04', '2026-10-01')).toThrow('Invalid stay dates')

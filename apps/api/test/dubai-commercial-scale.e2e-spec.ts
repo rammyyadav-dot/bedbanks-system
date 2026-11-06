@@ -35,7 +35,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
   let contractId: string
   const offerAuthority = new Map<string, {
     supplierHotelId: string; supplierRoomId: string; canonicalHotelId: string; canonicalRoomTypeId: string
-    ratePlanId: string; boardBasisId: string; checkIn: string; checkOut: string; sellAmountMinor: number
+    ratePlanId: string; boardBasisId: string; checkIn: string; checkOut: string; sellAmountMinor: number; netAmountMinor: number
   }>()
   let canonicalOffers: SearchHotelOffer[] = []
 
@@ -60,7 +60,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
               supplierHotelId: hotel.supplierHotelId, supplierRoomId: room.supplierRoomId,
               canonicalHotelId: rate.canonicalHotelId, canonicalRoomTypeId: rate.canonicalRoomTypeId,
               ratePlanId: rate.ratePlanId, boardBasisId: rate.boardBasisId,
-              checkIn: criteria.checkIn, checkOut: criteria.checkOut, sellAmountMinor: rate.sellAmountMinor,
+              checkIn: criteria.checkIn, checkOut: criteria.checkOut, sellAmountMinor: rate.sellAmountMinor, netAmountMinor: rate.netAmountMinor,
             })
             return {
               ...rate, offerId, expiresAt: new Date(Date.now() + 300_000).toISOString(),
@@ -82,7 +82,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
           canonicalHotelId: authority.canonicalHotelId, canonicalRoomTypeId: authority.canonicalRoomTypeId,
           ratePlanId: authority.ratePlanId, boardBasisId: authority.boardBasisId,
           checkIn: authority.checkIn, checkOut: authority.checkOut, rooms: 1, adults: 2, children: 0, childAges: [],
-          currency: 'AED', sellAmountMinor: authority.sellAmountMinor, expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          currency: 'AED', sellAmountMinor: authority.sellAmountMinor, netAmountMinor: authority.netAmountMinor, expiresAt: new Date(Date.now() + 300_000).toISOString(),
         },
       }
     },

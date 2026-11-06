@@ -13,7 +13,10 @@ export interface RecheckedOfferAuthority {
   offerId: string; searchId: string; supplierId: string; supplierHotelId: string; supplierRoomId: string
   canonicalHotelId: string; canonicalRoomTypeId: string; ratePlanId: string; boardBasisId: string
   checkIn: string; checkOut: string; rooms: number; adults: number; children: number; childAges: number[]
-  currency: string; sellAmountMinor: number; expiresAt: string
+  currency: string; sellAmountMinor: number
+  /** Supplier net in `currency`, from the same reprice as `sellAmountMinor`. Never taken from the client. */
+  netAmountMinor: number
+  expiresAt: string
   /** ADR 0067 F-12: the contract currency when the offer was converted at a controlled rate. */
   contractCurrency?: string
 }

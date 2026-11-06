@@ -107,6 +107,7 @@ export const PRIVILEGE_PROBES: ReadonlyArray<{ name: string; sql: string; expect
   { name: 'SELECT granted InventoryHold columns', sql: `SELECT "id", "tenant_id", "rate_plan_id", "status" FROM "InventoryHold" WHERE false`, expected: 'allowed' },
   { name: 'SELECT granted InventoryHoldNight columns', sql: `SELECT "tenant_id", "hold_id", "pool_day_id", "counter_kind", "quantity" FROM "InventoryHoldNight" WHERE false`, expected: 'allowed' },
   { name: 'SELECT InventoryHold.sell_amount_minor', sql: `SELECT "sell_amount_minor" FROM "InventoryHold" WHERE false`, expected: 'denied' },
+  { name: 'SELECT InventoryHold.net_amount_minor', sql: `SELECT "net_amount_minor" FROM "InventoryHold" WHERE false`, expected: 'denied' },
   { name: 'SELECT * FROM InventoryHold', sql: `SELECT * FROM "InventoryHold" WHERE false`, expected: 'denied' },
   // Supplier extranet booking reads (ADR 0061 Amendment 1): named columns only, never a write, never money-sensitive or personal columns.
   { name: 'SELECT granted Booking columns', sql: `SELECT "id", "tenant_id", "reference", "supplier_id", "hotel_id", "status", "currency", "net_minor", "check_in", "check_out", "nights", "supplier_ref", "hotel_confirmation_no", "created_at", "updated_at" FROM "Booking" WHERE false`, expected: 'allowed' },

@@ -67,7 +67,7 @@ describe('API runtime role contract (the single definition)', () => {
     for (const table of ['InventoryHold', 'InventoryHoldNight']) {
       const g = byTable.get(table)!
       expect({ table, writes: g.writes.length, tableLevelRead: g.readColumns === undefined, columns: (g.readColumns ?? []).length > 0 }).toEqual({ table, writes: 0, tableLevelRead: false, columns: true })
-      expect(g.readColumns).not.toEqual(expect.arrayContaining(['sell_amount_minor']))
+      expect(g.readColumns).not.toEqual(expect.arrayContaining(['sell_amount_minor', 'net_amount_minor']))
     }
     // The booking tables are readable ONLY through named columns for the supplier extranet (ADR 0061 Amendment 1): never written, and no money-sensitive or personal column beyond the lead name.
     const FORBIDDEN_BOOKING_COLUMNS = ['total_minor', 'sell_minor', 'markup_minor', 'fx_rate', 'search_snapshot', 'agency_id', 'agent_user_id', 'agent_ref', 'channel', 'payment_mode', 'payment_status', 'supplier', 'idempotency_key', 'rate_key', 'child_ages', 'cancellation_policy', 'assigned_to_id']

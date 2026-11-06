@@ -63,7 +63,7 @@ export class OfferHoldService {
         offerId: offer.offerId, searchId: offer.searchId, ratePlanId: offer.ratePlanId,
         canonicalHotelId: offer.canonicalHotelId, canonicalRoomTypeId: offer.canonicalRoomTypeId,
         boardBasisId: offer.boardBasisId, checkIn: offer.checkIn, checkOut: offer.checkOut,
-        rooms: offer.rooms, currency: offer.currency, sellAmountMinor: offer.sellAmountMinor,
+        rooms: offer.rooms, currency: offer.currency, sellAmountMinor: offer.sellAmountMinor, netAmountMinor: offer.netAmountMinor,
         offerExpiresAt: offer.expiresAt, idempotencyKey: command.idempotencyKey,
       })
       const response: OfferHoldResponse = { ...base, status: 'held', holdId: held.holdId, currency: held.currency,
@@ -89,6 +89,7 @@ export class OfferHoldService {
       offer.canonicalHotelId, offer.canonicalRoomTypeId, offer.ratePlanId, offer.boardBasisId]
     if (ids.some(value => typeof value !== 'string' || !value || value.trim() !== value) ||
       offer.offerId !== command.offerId || offer.searchId !== command.searchId || !safeInteger(offer.sellAmountMinor) ||
+      !safeInteger(offer.netAmountMinor) || offer.netAmountMinor < 1 || offer.netAmountMinor > offer.sellAmountMinor ||
       !Number.isSafeInteger(offer.rooms) || offer.rooms < 1 || offer.rooms > 8 || !Number.isSafeInteger(offer.adults) || offer.adults < 1 ||
       !Number.isSafeInteger(offer.children) || offer.children < 0 || !Array.isArray(offer.childAges) || offer.childAges.length !== offer.children ||
       offer.childAges.some(age => !Number.isSafeInteger(age) || age < 0 || age > 17)) return 'rejected'

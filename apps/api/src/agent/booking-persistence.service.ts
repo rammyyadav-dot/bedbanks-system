@@ -107,6 +107,7 @@ export class BookingPersistenceService {
         if (resolved.missing) throw new ConflictException('The rate plan names a cancellation rule set that has no rules')
         // ADR 0067 F-10: the buyer's tiers (after the contract's client buffer) and the stay length a nights penalty counts against.
         const stayNights = Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)
+        const netMinor = this.supplierNet(hold)
         const frozenTerms = freezeCancellationTerms(resolved.rules, command.currency, resolved.set, new Date(), { bufferDays: plan.contract.clientBufferDays, stayNights, timeZone: plan.roomType.hotel.timeZone, contractId: plan.contract.id, contractVersion: plan.contract.version, ratePlanId: plan.id })
         if (frozenTerms === null) throw new ConflictException('The cancellation terms of this rate plan cannot be recorded on the booking')
         // ADR 0067 F-12: a contract in another currency was priced at the ACTIVE controlled rate; that rate (with its buffer) is frozen on the
@@ -129,6 +130,8 @@ export class BookingPersistenceService {
             status: 'PENDING_SUPPLIER',
             currency: command.currency,
             totalMinor: BigInt(command.totalMinor),
+            // ADR 0061: the supplier net was frozen on the hold at recheck. Copy it here; do not re-read today's rates.
+            ...(netMinor !== null ? { netMinor, markupMinor: BigInt(command.totalMinor) - netMinor } : {}),
             ...(fxRate ? { fxRate } : {}),
             idempotencyKey: command.idempotencyKey,
             searchSnapshot: snapshot,
@@ -148,6 +151,8 @@ export class BookingPersistenceService {
           data: {
             tenantId: command.tenantId, bookingId: created.id, position: 1, quantity: command.rooms, roomTypeId: command.canonicalRoomTypeId, roomName: room?.name ?? null, boardCode: board?.code?.trim() ?? null,
             adults: command.adults, children: command.children, childAges: command.childAges, sellMinor: BigInt(command.totalMinor),
+            // One room line carries the whole stay, so its net is the booking net, the same way its sell is the booking total.
+            ...(netMinor !== null ? { netMinor } : {}),
           },
         })
         // ADR 0066: every guest by room when the checkout sent them (validated against the held occupancy), otherwise the lead guest only.
@@ -216,6 +221,7 @@ export class BookingPersistenceService {
     rooms: number
     currency: string
     sellAmountMinor: bigint
+    netAmountMinor?: bigint | null
   }, command: BookingTransactionCommand): void {
     if (hold.status !== 'HELD') throw new ConflictException('Inventory hold is not active')
     if (hold.expiresAt.getTime() <= Date.now()) throw new ConflictException('Inventory hold has expired')
@@ -235,6 +241,14 @@ export class BookingPersistenceService {
     ) {
       throw new ConflictException('Booking intent does not match authoritative inventory hold')
     }
+  }
+
+  /** The net frozen on the hold, or null when that hold was not repriced. A net above the sell is refused. */
+  private supplierNet(hold: { sellAmountMinor: bigint; netAmountMinor?: bigint | null }): bigint | null {
+    const net = hold.netAmountMinor
+    if (net === null || net === undefined) return null
+    if (net < 1n || net > hold.sellAmountMinor) throw new ConflictException('Inventory hold supplier net is invalid')
+    return net
   }
 
   private existing(existing: BookingRecord, command: BookingTransactionCommand, snapshot: Prisma.InputJsonObject): BookingRecord {
