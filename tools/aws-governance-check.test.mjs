@@ -41,6 +41,7 @@ test('OIDC StringLike', () => assert.match(mutate([[`${T}/iam.tf`, 'test     = "
 test('wildcard IAM action', () => assert.match(mutate([[`${T}/iam.tf`, 'actions   = ["ecs:UpdateService"]', 'actions   = ["ecs:*"]']]).join('\n'), /wildcard action/))
 test('terraform apply in a workflow', () => assert.match(mutate([['.github/workflows/terraform-check.yml', 'validate', 'validate\n      - run: terraform apply -auto-approve']]).join('\n'), /apply/))
 test('long-lived AWS keys in a workflow', () => assert.match(mutate([['.github/workflows/aws-deploy.yml', /aws-actions\/configure-aws-credentials@[0-9a-f]{40} # v[\d.]+/, '$&\n        env:\n          AWS_ACCESS_KEY_ID: x']]).join('\n'), /long-lived/))
+test('rollback workflow stops using the tested script', () => assert.match(mutate([['.github/workflows/aws-rollback.yml', 'tools/ops/ecs-rollback.sh', 'echo inline']]).join('\n'), /ecs-rollback\.sh/))
 test('owner database URL in Terraform', () => assert.match(mutate([[`${T}/variables.tf`, 'BOOKING_ENABLED = "false"', 'BOOKING_ENABLED = "false"\n    MIGRATION_DATABASE_URL = "x"']]).join('\n'), /owner database/))
 
 // ---- WP3 rules ----

@@ -4,8 +4,8 @@ Stop the rollout, identify the deployed version, and roll back **application cod
 
 ## AWS ECS (staging and production)
 1. Confirm what is running: ECS console, or `aws ecs describe-services --cluster fbeds-<env> --services <svc> --query 'services[0].taskDefinition'`.
-2. Run the **AWS rollback** workflow (Actions → AWS rollback) from `main`: choose the environment (production needs the environment reviewers), the service, optionally a revision number, and a reason. Empty revision = the revision immediately before the running one.
-3. The workflow refuses a revision that is not pinned to an image digest, waits for the service to be stable, and fails if the service did not settle on the target revision (an ECS circuit-breaker bounce is a failure, not a rollback). The run summary records who, why, and from/to revisions.
+2. Run the **AWS rollback** workflow (Actions → AWS rollback) from `main`: choose the environment (production needs the environment reviewers), the service, optionally a revision number, and a reason. Empty revision = the revision immediately before the running one. The workflow checks out this repository and runs `tools/ops/ecs-rollback.sh`.
+3. The script refuses a revision that is not pinned to an image digest, waits for the service to be stable, and fails if the service did not settle on the target revision (an ECS circuit-breaker bounce is a failure, not a rollback). The run summary records who, why, and from/to revisions. `node --test tools/ops/ecs-rollback.test.mjs` runs that script against a stub AWS CLI. That certifies the procedure. It does not move a live service.
 4. Roll back dependents in the reverse of deploy order: portals first, then the API. If the bad release included a migration the older code cannot run against, stop and escalate to the owner instead of rolling back.
 5. Record the incident per `docs/runbooks/incident-response.md`; open a fix-forward pull request. Re-deploying the bad commit requires a new commit SHA.
 

@@ -7,7 +7,8 @@
  * What it does, over the public same-origin paths only: checks the proxy reaches the API, signs in with an AUTHORIZED TEST ACCOUNT (this creates one
  * session and nothing else), runs one Dubai search (one room, two adults), rechecks the first offer, proves the booking endpoints are closed, signs
  * out, and scans the served HTML and scripts for server-only values. It never creates a hold, booking, payment or any inventory change, never prints
- * the credentials, the cookie or a guest value, and exits non-zero on any failed check. Use only an isolated API and a test account.
+ * the credentials, the cookie or a guest value, and exits non-zero on any failed check. Hosted booking is certified closed only when context
+ * reports bookingEnabled false and hold, prebook and create each answer HTTP 503 with status booking_unavailable. Use only an isolated API and a test account.
  */
 
 const SECRET_PATTERNS = [/API_INTERNAL_URL/, /postgres(ql)?:\/\//i, /DATABASE_URL/, /fbeds_api_login/, /SUPPLIER_API_KEY|CONNECTOR_SECRET/i]
@@ -76,7 +77,7 @@ export async function runSmoke({ origin, email, password, fetchImpl = fetch, log
   check('H6 the session cookie is host-only, HttpOnly and Secure', problems.length === 0, problems.join('; '))
   const ctx = await json(await call('/api/v1/agent/context', {}, cookie))
   const tenantId = ctx?.data?.memberships?.[0]?.tenantId
-  check('H7 the authenticated context names the workspace from the server and reports booking state', typeof tenantId === 'string' && typeof ctx?.data?.bookingEnabled === 'boolean', `bookingEnabled=${ctx?.data?.bookingEnabled}`)
+  check('H7 the authenticated context names the workspace from the server and booking is closed', typeof tenantId === 'string' && ctx?.data?.bookingEnabled === false, `bookingEnabled=${ctx?.data?.bookingEnabled}`)
   if (!tenantId) return finish(results)
   const tenant = { 'x-fbeds-tenant-id': tenantId }
 
@@ -94,10 +95,23 @@ export async function runSmoke({ origin, email, password, fetchImpl = fetch, log
     check('H11 the authoritative recheck answers with a defined outcome', ['rechecked', 'price_changed', 'unavailable', 'offer_expired'].includes(rc?.data?.status), `status=${rc?.data?.status}`)
   }
 
-  // 5. booking stays closed
-  const bk = await call('/api/v1/agent/bookings', { method: 'POST', headers: tenant, body: '{}' }, cookie)
-  const hold = await call('/api/v1/agent/holds', { method: 'POST', headers: tenant, body: '{}' }, cookie)
-  check('H12 booking and hold endpoints are closed (no 2xx)', bk.status >= 400 && hold.status >= 400, `${bk.status}/${hold.status}`)
+  // 5. booking stays closed on the routes the API actually serves. A 404 or a validation 400 is not evidence the gate is shut.
+  const closedBody = async (path, body) => {
+    const response = await call(path, { method: 'POST', headers: tenant, body: JSON.stringify(body) }, cookie)
+    const payload = await json(response)
+    return response.status === 503 && (payload?.data?.status ?? payload?.status) === 'booking_unavailable'
+  }
+  const bookingClosed = await closedBody('/api/v1/agent/bookings', { bookingId: 'smoke-booking' })
+  const holdClosed = rate
+    ? await closedBody(`/api/v1/agent/offers/${encodeURIComponent(rate.offerId)}/hold`, {
+      searchId: search.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: rate.sellAmountMinor, idempotencyKey: 'smoke-hold-1',
+    })
+    : false
+  const prebookClosed = await closedBody('/api/v1/agent/prebook', {
+    inventoryHoldId: 'smoke-hold', idempotencyKey: 'smoke-prebook-1', adults: 2, children: 0, childAges: [],
+    leadGuest: { firstName: 'Test', lastName: 'Agent' }, termsAccepted: true,
+  })
+  check('H12 hold, prebook and create answer 503 booking_unavailable', bookingClosed && holdClosed && prebookClosed, `create=${bookingClosed} hold=${holdClosed} prebook=${prebookClosed}`)
 
   // 6. sign out
   await call('/api/v1/auth/logout', { method: 'POST', body: '{}' }, cookie)

@@ -23,7 +23,7 @@ Journey SLIs (ADR 0112, dashboard `fbeds-<env>-operations`): authentication, sea
 
 Scheduled jobs (when enabled): compliance export/verify heartbeats, hotel-search reindex heartbeat.
 
-Confirm after each environment apply that the topic has a confirmed subscriber; an alarm with no subscriber is not monitoring. Delivery to a real mailbox is an owner-run staging drill, not a CI check.
+Confirm after each environment apply that the topic has a confirmed subscriber; an alarm with no subscriber is not monitoring. `node tools/ops/alarm-delivery.mjs --subscriber <on-call address>` fails unless every CloudWatch alarm publishes to that topic, and it delivers the booking and cancellation server-error pages for a built-in fixture. With no subscriber it exits 2 and delivers nothing. That is the delivery contract. A message in a real mailbox is still an owner-run staging drill: this command does not call SNS.
 
 ## Recovery
 

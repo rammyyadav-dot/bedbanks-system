@@ -35,10 +35,10 @@ Pass the credentials from your secret manager; the script never prints them or t
 | --- | --- |
 | H1, H2 | the Agent serves its sign-in page and neither HTML nor scripts contain `API_INTERNAL_URL`, connection strings or connector secrets |
 | H3, H4 | the same-origin `/api/v1` proxy reaches the API; an unauthenticated request is 401 |
-| H5, H6, H7 | sign-in works; the session cookie is host-only, HttpOnly and Secure; the server context names the workspace and reports `bookingEnabled` (expect `false`) |
+| H5, H6, H7 | sign-in works; the session cookie is host-only, HttpOnly and Secure; the server context names the workspace and `bookingEnabled` is `false` |
 | H8, H9, H10 | Dubai resolves from the canonical catalogue; a one-room two-adult AED search returns hotels with server pagination; offers have canonical ids and AED totals |
 | H11 | the authoritative recheck answers `rechecked`, `price_changed`, `unavailable` or `offer_expired` |
-| H12 | booking and hold endpoints answer an error (closed) |
+| H12 | hold (`POST /agent/offers/:offerId/hold`), prebook and create each answer HTTP 503 with `booking_unavailable`. Any other status, including 404 and 400, fails the check |
 | H13 | sign-out ends the session |
 
 It creates one session and nothing else: no hold, booking, payment or inventory change. Exit code 0 means all 13 passed.
