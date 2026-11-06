@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/domain'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { assertSupportedSettlementCurrency } from './currency'
 import { assertAgencyCredit } from './agency-credit'
 import { moveNight, reserveNight } from '../inventory/inventory-counters'
@@ -35,7 +35,7 @@ export function holdFingerprint(input: InventoryHoldRequest): string {
 
 @Injectable()
 export class InventoryHoldService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
   async create(command: AuthoritativeHoldCommand): Promise<InventoryHoldResponse> {
     this.validate(command)

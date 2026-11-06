@@ -1,7 +1,7 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common'
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 
 export const SUPPLIER_MUTATION_OPERATIONS = ['PREBOOK', 'BOOK', 'CANCEL'] as const
@@ -82,7 +82,7 @@ export class SupplierMutationJournalService {
   private readonly logger = new Logger(SupplierMutationJournalService.name)
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly audit: AgentAuditService,
   ) {}
 

@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { isAgentBookingStatus, statusesForAgentFilter, toAgentBookingStatus } from './agent-booking-status'
 
 export interface BookingSummaryView {
@@ -42,7 +42,7 @@ const MAX_OFFSET = 10_000
 /** Read-only tenant-scoped booking views for the Agent portal. Amounts are integer minor-unit strings. */
 @Injectable()
 export class BookingQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
   async list(tenantId: string, options: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingListPage> {
     const limit = Number.isFinite(options.limit) ? Math.min(MAX_LIST, Math.max(1, Math.trunc(options.limit!))) : DEFAULT_LIMIT

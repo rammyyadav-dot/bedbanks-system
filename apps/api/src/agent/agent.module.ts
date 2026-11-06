@@ -24,6 +24,7 @@ import { PrebookCompensationRecoveryService } from './prebook-compensation-recov
 import { BookingReconciliationService } from './booking-reconciliation.service'
 import { BookingConfirmationService } from './booking-confirmation.service'
 import { BookingTransactionService } from './booking-transaction.service'
+import { BookingTransactionDatabase } from './booking-transaction.database'
 import { CancellationPolicyService } from './cancellation-policy.service'
 import { BookingCancellationService } from './booking-cancellation.service'
 import { BookingDocumentService } from './booking-document.service'
@@ -56,6 +57,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     PrebookCompensationRecoveryService,
     BookingReconciliationService,
     BookingConfirmationService,
+    BookingTransactionDatabase,
     BookingTransactionService,
     CancellationPolicyService,
     BookingCancellationService,

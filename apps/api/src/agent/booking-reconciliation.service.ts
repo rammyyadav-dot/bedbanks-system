@@ -1,6 +1,6 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, Logger } from '@nestjs/common'
-import { PrismaService } from '../database/prisma.service'
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { AgentAuditService } from './audit.service'
 import { BookingFinancialAuthorizationService } from './booking-financial-authorization.service'
 import { InventoryHoldService } from './inventory-hold.service'
@@ -38,7 +38,7 @@ export class BookingReconciliationService {
   private readonly logger = new Logger(BookingReconciliationService.name)
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly finance: BookingFinancialAuthorizationService,
     private readonly holds: InventoryHoldService,
     private readonly audit: AgentAuditService,

@@ -1,9 +1,9 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { lockAgencyCredit } from './agency-account'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { assertSupportedSettlementCurrency } from './currency'
 
 export interface FinancialAuthorizationCommand {
@@ -19,7 +19,7 @@ export interface FinancialAuthorizationCommand {
 
 @Injectable()
 export class BookingFinancialAuthorizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient) {}
 
   async authorize(command: FinancialAuthorizationCommand) {
     this.validate(command)

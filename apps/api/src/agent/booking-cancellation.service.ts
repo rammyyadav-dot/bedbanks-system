@@ -1,9 +1,9 @@
 import { cancellationTiers, rulesForPlan } from '../supply/cancellation-rules'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import { PrismaService } from '../database/prisma.service'
+import { BookingTransactionDatabase, type BookingTransactionClient } from './booking-transaction.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
@@ -29,7 +29,7 @@ const nightsBetween = (checkIn: string, checkOut: string | undefined): number | 
 @Injectable()
 export class BookingCancellationService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(BookingTransactionDatabase) private readonly prisma: BookingTransactionClient,
     private readonly policy: CancellationPolicyService,
     private readonly ledger: LedgerService,
     private readonly audit: AgentAuditService,

@@ -22,7 +22,7 @@ The Admin and Agent apps cannot build or run on Vercel until the API has a publi
 | `AUTH_COOKIE_SECURE` | `true` |
 | `API_PREFIX` | `api/v1` (default) |
 
-Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset.
+Leave `HOLD_EXPIRY_SWEEP_ENABLED` and `BOOKING_ENABLED` unset. `BOOKING_TRANSACTION_DATABASE_URL` (ADR 0113) also stays unset until `docs/runbooks/booking-transaction-role.md` has been followed; the flag alone does not grant booking writes.
 
 `FINANCE_RECONCILIATION_ENABLED`, `FINANCE_RECONCILIATION_WORKER_ENABLED` and `FINANCE_RECONCILIATION_DATABASE_URL` (ADR 0070) stay unset until the reconciliation role is provisioned and certified; follow `docs/runbooks/finance-reconciliation.md`.
 

@@ -15,7 +15,7 @@ export interface NarrowRoleOptions {
 }
 
 /**
- * A connection to ONE narrow database role (rate plan lifecycle, rate plan clone). When its credential is set (and differs from `DATABASE_URL`)
+ * A connection to ONE narrow database role (rate plan lifecycle, rate plan clone, finance posting, supplier ingest, supplier promotion, booking-ops read replica, booking transaction). When its credential is set (and differs from `DATABASE_URL`)
  * the caller's transaction runs here. A configured connection never falls back to the HTTP client: a refused connection or a missing grant is a
  * sanitized, typed 503, and nothing from the URL or the database error is returned. The first use verifies the principal is a restricted role.
  */
