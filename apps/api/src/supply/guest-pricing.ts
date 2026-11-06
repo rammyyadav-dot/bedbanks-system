@@ -44,7 +44,8 @@ export function resolveGuestPricing(input: GuestPricingInput): GuestPricing {
   const guests = input.adults + input.children
   // The base rate is for `planOccupancy` guests. Children may fill base places adults leave empty (1 adult + 1 child in a double pays the double
   // rate, ADR 0067 F-03); the party must still fill the base and fit the room, with at least one adult.
-  if (!Number.isInteger(input.adults) || !Number.isInteger(input.children) || input.adults < 1 || input.children < 0 || guests < input.planOccupancy
+  // Safe integers only: a fractional adult count must be a typed refusal, never a BigInt throw mid-price.
+  if (!Number.isSafeInteger(input.adults) || !Number.isSafeInteger(input.children) || input.adults < 1 || input.children < 0 || guests < input.planOccupancy
     || input.adults > limits.maxAdults || input.children > limits.maxChildren || guests > limits.maxOccupancy) reasons.add('OCCUPANCY_UNSUPPORTED')
   if (lines.some((line) => line.currency !== input.currency)) reasons.add('GUEST_PRICE_CURRENCY_MISMATCH')
 
@@ -52,7 +53,7 @@ export function resolveGuestPricing(input: GuestPricingInput): GuestPricing {
   const used = new Set<'NET' | 'SELL'>()
   const charge = (line: GuestPriceLine, units = 1n) => { if (line.amountMinor === null) { reasons.add('CHILD_PRICE_MISSING'); return } extra += line.amountMinor * units; if (line.basis !== 'INHERIT') used.add(line.basis) }
   const extraAdults = input.adults - input.planOccupancy
-  if (extraAdults > 0) {
+  if (Number.isSafeInteger(extraAdults) && extraAdults > 0) {
     const adultLines = lines.filter((line) => line.kind === 'EXTRA_ADULT')
     if (adultLines.length !== 1) reasons.add('EXTRA_ADULT_PRICE_MISSING')
     else charge(adultLines[0]!, BigInt(extraAdults))

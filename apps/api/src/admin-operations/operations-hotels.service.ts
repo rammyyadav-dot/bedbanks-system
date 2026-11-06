@@ -19,7 +19,7 @@ import { CommercialControlUnavailableError, controlReadFailure } from '../supply
 import { buildHotelStayReadiness } from './hotel-stay-readiness'
 import { buildStaySnapshot, nightStock, pricedOccupancy } from '../supply/stay-snapshot'
 import { markupResolverFor, resolveMarkupBasisPoints } from '../supply/markup-rules'
-import { markupMinor } from '@bedbanks/pricing'
+import { classifyMarkupNight } from '../supply/markup-impact'
 import { loadActiveMarkupRulesInTx } from '../supply/markup-rules.loader'
 import {
   assessHotel, contractStateOf, evaluatePlanNight, gateResults, mappingFor, windowDates,
@@ -328,18 +328,20 @@ export class OperationsHotelsService {
           const rates = new Map(plan.dailyRates.filter((r) => r.occupancy === plan.occupancy).map((r) => [day(r.stayDate), r]))
           for (const date of input.dates) {
             const rate = rates.get(date)
-            if (!rate || rate.amountMinor < 0n || rate.currency !== plan.currency) continue // a missing or invalid rate is a rate gap, reported elsewhere
-            if (rate.amountBasis === 'SELL') counts.sell += 1
-            else if (rate.amountBasis !== 'NET') counts.basisUnverified += 1
+            const classified = classifyMarkupNight(
+              rate ? { amountMinor: rate.amountMinor, currency: rate.currency, amountBasis: rate.amountBasis } : undefined,
+              plan.currency,
+              resolveMarkupBasisPoints(input.markupRules ?? [], { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date),
+            )
+            if (classified.class === 'gap') continue // a missing, non-positive or mismatched rate is a rate gap, reported elsewhere
+            if (classified.class === 'sell') counts.sell += 1
+            else if (classified.class === 'basis_unverified') counts.basisUnverified += 1
+            else if (classified.class === 'net_unpriced') { counts.netUnpriced += 1; unpriced += 1 }
             else {
-              const bp = resolveMarkupBasisPoints(input.markupRules ?? [], { supplierId: plan.contract.supplierId, hotelId: plan.roomType.hotelId }, date)
-              if (bp === null) { counts.netUnpriced += 1; unpriced += 1 }
-              else {
-                counts.netPriced += 1
-                const m = money.get(rate.currency) ?? { net: 0n, markup: 0n }
-                m.net += rate.amountMinor; m.markup += markupMinor(rate.amountMinor, bp)
-                money.set(rate.currency, m)
-              }
+              counts.netPriced += 1
+              const m = money.get(rate!.currency) ?? { net: 0n, markup: 0n }
+              m.net += rate!.amountMinor; m.markup += classified.markupMinor
+              money.set(rate!.currency, m)
             }
           }
         }
@@ -351,7 +353,7 @@ export class OperationsHotelsService {
         planNights: counts, affectedHotels: affected.slice(0, 10), affectedHotelCount: affected.length,
         currencies: [...money.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, m]) => ({ currency, netMinor: m.net.toString(), markupMinor: m.markup.toString() })),
         definitions: {
-          planNights: 'One ACTIVE rate plan on one night of the window, counted with the plan\'s own occupancy. Plan-nights with no rate, an invalid rate or a currency mismatch are rate gaps and are not counted here.',
+          planNights: 'One ACTIVE rate plan on one night of the window, counted with the plan\'s own occupancy. Plan-nights with no rate, a zero or negative amount, an invalid rate or a currency mismatch are rate gaps and are not counted here.',
           netUnpriced: 'A NET rate with no ACTIVE markup rule in force for that night. It is not sellable until a rule applies.',
           basisUnverified: 'A rate whose amount basis is not recorded as NET or SELL. It is not sellable, and no markup rule can change that.',
           currencies: 'Supplier cost and markup for priced NET plan-nights, summed per currency. Currencies are never added together.',

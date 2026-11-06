@@ -358,4 +358,35 @@ describe('promotions in the stay price (ADR 0058, S10a)', () => {
     expect(d.eligible).toBe(false)
     expect(d.totalMinor).toBeNull()
   })
+
+  it('derives the guest price, then the promotion, then the board supplement, then the markup', () => {
+    const net = (date: string) => night(date, { amountBasis: 'NET', rateAmountMinor: 30_000n, markupBasisPoints: 1_000 })
+    const d = evaluateContractedStay(snapshot({
+      maxAdults: 3, maxChildren: 2, maxOccupancy: 4,
+      guestPrices: [{ kind: 'CHILD', minAge: 0, maxAge: 17, amountMinor: 4_000n, basis: 'NET', currency: 'AED' }],
+      promotions: [promo({ kind: 'LONG_STAY', percentBp: 1000, minLeadDays: null, minNights: 3 })],
+      supplements: [{ name: 'Half board', kind: 'BOARD', basis: 'PER_ADULT', frequency: 'PER_NIGHT', amountMinor: 1_000n, currency: 'AED', stayFrom: null, stayTo: null }],
+      nights: ['2026-10-15', '2026-10-16', '2026-10-17'].map(net),
+    }), { ...request, children: 1, childAges: [6], detail: true })
+    // 30,000 + 4,000 child = 34,000; 10% off = 30,600; half board 1,000 x 2 adults = 32,600; markup 3,260.
+    expect(d).toMatchObject({ eligible: true, netMinor: 3n * 32_600n, markupMinor: 3n * 3_260n, totalMinor: 3n * 35_860n })
+    expect(d.netMinor! + d.markupMinor!).toBe(d.totalMinor)
+    expect(d.promotion).toMatchObject({ savingMinor: 3n * 3_400n })
+    expect(d.supplements).toEqual([{ name: 'Half board', kind: 'BOARD', amountMinor: 6_000n }])
+    expect(d.nightly?.[0]).toMatchObject({ netBeforeMinor: 34_000n, promotionMinor: 3_400n, supplementMinor: 2_000n, netMinor: 32_600n, markupMinor: 3_260n, sellMinor: 35_860n })
+  })
+
+  it('a fractional party is refused without throwing', () => {
+    const d = evaluateContractedStay(snapshot({ guestPrices: [{ kind: 'EXTRA_ADULT', minAge: 18, maxAge: 99, amountMinor: 1n, basis: 'SELL', currency: 'AED' }], maxAdults: 4, maxOccupancy: 4 }), { ...request, adults: 3.5 })
+    expect(d.eligible).toBe(false)
+    expect(d.reasons).toContain('OCCUPANCY_UNSUPPORTED')
+    expect(d.totalMinor).toBeNull()
+  })
+
+  it('an inactive board basis blocks the stay', () => {
+    const d = evaluateContractedStay(snapshot({ boardActive: false }), request)
+    expect(d.eligible).toBe(false)
+    expect(d.reasons).toContain('BOARD_BASIS_INACTIVE')
+    expect(d.totalMinor).toBeNull()
+  })
 })

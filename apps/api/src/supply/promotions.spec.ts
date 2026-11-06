@@ -9,6 +9,8 @@ describe('promotions (ADR 0058, S10a)', () => {
     expect(leadDays('2026-10-12', '2026-11-10')).toBe(29)
     expect(leadDays('2026-10-12', '2026-10-12')).toBe(0)
     expect(leadDays('2026-12-30', '2027-01-02')).toBe(3) // across a year end
+    expect(leadDays('2024-02-28', '2024-03-01')).toBe(2) // a leap day in between
+    expect(leadDays('2026-11-10', '2026-10-12')).toBe(-29)
   })
 
   describe('when a promotion applies', () => {
@@ -48,11 +50,12 @@ describe('promotions (ADR 0058, S10a)', () => {
     it('the discount never takes a night below 1 minor unit', () => {
       expect(discountedNets(rule({ kind: 'LONG_STAY', percentBp: 9000, minNights: 2 }), [1n, 2n, 10n], ['a', 'b', 'c'])).toEqual([1n, 1n, 1n])
     })
-    it('free nights zero the cheapest nights, the later date on a tie', () => {
+    it('free nights zero the cheapest nights, the later date on a tie, and the later index when the dates are equal', () => {
       const r = rule({ kind: 'FREE_NIGHTS', minNights: 3, freeNights: 1 })
       expect(discountedNets(r, [300n, 100n, 200n], dates)).toEqual([300n, 0n, 200n])
       expect(discountedNets(r, [100n, 100n, 200n], dates)).toEqual([100n, 0n, 200n]) // tie: the later of the two cheapest
       expect(discountedNets(rule({ kind: 'FREE_NIGHTS', minNights: 4, freeNights: 2 }), [400n, 100n, 100n, 300n], ['d1', 'd2', 'd3', 'd4'])).toEqual([400n, 0n, 0n, 300n])
+      expect(discountedNets(r, [100n, 100n, 200n], ['2026-11-10', '2026-11-10', '2026-11-12'])).toEqual([100n, 0n, 200n])
     })
     it('amounts beyond float precision stay exact', () => {
       const big = 9_007_199_254_740_993n
@@ -124,6 +127,20 @@ describe('combinable, partial-stay and room-only promotions (ADR 0067, F-09)', (
     expect(out.applied).toMatchObject({ name: 'Early bird + Long stay', savingMinor: 4_350n, combined: [{ id: 'a' }, { id: 'b' }] })
     // Only one combinable promotion applies: no stack, the single best stands.
     expect(selectPromotion([{ ...early, combinable: true }, long], ctx(), nets)!.applied.combined).toBeUndefined()
+  })
+  it('a stack that saves less than the best single promotion does not replace it', () => {
+    const single = rule({ id: 's', name: 'Fifteen', kind: 'LONG_STAY', percentBp: 1500, minNights: 3 })
+    const ten = { ...early, combinable: true, percentBp: 1000 }
+    const five = { ...long, combinable: true, percentBp: 500 }
+    const picked = selectPromotion([single, ten, five], ctx(), nets)!
+    expect(picked.applied).toMatchObject({ id: 's', savingMinor: 4_500n })
+    expect(picked.applied.combined).toBeUndefined()
+    expect(picked.nets).toEqual([8_500n, 8_500n, 8_500n])
+  })
+  it('a promotion that cannot be lined up with the nights is not applied', () => {
+    expect(discountedNets(early, nets, ['2026-11-10'])).toEqual(nets)
+    expect(discountedNets({ ...early, discountBase: 'ROOM_ONLY' }, [12_000n, 12_000n, 12_000n], dates, [10_000n])).toEqual([12_000n, 12_000n, 12_000n])
+    expect(discountedNets({ ...early, discountBase: 'ROOM_ONLY' }, [12_000n], ['2026-11-10'], [20_000n])).toEqual([10_800n])
   })
   it('free nights stack first, then percentages on the paid nights', () => {
     const free = rule({ id: 'z', name: '3 for 2', kind: 'FREE_NIGHTS', minNights: 3, freeNights: 1, combinable: true })

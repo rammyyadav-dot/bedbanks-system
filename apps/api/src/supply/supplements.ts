@@ -56,17 +56,33 @@ export function supplementTerm(raw: unknown, at: string, errors: string[]): Supp
   return { kind, name, boardBasisId, ratePlanId, basis, frequency, amountMinor: amount, currency, stayFrom: stayFrom as string | null, stayTo: stayTo as string | null }
 }
 
-/** The supplements of a contract that apply to this plan: its board's BOARD supplements and every COMPULSORY one, each optionally limited to the plan. */
-export function supplementsForPlan(plan: { id: string; boardBasisId: string }, rows: ReadonlyArray<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>): SupplementRule[] {
-  const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
-  return rows
-    .filter((row) => (row.ratePlanId === null || row.ratePlanId === plan.id) && (row.kind === 'COMPULSORY' || (row.kind === 'BOARD' && row.boardBasisId === plan.boardBasisId)))
-    .map((row) => ({ name: row.name, kind: row.kind as SupplementKind, basis: row.basis as SupplementBasis, frequency: row.frequency as SupplementFrequency, amountMinor: row.amountMinor, currency: row.currency, stayFrom: day(row.stayFrom), stayTo: day(row.stayTo) }))
+/** Calendar day of a UTC timestamp, or null when the supplement has no bound. An unreadable date is 'bad': the supplement is dropped rather than applied to every night. */
+const calendarDay = (d: Date | null): string | null | 'bad' => {
+  if (d === null) return null
+  const time = d.getTime()
+  if (!Number.isFinite(time)) return 'bad'
+  return new Date(time).toISOString().slice(0, 10)
 }
 
-/** How many units (adults, children, people or rooms) a PER_ADULT/PER_CHILD/PER_PERSON/PER_ROOM amount counts for this party. Shared with event supplements (ADR 0089). */
-export const supplementUnits = (basis: SupplementBasis, party: { adults: number; children: number }): bigint =>
-  BigInt(basis === 'PER_ADULT' ? party.adults : basis === 'PER_CHILD' ? party.children : basis === 'PER_PERSON' ? party.adults + party.children : 1)
+/** The supplements of a contract that apply to this plan: its board's BOARD supplements and every COMPULSORY one, each optionally limited to the plan. A non-positive amount or an unreadable window is omitted. */
+export function supplementsForPlan(plan: { id: string; boardBasisId: string }, rows: ReadonlyArray<{ kind: string; name: string; boardBasisId: string | null; ratePlanId: string | null; basis: string; frequency: string; amountMinor: bigint; currency: string; stayFrom: Date | null; stayTo: Date | null }>): SupplementRule[] {
+  const rules: SupplementRule[] = []
+  for (const row of rows) {
+    if (!((row.ratePlanId === null || row.ratePlanId === plan.id) && (row.kind === 'COMPULSORY' || (row.kind === 'BOARD' && row.boardBasisId === plan.boardBasisId)))) continue
+    const stayFrom = calendarDay(row.stayFrom)
+    const stayTo = calendarDay(row.stayTo)
+    if (stayFrom === 'bad' || stayTo === 'bad' || row.amountMinor <= 0n) continue
+    rules.push({ name: row.name, kind: row.kind as SupplementKind, basis: row.basis as SupplementBasis, frequency: row.frequency as SupplementFrequency, amountMinor: row.amountMinor, currency: row.currency, stayFrom, stayTo })
+  }
+  return rules
+}
+
+/** How many units (adults, children, people or rooms) a PER_ADULT/PER_CHILD/PER_PERSON/PER_ROOM amount counts for this party. Shared with event supplements (ADR 0089). A party that is not a positive safe integer counts as nobody, so the supplement is not applied and the occupancy refusal stands. */
+export const supplementUnits = (basis: SupplementBasis, party: { adults: number; children: number }): bigint => {
+  if (basis !== 'PER_ROOM' && (!Number.isSafeInteger(party.adults) || !Number.isSafeInteger(party.children) || party.adults < 0 || party.children < 0)) return 0n
+  const count = basis === 'PER_ADULT' ? party.adults : basis === 'PER_CHILD' ? party.children : basis === 'PER_PERSON' ? party.adults + party.children : 1
+  return Number.isSafeInteger(count) && count > 0 ? BigInt(count) : 0n
+}
 const units = supplementUnits
 
 /**
@@ -78,7 +94,7 @@ export function supplementNights(rules: readonly SupplementRule[], nights: reado
   const applied: Array<{ name: string; kind: SupplementKind; amountMinor: bigint }> = []
   for (const rule of rules) {
     const count = units(rule.basis, party)
-    if (count === 0n) continue
+    if (count <= 0n || rule.amountMinor <= 0n) continue
     const inWindow = nights.map((night, i) => ((rule.stayFrom === null || night >= rule.stayFrom) && (rule.stayTo === null || night <= rule.stayTo) ? i : -1)).filter((i) => i >= 0)
     if (inWindow.length === 0) continue
     const charged = rule.frequency === 'PER_STAY' ? [inWindow[0]!] : inWindow

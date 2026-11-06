@@ -68,6 +68,19 @@ describe('guest pricing (ADR 0057, S6)', () => {
     it('a refused party carries no price', () => {
       expect(price({ lines, children: 1, childAges: [] })).toMatchObject({ extraMinorPerNight: 0n })
     })
+    it('a fractional adult count is a refusal, not a throw, and two extra adults are charged twice', () => {
+      expect(() => price({ lines, adults: 3.5 })).not.toThrow()
+      expect(price({ lines, adults: 3.5 })).toMatchObject({ reasons: ['OCCUPANCY_UNSUPPORTED'], extraMinorPerNight: 0n })
+      expect(price({ lines, adults: 4, limits: { maxAdults: 4, maxChildren: 2, maxOccupancy: 4 } })).toMatchObject({ reasons: [], extraMinorPerNight: 60_000n })
+    })
+    it('ages 0 and 17 are covered, and when two children share an age the earlier one fills the base place', () => {
+      expect(price({ lines, children: 1, childAges: [0] })).toMatchObject({ extraMinorPerNight: 0n, reasons: [] })
+      expect(price({ lines, children: 1, childAges: [17] })).toMatchObject({ extraMinorPerNight: 25_000n })
+      expect(price({ lines, adults: 1, children: 2, childAges: [8, 8] })).toMatchObject({ extraMinorPerNight: 15_000n })
+    })
+    it('a currency mismatch still refuses when the mismatched line is the one that would be charged', () => {
+      expect(price({ lines: [{ ...adult(10_000n), currency: 'USD' }], adults: 3 })).toMatchObject({ reasons: ['GUEST_PRICE_CURRENCY_MISMATCH'], extraMinorPerNight: 0n })
+    })
   })
 
   describe('validating a plan\'s lines on write', () => {
@@ -82,6 +95,11 @@ describe('guest pricing (ADR 0057, S6)', () => {
     it('rejects an unknown kind and a child band past 17', () => {
       expect(validateGuestPriceLines([{ kind: 'PET', amountMinor: 1n }], 'AED')[0]!.code).toBe('GUEST_PRICE_KIND_INVALID')
       expect(validateGuestPriceLines([child(0, 18, 1n)], 'AED').map((i) => i.code)).toContain('GUEST_PRICE_AGE_BAND_INVALID')
+    })
+    it('accepts the maximum amount and adjacent bands, and rejects one minor unit past the maximum or an inherited basis on write', () => {
+      expect(validateGuestPriceLines([child(0, 5, 9_000_000_000_000_000n), child(6, 17, 1n)], 'AED')).toEqual([])
+      expect(validateGuestPriceLines([child(0, 17, 9_000_000_000_000_001n)], 'AED').map((i) => i.code)).toContain('GUEST_PRICE_AMOUNT_INVALID')
+      expect(validateGuestPriceLines([{ ...child(0, 17, 1n), basis: 'INHERIT' }], 'AED').map((i) => i.code)).toContain('GUEST_PRICE_BASIS_INVALID')
     })
   })
 
