@@ -304,7 +304,18 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
       orderBy: { id: 'asc' },
     })
     // ADR 0089: ACTIVE hotel deals of these plans, read through the one loader every pricing surface uses. A failed read throws (ADR 0031); it never sells a plan at full price on a guess.
-    return withDealRules(plans.map(withDerivedRates), await loadDealRules(this.prisma, tenantId, plans.map((plan) => plan.id)))
+    const decorated = withDealRules(plans.map(withDerivedRates), await loadDealRules(this.prisma, tenantId, plans.map((plan) => plan.id)))
+    if (hotelIds.length === 0 || nightDates.length === 0) return decorated
+    const sales = await tx.roomSalesRule.findMany({
+      where: { tenantId, hotelId: { in: hotelIds }, stayDate: { in: nightDates } },
+      select: { roomTypeId: true, stayDate: true, poolKey: true, planKey: true, channelKey: true, marketKey: true, contractKey: true, mode: true, salesCap: true, consumesInventory: true, overrideExpiresAt: true },
+    })
+    const byRoom = new Map<string, import('../inventory/room-sales/engine').RoomSalesRuleView[]>()
+    for (const row of sales) {
+      const view = { roomTypeId: row.roomTypeId, stayDate: row.stayDate.toISOString().slice(0, 10), poolKey: row.poolKey, planKey: row.planKey, channelKey: row.channelKey, marketKey: row.marketKey, contractKey: row.contractKey, mode: row.mode, salesCap: row.salesCap, consumesInventory: row.consumesInventory, overrideExpiresAt: row.overrideExpiresAt ? row.overrideExpiresAt.toISOString() : null }
+      byRoom.set(row.roomTypeId, [...(byRoom.get(row.roomTypeId) ?? []), view])
+    }
+    return decorated.map((plan) => ({ ...plan, salesRules: byRoom.get(plan.roomTypeId) ?? [] }))
   }
 
   /**

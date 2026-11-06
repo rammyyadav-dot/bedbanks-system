@@ -119,7 +119,29 @@ const READ_COLUMNS_ONLY: readonly RuntimeGrant[] = [
 /** Tables the runtime also writes, each with the exact operation, service, endpoints and reason. */
 const READ_WRITE: readonly RuntimeGrant[] = [
   { table: 'InventoryPoolDay', model: 'InventoryPoolDay', read: true, rls: 'forced-tenant', note: 'capacity-only column UPDATE; INSERT, DELETE, sold and held stay with the hold path and the hold-expiry role', writes: [
-    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`], reason: 'set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged' },
+    { op: 'UPDATE', columns: POOL_DAY_CAPACITY_COLUMNS, service: 'PoolCapacityService.apply', endpoints: [`POST ${HOTEL}/inventory/pools/:poolId/capacity/apply`, `POST ${HOTEL}/inventory/allocation/apply`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'set existing-night capacity with sold + held floor; preserve provenance and freshness. Quick Update provenance writes remain privileged' },
+  ] },
+  { table: 'RoomSalesRule', model: 'RoomSalesRule', read: true, rls: 'forced-tenant', note: 'configured sales mode per room night and scope (ADR 0113); never a stock counter', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.commit, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/sales/commit`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'save a sales-control rule in the same transaction as its audit row and distribution job' },
+    { op: 'UPDATE', service: 'RoomSalesService.commit, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/sales/commit`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'replace the mode for an existing scope and bump its version; a stale version writes nothing' },
+  ] },
+  { table: 'RoomSalesBatch', model: 'RoomSalesBatch', read: true, rls: 'forced-tenant', note: 'one atomic sales save and its idempotency key', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.commit, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/sales/commit`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'record the batch before its rules' },
+  ] },
+  { table: 'RoomSalesAudit', model: 'RoomSalesAudit', read: true, rls: 'forced-tenant', note: 'append-only before/after of a sales change; a trigger refuses UPDATE and DELETE', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.commit, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/sales/commit`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'append the before/after record in the save transaction' },
+  ] },
+  { table: 'PoolNightAllocation', model: 'PoolNightAllocation', read: true, rls: 'forced-tenant', note: 'contracted, adjustment and blocked figures for a pool night; sold and held stay on InventoryPoolDay', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.applyAllocation', endpoints: [`POST ${HOTEL}/inventory/allocation/apply`], reason: 'record the allocation breakdown for a pool night that already has stock' },
+    { op: 'UPDATE', service: 'RoomSalesService.applyAllocation, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/allocation/apply`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'change the breakdown or release unused allocation; confirmed bookings are not reduced' },
+  ] },
+  { table: 'SalesDistributionJob', model: 'SalesDistributionJob', read: true, rls: 'forced-tenant', note: 'channel delivery state, separate from the internal save; the built-in adapter is simulated', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.commit, RoomSalesService.releaseAllocation', endpoints: [`POST ${HOTEL}/inventory/sales/commit`, `POST ${HOTEL}/inventory/allocation/release`], reason: 'queue distribution as pending in the same transaction as the rules' },
+    { op: 'UPDATE', service: 'RoomSalesService.deliverDistribution', endpoints: [`POST ${HOTEL}/inventory/sales/distribution/:jobId/deliver`], reason: 'record acknowledgement or failure from the simulated adapter; an acknowledged job is not sent again' },
+  ] },
+  { table: 'SupplierStayRequest', model: 'SupplierStayRequest', read: true, rls: 'forced-tenant', note: 'pending supplier confirmation; approval does not create a reservation', writes: [
+    { op: 'INSERT', service: 'RoomSalesService.createRequest', endpoints: [`POST ${HOTEL}/inventory/sales/requests`], reason: 'open an On Request stay with a deadline, owner and escalation policy' },
+    { op: 'UPDATE', service: 'RoomSalesService.decideRequest, RoomSalesService.expireRequests', endpoints: [`POST ${HOTEL}/inventory/sales/requests/:requestId/decide`, `POST ${HOTEL}/inventory/sales/requests/expire`], reason: 'approve, reject or expire a request after a fresh eligibility check' },
   ] },
   { table: 'users', model: 'User', read: true, rls: 'none', writes: [
     { op: 'UPDATE', columns: ['last_login_at', 'password_hash', 'updated_at'], service: 'AuthService.login, AuthService.confirmPasswordReset', endpoints: ['POST /auth/login', 'POST /auth/password-reset/confirm'], reason: 'record the last successful sign-in; store the new password hash after a verified single-use reset (ADR 0091)' },
