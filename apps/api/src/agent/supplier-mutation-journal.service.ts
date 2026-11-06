@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common'
 import { createHash } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { AgentAuditService } from './audit.service'
 
 export const SUPPLIER_MUTATION_OPERATIONS = ['PREBOOK', 'BOOK', 'CANCEL'] as const
@@ -88,11 +89,14 @@ export class SupplierMutationJournalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AgentAuditService,
+    @Optional() private readonly execution?: BookingExecutionDatabase,
   ) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async prepare(input: PrepareSupplierMutationInput): Promise<SupplierMutationView> {
     try {
-      const created = await this.prisma.withTenant(input.tenantId, tx => tx.supplierMutation.create({
+      const created = await this.database().withTenant(input.tenantId, tx => tx.supplierMutation.create({
         data: {
           tenantId: input.tenantId,
           bookingId: input.bookingId,
@@ -125,7 +129,7 @@ export class SupplierMutationJournalService {
    */
   async markSending(tenantId: string, mutationId: string, requestId: string, userId: string): Promise<{ claimed: boolean; record: SupplierMutationView }> {
     const attemptedAt = new Date()
-    const updated = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.updateMany({
+    const updated = await this.database().withTenant(tenantId, tx => tx.supplierMutation.updateMany({
       where: { id: mutationId, tenantId, status: 'PREPARED' },
       data: { status: 'SENDING', attemptedAt, requestId },
     }))
@@ -143,7 +147,7 @@ export class SupplierMutationJournalService {
     if (current.status === 'ACKNOWLEDGED' || (current.status === 'RESOLVED' && current.supplierStatus === 'accepted')) {
       throw new ConflictException('Supplier reference does not match')
     }
-    const updated = await this.prisma.withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
+    const updated = await this.database().withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
       where: { id: input.mutationId, tenantId: input.tenantId, status: { in: ['SENDING', 'UNKNOWN'] } },
       data: {
         status: 'ACKNOWLEDGED',
@@ -166,7 +170,7 @@ export class SupplierMutationJournalService {
   async reject(input: { tenantId: string; userId: string; mutationId: string; failureCategory: string; failureCode: string }): Promise<SupplierMutationView> {
     const current = await this.require(input.tenantId, input.mutationId)
     if (current.status === 'REJECTED' || current.status === 'RESOLVED') return current
-    const updated = await this.prisma.withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
+    const updated = await this.database().withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
       where: { id: input.mutationId, tenantId: input.tenantId, status: { in: ['PREPARED', 'SENDING'] } },
       data: {
         status: 'REJECTED',
@@ -186,7 +190,7 @@ export class SupplierMutationJournalService {
     const current = await this.require(input.tenantId, input.mutationId)
     if (current.status === 'UNKNOWN') return current
     if (current.status === 'ACKNOWLEDGED' || current.status === 'RESOLVED' || current.status === 'REJECTED') return current
-    const updated = await this.prisma.withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
+    const updated = await this.database().withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
       where: { id: input.mutationId, tenantId: input.tenantId, status: 'SENDING' },
       data: { status: 'UNKNOWN', failureCategory: input.failureCategory, failureCode: input.failureCode },
     }))
@@ -201,7 +205,7 @@ export class SupplierMutationJournalService {
   async resolve(input: { tenantId: string; userId: string; mutationId: string; supplierStatus: string }): Promise<SupplierMutationView> {
     const current = await this.require(input.tenantId, input.mutationId)
     if (current.status === 'RESOLVED') return current
-    const updated = await this.prisma.withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
+    const updated = await this.database().withTenant(input.tenantId, tx => tx.supplierMutation.updateMany({
       where: { id: input.mutationId, tenantId: input.tenantId, status: { not: 'RESOLVED' } },
       data: { status: 'RESOLVED', supplierStatus: input.supplierStatus, resolvedAt: new Date() },
     }))
@@ -211,7 +215,7 @@ export class SupplierMutationJournalService {
   }
 
   async findForBooking(tenantId: string, bookingId: string, operation: SupplierMutationOperationName = 'PREBOOK'): Promise<SupplierMutationView | null> {
-    const row = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({
+    const row = await this.database().withTenant(tenantId, tx => tx.supplierMutation.findFirst({
       where: { tenantId, bookingId, operation },
       orderBy: { createdAt: 'desc' },
     }))
@@ -219,12 +223,12 @@ export class SupplierMutationJournalService {
   }
 
   async findById(tenantId: string, mutationId: string): Promise<SupplierMutationView | null> {
-    const row = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({ where: { id: mutationId, tenantId } }))
+    const row = await this.database().withTenant(tenantId, tx => tx.supplierMutation.findFirst({ where: { id: mutationId, tenantId } }))
     return row ? this.view(row) : null
   }
 
   private async findLogical(tenantId: string, bookingId: string, operation: SupplierMutationOperationName, idempotencyKey: string): Promise<SupplierMutationView | null> {
-    const row = await this.prisma.withTenant(tenantId, tx => tx.supplierMutation.findFirst({
+    const row = await this.database().withTenant(tenantId, tx => tx.supplierMutation.findFirst({
       where: { tenantId, bookingId, operation, idempotencyKey },
     }))
     return row ? this.view(row) : null

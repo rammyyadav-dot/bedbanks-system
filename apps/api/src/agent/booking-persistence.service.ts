@@ -1,8 +1,9 @@
-import { ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { ConflictException, ForbiddenException, Injectable, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { BookingTransactionCommand } from '@bedbanks/domain'
 import { createHash } from 'crypto'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { freezeCancellationTerms } from './booking-cancellation-terms'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { readSupplierPrebook, type RecordedSupplierPrebook } from './supplier-prebook-record'
@@ -74,14 +75,16 @@ function bookingReference(command: BookingTransactionCommand): string {
 
 @Injectable()
 export class BookingPersistenceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async persistPending(command: BookingTransactionCommand): Promise<BookingRecord> {
     const snapshot = immutableSnapshot(command)
     const key = { tenantId_idempotencyKey: { tenantId: command.tenantId, idempotencyKey: command.idempotencyKey } }
 
     try {
-      return await this.prisma.withTenant(command.tenantId, async tx => {
+      return await this.database().withTenant(command.tenantId, async tx => {
         const existing = await tx.booking.findUnique({ where: key })
         if (existing) return this.existing(existing, command, snapshot)
 
@@ -165,7 +168,7 @@ export class BookingPersistenceService {
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
 
-      return this.prisma.withTenant(command.tenantId, async tx => {
+      return this.database().withTenant(command.tenantId, async tx => {
         const raced = await tx.booking.findUnique({ where: key })
         if (!raced) throw error
         return this.existing(raced, command, snapshot)
@@ -179,7 +182,7 @@ export class BookingPersistenceService {
    * prebook is never downgraded to unknown.
    */
   async recordSupplierPrebook(tenantId: string, bookingId: string, record: RecordedSupplierPrebook): Promise<void> {
-    await this.prisma.withTenant(tenantId, async tx => {
+    await this.database().withTenant(tenantId, async tx => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
       if (!booking || booking.status !== 'PENDING_SUPPLIER') throw new ConflictException('Booking is not pending')
       const snapshot = booking.searchSnapshot

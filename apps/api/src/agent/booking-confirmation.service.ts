@@ -1,7 +1,8 @@
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { lockWalletRow } from '../ledger/wallet-lock'
 import { moveNight } from '../inventory/inventory-counters'
@@ -20,11 +21,13 @@ export interface BookingConfirmationResult { bookingId: string; reference: strin
  */
 @Injectable()
 export class BookingConfirmationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async confirm(command: BookingConfirmationCommand): Promise<BookingConfirmationResult> {
     const { tenantId, userId, requestId, bookingId } = command
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (locked.length !== 1) throw new NotFoundException('Booking not found')
       const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })

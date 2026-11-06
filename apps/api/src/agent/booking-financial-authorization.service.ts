@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { lockAgencyCredit } from './agency-account'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { assertSpendableUnderLock, lockWalletRow } from '../ledger/wallet-lock'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { assertSupportedSettlementCurrency } from './currency'
 
 export interface FinancialAuthorizationCommand {
@@ -19,14 +20,16 @@ export interface FinancialAuthorizationCommand {
 
 @Injectable()
 export class BookingFinancialAuthorizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async authorize(command: FinancialAuthorizationCommand) {
     this.validate(command)
     const key = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: command.idempotencyKey }, tenantId: command.tenantId }
 
     try {
-      return await this.prisma.withTenant(command.tenantId, async tx => {
+      return await this.database().withTenant(command.tenantId, async tx => {
         // Match inventory holds: agency credit lock before wallet row lock, never the reverse.
         const preview = await tx.wallet.findFirst({ where: { id: command.walletId, tenantId: command.tenantId }, select: { agencyId: true } })
         if (preview?.agencyId) await lockAgencyCredit(tx, preview.agencyId)
@@ -66,7 +69,7 @@ export class BookingFinancialAuthorizationService {
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
 
-      return this.prisma.withTenant(command.tenantId, async tx => {
+      return this.database().withTenant(command.tenantId, async tx => {
         const raced = await tx.ledgerEntry.findUnique({ where: key })
         if (!raced) throw error
         this.assertSameAuthorization(raced, command)
@@ -82,7 +85,7 @@ export class BookingFinancialAuthorizationService {
     const releaseKey = { walletId_idempotencyKey: { walletId: command.walletId, idempotencyKey: `${command.idempotencyKey}:release` }, tenantId: command.tenantId }
 
     try {
-      return await this.prisma.withTenant(command.tenantId, async tx => {
+      return await this.database().withTenant(command.tenantId, async tx => {
         await lockWalletRow(tx, command.tenantId, command.walletId)
 
         const authorization = await tx.ledgerEntry.findUnique({ where: authorizationKey })
@@ -109,7 +112,7 @@ export class BookingFinancialAuthorizationService {
       })
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
-      return this.prisma.withTenant(command.tenantId, async tx => {
+      return this.database().withTenant(command.tenantId, async tx => {
         const raced = await tx.ledgerEntry.findUnique({ where: releaseKey })
         if (!raced) throw error
         this.assertSameRelease(raced, command)

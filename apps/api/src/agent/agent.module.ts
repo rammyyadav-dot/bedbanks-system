@@ -30,6 +30,7 @@ import { BookingDocumentService } from './booking-document.service'
 import { BookingQueryService } from './booking-query.service'
 import { SupplierMutationJournalService } from './supplier-mutation-journal.service'
 import { MarketValidityService } from './market-validity.service'
+import { BookingExecutionDatabase } from './booking-execution.database'
 import { CACHE_PORT, COORDINATION_PORT, NoopCache, NoopCoordination } from '../common/cache/cache.port'
 import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
 
@@ -43,6 +44,7 @@ import { redisFromEnvironment } from '../common/cache/redis-cache.adapter'
     AgentAuditService,
     LedgerService,
     AgentFinanceService,
+    BookingExecutionDatabase,
     InventoryHoldService,
     { provide: HoldExpirySweeper, useFactory: () => new HoldExpirySweeper() },
     OfferHoldService,

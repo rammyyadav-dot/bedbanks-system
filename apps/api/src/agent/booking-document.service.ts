@@ -3,9 +3,10 @@ import { readFrozenTerms } from './booking-cancellation-terms'
 import { cancellationTiers, noShowRule, rulesForPlan } from '../supply/cancellation-rules'
 import { buyerRules, describePenalty } from './cancellation-policy.service'
 import { formatMinor } from './booking-document.render'
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { AgentAuditService } from './audit.service'
 import { readSpecialRequests, specialRequestLabels } from './special-requests'
 
@@ -30,7 +31,9 @@ export function documentKindFromRoute(value: string): DocumentKind {
  */
 @Injectable()
 export class BookingDocumentService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AgentAuditService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async get(input: { tenantId: string; userId: string; requestId: string; bookingId: string; type: DocumentKind }): Promise<IssuedDocument> {
     const { tenantId, userId, requestId, bookingId, type } = input
@@ -47,7 +50,7 @@ export class BookingDocumentService {
   }
 
   private issue(tenantId: string, bookingId: string, type: DocumentKind): Promise<IssuedDocument> {
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const booking = await tx.booking.findFirst({ where: { id: bookingId, tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
       const existing = await tx.bookingDocument.findUnique({ where: { bookingId_type: { bookingId, type }, tenantId } })

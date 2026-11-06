@@ -1,9 +1,10 @@
 import { cancellationTiers, rulesForPlan } from '../supply/cancellation-rules'
 import { readFrozenTerms } from './booking-cancellation-terms'
 import { transitionBooking } from '../booking-ops/booking-transition'
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { appendLedgerEntry } from '../ledger/ledger-core'
 import { moveNight } from '../inventory/inventory-counters'
 import { AgentAuditService } from './audit.service'
@@ -33,10 +34,13 @@ export class BookingCancellationService {
     private readonly policy: CancellationPolicyService,
     private readonly ledger: LedgerService,
     private readonly audit: AgentAuditService,
+    @Optional() private readonly execution?: BookingExecutionDatabase,
   ) {}
 
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
+
   async quote(command: Omit<CancellationCommand, 'reason'>): Promise<CancellationQuoteView> {
-    return this.prisma.withTenant(command.tenantId, async tx => {
+    return this.database().withTenant(command.tenantId, async tx => {
       const booking = await tx.booking.findFirst({ where: { id: command.bookingId, tenantId: command.tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
       if (booking.status !== 'CONFIRMED') throw new ConflictException('Booking is not cancellable')
@@ -47,7 +51,7 @@ export class BookingCancellationService {
   async cancel(command: CancellationCommand): Promise<CancellationResult> {
     const { tenantId, userId, requestId, bookingId } = command
     try {
-      return await this.prisma.withTenant(tenantId, async tx => {
+      return await this.database().withTenant(tenantId, async tx => {
         const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
         if (locked.length !== 1) throw new NotFoundException('Booking not found')
         const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId } })

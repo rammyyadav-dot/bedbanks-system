@@ -108,24 +108,24 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `BankStatement`: finance-gated: imported bank statements are immutable; account numbers kept only as a hash and last four characters; written by the reconciliation role (ADR 0093)
 - `BankStatementEntry`: finance-gated: immutable bank movements of an imported statement; no remittance text or payer name (ADR 0093)
 - `BoardBasis`: supply authoring
-- `Booking`: booking is disabled; finance-gated
+- `Booking`: agent booking execution role only (ADR 0113); the strict runtime role never writes it
 - `BookingAmendment`: booking module only: structured amendments of a Confirmed booking, dates and head counts, never guest data (ADR 0072)
 - `BookingBulkOperation`: booking module only: orchestration record of a bulk action (ids, counts, stable codes); the effect of each item is made by the existing single-booking service (ADR 0039, Phase 6C)
 - `BookingBulkOperationItem`: booking module only: one selected booking of a bulk action and its stable result code (ADR 0039, Phase 6C)
 - `BookingCreditNote`: finance-gated: proposed and approved partial credit notes to agencies; approval posts a REFUND to LedgerEntry on the API connection, which the runtime role never writes (ADR 0095 part B)
 - `BookingDocument`: booking module only: immutable voucher, invoice, credit note and cancellation note, issued by the booking role (ADR 0039, Phase 5)
-- `BookingEmail`: booking is disabled; the confirmation email outbox row is queued in the transaction that confirms the booking (ADR 0066); the booking role sends it
-- `BookingEvent`: booking is disabled; append-only lifecycle log written with the booking (ADR 0039)
+- `BookingEmail`: queued by the booking execution role when a booking is confirmed (ADR 0066, ADR 0113); the booking module role sends it
+- `BookingEvent`: append-only lifecycle log written by the booking execution role and the booking module role (ADR 0039, ADR 0113)
 - `BookingFinanceEvent`: booking module only: append-only money facts the Finance module reads; no ledger or balance is touched (ADR 0039, Phase 5)
 - `BookingFinancePosting`: finance-gated: what the booking finance consumer did with each BookingFinanceEvent; written only by the narrow finance posting role (ADR 0076)
-- `BookingGuest`: booking is disabled; guest personal data, written with the booking in one transaction (ADR 0039)
+- `BookingGuest`: guest personal data, written with the booking by the booking execution role (ADR 0039, ADR 0113)
 - `BookingLeadTimeRule`: supply authoring
 - `BookingOpsState`: booking module only: durable operational state of the operations queue (owner, acknowledgement, manual priority), written by the booking role (ADR 0039, Phase 4)
-- `BookingRoom`: booking is disabled; written with the booking in one transaction (ADR 0039)
+- `BookingRoom`: written with the booking by the booking execution role (ADR 0039, ADR 0113)
 - `BookingSavedView`: booking module only: a person's own saved booking views, written (and deleted) by the booking role; preferences, never policy (ADR 0039, Phase 6B)
 - `BookingSupplierCall`: booking module only: append-only supplier call summary, written by the booking role (ADR 0039, Phase 3)
 - `BookingSupplierJob`: booking module only: the supplier queue, written by the booking role (ADR 0039, Phase 3)
-- `Cancellation`: booking is disabled
+- `Cancellation`: written by the booking execution role when an agent cancels (ADR 0113)
 - `CancellationPolicy`: supply authoring
 - `ChildPolicy`: supply authoring
 - `ComplianceExportBatch`: compliance export role only: seals hash-chained batches and records that they reached WORM storage (ADR 0067)
@@ -137,7 +137,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `Contract`: supply authoring
 - `ContractSupplement`: supply authoring
 - `ContractVersion`: supply authoring: appended only when an approved contract activation or amendment is applied (ADR 0067)
-- `DailyAvailability`: supply authoring and Quick Update
+- `DailyAvailability`: supply authoring and Quick Update; held and sold move only on the booking execution role and the hold-expiry role (ADR 0113)
 - `DailyRate`: supply authoring and Quick Update
 - `FinancePeriodClose`: finance-gated: one immutable record per closed calendar month of the ledger (control totals, integrity verdict, chain heads); written on the API connection, which the runtime role never writes; a trigger refuses ledger entries dated inside it (ADR 0101)
 - `FundingReceipt`: finance-gated: the funding workflow posts to Wallet and LedgerEntry, which the runtime role never writes (ADR 0028)
@@ -145,14 +145,14 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `GlCategoryMapping`: finance-gated: append-only versions of which GL account pair each ledger movement category posts to; written on the API connection (ADR 0102)
 - `Hotel`: DELETE, external_ref and any column outside the profile set (supply authoring); INSERT and the profile columns are granted
 - `HotelSearchIndex`: search-index maintenance (reindex) is an operator job; the runtime only reads the index
-- `InventoryHold`: holds are gated; written by the booking path
-- `InventoryHoldNight`: holds are gated
+- `InventoryHold`: written by the booking execution role; expired holds are released by the hold-expiry role (ADR 0113)
+- `InventoryHoldNight`: written by the booking execution role with the hold (ADR 0113)
 - `InventoryPool`: pool authoring needs RatePlan and DailyAvailability writes
-- `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: hold path, hold-expiry role); the capacity columns are granted
+- `InventoryPoolDay`: INSERT, DELETE, sold, held and every column outside the capacity set (pool authoring and stock moves: booking execution role, hold-expiry role); the capacity columns are granted
 - `InventoryUpdateEvent`: connector inventory update log: written by privileged connector ingestion paths
 - `LedgerAdjustment`: finance-gated: proposed and approved ledger adjustments and payment reversals on agency accounts; approval posts an ADJUSTMENT or REVERSAL to LedgerEntry on the API connection, which the runtime role never writes (ADR 0100)
 - `LedgerChainLink`: finance-gated: the per-wallet SHA-256 hash chain over LedgerEntry; written only by the SECURITY DEFINER trigger fbeds_ledger_chain_append, so no role holds a write grant on it (ADR 0094)
-- `LedgerEntry`: finance-gated
+- `LedgerEntry`: appended by the booking execution role inside a booking, and by the finance posting role; the strict runtime role never writes it (ADR 0113)
 - `MarketValidityRule`: supply authoring
 - `Membership`: dedicated tenant membership authoring role only
 - `PlatformRole`: platform administration
@@ -173,7 +173,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `SupplierCancellationObservation`: ingestion-gated: latest supplier cancellation policy per rate plan, an observation that is never sellable by itself (ADR 0078)
 - `SupplierHotelMapping`: mapping governance
 - `SupplierIngestRun`: ingestion-gated: append-only record of a normalized supplier feed; written only by a dedicated ingestion role that is not provisioned yet (ADR 0078)
-- `SupplierMutation`: booking mutation journal: written only by prebook, confirmation and reconciliation, which are gated off and need booking tables the role never holds
+- `SupplierMutation`: booking mutation journal: written only by the booking execution role during prebook, confirmation and reconciliation (ADR 0113)
 - `SupplierPayableEntry`: finance-gated: append-only supplier payable movements; written only by the narrow finance posting role (ADR 0076)
 - `SupplierPaymentTerms`: finance-gated: append-only supplier payment terms (history kept); written only by the narrow finance posting role (ADR 0078)
 - `SupplierPromotionRun`: promotion-gated: append-only record of a promotion of ingested observations into contracted inventory; written only by a dedicated promotion role that is not provisioned yet (ADR 0084)
@@ -187,7 +187,7 @@ Privileged paths (written by the API process somewhere, never by the runtime rol
 - `TenantControlProfile`: dedicated tenant control authoring role only
 - `TenantSettings`: tenant settings authoring
 - `User`: identity provisioning (create user) is an operator action; the runtime only records the last sign-in
-- `Wallet`: finance-gated: an agency account opens when its first funding receipt is posted (ADR 0028)
+- `Wallet`: an agency booking account is opened by the booking execution role; funding receipts stay a separate path (ADR 0028, ADR 0113)
 <!-- END GENERATED: runtime-role-matrix -->
 
 ## 4. Historical grant decisions
@@ -206,13 +206,13 @@ Earlier migrations granted `fbeds_api` writes whenever the role already existed.
 | `RoomType` | **REQUIRED**: INSERT, UPDATE on 8 columns | The Rooms workflow (create, edit, archive, restore). Rooms are never deleted; publication needs one active room |
 | `RoomAmenity` | **REQUIRED**: INSERT, UPDATE, DELETE | Room amenities are replaced together with the room edit |
 | `HotelImage` | **REQUIRED**: INSERT, UPDATE, DELETE (plus SELECT: Agent search primary image and the Agent image route) | Admin Images workflow |
-| `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by prebook, confirmation and reconciliation: booking is gated off and those paths need booking tables the role never holds |
+| `SupplierMutation` | **PRIVILEGED PATH** (no privilege at all) | Written only by the booking execution role during prebook, confirmation and reconciliation (ADR 0113) |
 | `InventoryPool` | **PRIVILEGED PATH for writes** (SELECT only) | Pool authoring also needs `RatePlan` and `DailyAvailability` writes |
 | `InventoryPoolDay` | **REQUIRED**: column-level UPDATE of capacity and provenance only (plus SELECT) | Pool capacity editor and Quick Update on pooled plans (ADR 0036, Amendment 1). INSERT, DELETE, `sold`, `held` and identity columns stay with the hold path and the hold-expiry role |
 | `InventoryHold`, `InventoryHoldNight` | **REQUIRED**: column-level SELECT only (5 and 4 columns) | Per-plan consumption report. No guest, money, offer, idempotency, request or user column; no write |
 | Supply core (`Supplier`, `Contract`, `RatePlan`, `DailyRate`, `DailyAvailability`, `BoardBasis`, policies, mappings), tenant settings, platform admin, identity creation | **PRIVILEGED PATH** | Never granted by any migration; ADR 0008 and 0013 place them outside the API role |
 
-Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the API process. There is no second API role today; adding one is an architecture decision (ADR). Until then the API answers a caller who reaches a privileged path with the typed 403 below.
+Execution path of a privileged operation: a trusted operator performs it with an owner-side or separately provisioned role, outside the strict API login. Agent booking, hold and ledger writes run on `fbeds_booking_exec` (`BOOKING_EXECUTION_DATABASE_URL`, ADR 0113), not on this role and not with the owner login. The API answers a caller who reaches a privileged path the live grants do not allow with the typed 403 below.
 
 ## 5. Prohibited operations
 

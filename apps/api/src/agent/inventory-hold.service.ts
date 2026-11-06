@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { createHash } from 'crypto'
 import type { InventoryHoldRequest, InventoryHoldResponse } from '@bedbanks/domain'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { assertSupportedSettlementCurrency } from './currency'
 import { assertAgencyCredit } from './agency-credit'
 import { moveNight, reserveNight } from '../inventory/inventory-counters'
@@ -35,13 +36,15 @@ export function holdFingerprint(input: InventoryHoldRequest): string {
 
 @Injectable()
 export class InventoryHoldService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async create(command: AuthoritativeHoldCommand): Promise<InventoryHoldResponse> {
     this.validate(command)
     const fingerprint = holdFingerprint(command)
     try {
-      return await this.prisma.withTenant(command.tenantId, async (tx) => {
+      return await this.database().withTenant(command.tenantId, async (tx) => {
         const existing = await tx.inventoryHold.findUnique({
           where: { tenantId_idempotencyKey: { tenantId: command.tenantId, idempotencyKey: command.idempotencyKey } },
         })
@@ -76,7 +79,7 @@ export class InventoryHoldService {
       })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return this.prisma.withTenant(command.tenantId, async tx => {
+        return this.database().withTenant(command.tenantId, async tx => {
           const existing = await tx.inventoryHold.findUniqueOrThrow({
             where: { tenantId_idempotencyKey: { tenantId: command.tenantId, idempotencyKey: command.idempotencyKey } },
           })
@@ -93,7 +96,7 @@ export class InventoryHoldService {
    * mid-checkout. Re-claiming an already PROCESSING hold is idempotent for safe retries.
    */
   async beginProcessing(tenantId: string, holdId: string, requestId: string, userId: string): Promise<void> {
-    await this.prisma.withTenant(tenantId, async tx => {
+    await this.database().withTenant(tenantId, async tx => {
       const claimed = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         UPDATE "InventoryHold"
            SET "status" = 'PROCESSING'::"InventoryHoldStatus", "updated_at" = CURRENT_TIMESTAMP
@@ -114,7 +117,7 @@ export class InventoryHoldService {
 
   async release(tenantId: string, holdId: string, requestId: string,
     actor: { type: 'USER'; userId: string } | { type: 'SYSTEM' }, expired = false, heldOnly = false): Promise<void> {
-    await this.prisma.withTenant(tenantId, async tx => {
+    await this.database().withTenant(tenantId, async tx => {
       const changed = await tx.inventoryHold.updateMany({
         where: { id: holdId, tenantId, status: expired || heldOnly ? 'HELD' : { in: ['HELD', 'PROCESSING'] } },
         data: { status: expired ? 'EXPIRED' : 'RELEASED', releasedAt: new Date() },
@@ -135,7 +138,7 @@ export class InventoryHoldService {
    * hold that is already RELEASED or EXPIRED.
    */
   async releaseOwn(tenantId: string, holdId: string, userId: string, requestId: string): Promise<{ holdId: string; status: 'RELEASED' | 'EXPIRED' }> {
-    const read = () => this.prisma.withTenant(tenantId, tx => tx.inventoryHold.findFirst({ where: { id: holdId, tenantId, createdByUserId: userId }, select: { status: true } }))
+    const read = () => this.database().withTenant(tenantId, tx => tx.inventoryHold.findFirst({ where: { id: holdId, tenantId, createdByUserId: userId }, select: { status: true } }))
     const hold = await read()
     if (!hold) throw new NotFoundException('Inventory hold not found')
     if (hold.status === 'RELEASED' || hold.status === 'EXPIRED') return { holdId, status: hold.status }
@@ -147,7 +150,7 @@ export class InventoryHoldService {
   }
 
   async expireDue(tenantId: string, now = new Date()): Promise<number> {
-    const due = await this.prisma.withTenant(tenantId, tx => tx.inventoryHold.findMany({
+    const due = await this.database().withTenant(tenantId, tx => tx.inventoryHold.findMany({
       where: { tenantId, status: 'HELD', expiresAt: { lte: now } }, select: { id: true }, orderBy: { expiresAt: 'asc' }, take: 100,
     }))
     // A deployed caller must use the governed restricted background role because

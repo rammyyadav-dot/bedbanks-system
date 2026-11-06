@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { CancellationSettlementItem, CancellationSettlementOutcome, CancellationSettlementRun } from '@bedbanks/contracts'
 import { refundWithin } from '@bedbanks/money'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { appendLedgerEntry, referenceSumMinor } from '../ledger/ledger-core'
 import { currentPenalty } from '../booking-ops/booking-finance-events'
 
@@ -22,19 +23,21 @@ export const CANCELLATION_SETTLEMENT_BATCH = 50
  *
  * One transaction under the booking row lock (shared with every cancellation path) and the wallet row lock. Idempotent: the first credit is
  * keyed `booking:<id>:cancel-refund` (the agent path's key, so the two paths can never both credit), a top-up `…:cancel-refund:<new total>`.
- * Runs on the API connection, like the agent cancellation, because the booking module's role has no ledger access (ADR 0032).
+ * Runs on the booking execution connection when that role is configured (ADR 0113). The booking module's role still has no ledger access.
  */
 @Injectable()
 export class CancellationSettlementService {
   private readonly logger = new Logger(CancellationSettlementService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async settle(input: { tenantId: string; userId: string; requestId: string; bookingId: string; source: string }): Promise<CancellationSettlementResult> {
     const { tenantId, userId, requestId, bookingId } = input
     const result = (outcome: CancellationSettlementOutcome, refund: bigint | null = null, posted: bigint | null = null): CancellationSettlementResult =>
       ({ bookingId, outcome, refundMinor: refund === null ? null : refund.toString(), postedMinor: posted === null ? null : posted.toString() })
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Booking" WHERE "id" = ${bookingId} AND "tenant_id" = ${tenantId} FOR UPDATE`)
       if (locked.length !== 1) return result('not_found')
       const booking = await tx.booking.findFirstOrThrow({ where: { id: bookingId, tenantId }, select: { id: true, tenantId: true, status: true, currency: true, totalMinor: true, netMinor: true, paymentMode: true } })
@@ -102,7 +105,7 @@ export class CancellationSettlementService {
 
   /** The cancelled, ledger-charged bookings with no settlement yet, oldest first, for the sweep. */
   async pending(tenantId: string, take = CANCELLATION_SETTLEMENT_BATCH): Promise<string[]> {
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT b."id" FROM "Booking" b
          WHERE b."tenant_id" = ${tenantId} AND ((b."status" = 'CANCELLED' AND NOT EXISTS (SELECT 1 FROM "Cancellation" c WHERE c."booking_id" = b."id")) OR (b."status" = 'NO_SHOW' AND NOT EXISTS (SELECT 1 FROM "AuditEvent" a WHERE a."tenant_id" = b."tenant_id" AND a."entity_type" = 'booking' AND a."entity_id" = b."id" AND a."action" = 'booking.no_show.settled' AND a."created_at" >= COALESCE((SELECT max(f."created_at") FROM "BookingFinanceEvent" f WHERE f."tenant_id" = b."tenant_id" AND f."booking_id" = b."id" AND f."type" IN ('PENALTY_DECIDED', 'PENALTY_WAIVED')), b."created_at"))))

@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { PrismaService } from '../database/prisma.service'
+import { BookingExecutionDatabase, bookingTenantDb } from './booking-execution.database'
 import { isAgentBookingStatus, statusesForAgentFilter, toAgentBookingStatus } from './agent-booking-status'
 
 export interface BookingSummaryView {
@@ -42,7 +43,9 @@ const MAX_OFFSET = 10_000
 /** Read-only tenant-scoped booking views for the Agent portal. Amounts are integer minor-unit strings. */
 @Injectable()
 export class BookingQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Optional() private readonly execution?: BookingExecutionDatabase) {}
+
+  private database() { return bookingTenantDb(this.prisma, this.execution) }
 
   async list(tenantId: string, options: { limit?: number; offset?: number; status?: string } = {}): Promise<BookingListPage> {
     const limit = Number.isFinite(options.limit) ? Math.min(MAX_LIST, Math.max(1, Math.trunc(options.limit!))) : DEFAULT_LIMIT
@@ -50,7 +53,7 @@ export class BookingQueryService {
     if (offset < 0 || offset > MAX_OFFSET) throw new BadRequestException('Offset is outside the supported window')
     if (options.status !== undefined && !isAgentBookingStatus(options.status)) throw new BadRequestException('Unknown booking status')
     const where = { tenantId, ...(options.status ? { status: { in: statusesForAgentFilter(options.status) } } : {}) }
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const total = await tx.booking.count({ where })
       const bookings = await tx.booking.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: limit, skip: offset })
       const names = await this.hotelNames(tx, tenantId, bookings)
@@ -59,7 +62,7 @@ export class BookingQueryService {
   }
 
   async detail(tenantId: string, bookingId: string, now = new Date()): Promise<BookingDetailView> {
-    return this.prisma.withTenant(tenantId, async tx => {
+    return this.database().withTenant(tenantId, async tx => {
       const booking = await tx.booking.findFirst({
         where: { id: bookingId, tenantId },
         include: {
