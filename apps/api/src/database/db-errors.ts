@@ -2,7 +2,7 @@
  * PostgreSQL insufficient_privilege (SQLSTATE 42501) as it reaches the application through Prisma, either as the driver
  * code in `meta.code` (raw queries) or only in the message (model queries). It is a role-grant mismatch, not a caller decision.
  */
-const PERMISSION_DENIED_MESSAGE = /permission denied for (table|sequence|function|schema|relation|view)\b/
+const PERMISSION_DENIED_MESSAGE = /permission denied for (table|column|sequence|function|schema|relation|view)\b/
 
 export function isDatabasePermissionDenied(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
