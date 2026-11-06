@@ -24,7 +24,7 @@ export default function AccessReviewPage() {
   const users = useOpsQuery(() => getAccessReviewUsers({ flag: flag || undefined, page, pageSize: PAGE_SIZE }), [flag, page])
   return (
     <div className="admin-page">
-      <PageHeader eyebrow="RISK & COMPLIANCE" title="Access reviews" description="Members of this tenant, their roles and the sensitive permissions they hold. Roles and assignments are changed in Roles & Permissions, not here." />
+      <PageHeader eyebrow="RISK & COMPLIANCE" title="Access reviews" description="Members of this tenant, their roles and the sensitive permissions they hold. Roles and assignments are changed in Roles & Permissions, not here. A staging release stays unsigned until the security owner reviews this page and records a disposition for every flag." />
       <OpsState state={summary.state} onRetry={summary.reload}>
         {(s) => (
           <section aria-label="Access summary" data-testid="access-summary" style={{ marginBottom: 12 }}>

@@ -256,7 +256,10 @@ test('governance slices and pages read their own summary endpoints and do no ari
     const src = readFileSync(join(root, 'app', '(dashboard)', page, 'page.tsx'), 'utf8')
     assert.match(src, new RegExp(fn)); assert.match(src, /OpsState/); assert.doesNotMatch(src, /FeatureUnavailable|Math\.|toFixed/)
   }
-  assert.doesNotMatch(readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8'), /password|passwordHash/i, 'no credential material is ever shown')
+  const accessReview = readFileSync(join(root, 'app', '(dashboard)', 'access-review', 'page.tsx'), 'utf8')
+  assert.doesNotMatch(accessReview, /password|passwordHash/i, 'no credential material is ever shown')
+  assert.match(accessReview, /staging release stays unsigned/, 'the page states the pre-release staging obligation')
+  assert.match(accessReview, /disposition for every flag/)
 })
 
 test('compliance evidence page is read-only, gated by audit.read, and never shows a payload', () => {

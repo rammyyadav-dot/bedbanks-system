@@ -39,6 +39,7 @@ Nothing here has been run. A tick means "proved by evidence in `docs/aws-verific
 - [ ] RDS restore drill into a new instance with recorded timings.
 - [ ] Rollback drill: bad image rolled back by the circuit breaker and by redeploying the previous digest.
 - [ ] One-week soak with alarms subscribed; cost compared with `docs/aws-cost-model.md`.
+- [ ] Security owner reviewed staging Admin Access reviews (`/access-review`) and recorded a disposition for every flag on the staging acceptance sign-off (`docs/release-checklists/staging-access-review.md`). Counts only; no member names or emails in the record.
 
 ## F. Before production is even discussed
 - [ ] CloudFront + WAF + origin lock implemented, or an approved written exception (`production_edge_exception_ref`).

@@ -37,6 +37,7 @@ Disposable CI replay (`ci.yml`, pgvector pg16) is **engineering evidence only**,
 | 2.7 | Forced RLS on all tenant tables; tenant A/B read and write negative tests | Artifact / test output | Pending | Pending |
 | 2.8 | Old and new application versions both run against the migrated schema (rollback compatibility) | Smoke results | Pending | Pending |
 | 2.9 | End-to-end golden path against staging (auth, search, booking, cancellation, wallet; idempotency replays) | Test run reference | Pending | Pending |
+| 2.10 | Access assignment review for the staging tenant: every flag dispositioned by the security signer | `docs/release-checklists/staging-access-review.md` on the staging acceptance sign-off for this SHA | Pending | Pending |
 
 Stop conditions: a failed or edited-checksum migration, divergent history, or `MIGRATED_RUNTIME_ROLE_UNVERIFIED`. Never `migrate resolve`, edit applied migrations, reset production or hand-edit `_prisma_migrations`. Fix forward in a new commit and re-run with reset.
 
