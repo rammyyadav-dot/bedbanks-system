@@ -162,6 +162,15 @@ describe('Rate plan guest prices (ADR 0057, S6)', () => {
       expect(events).toHaveLength(2)
       expect(events[1]!.payload).toMatchObject({ before: [{ kind: 'CHILD', minAge: 0, maxAge: 17, amountMinor: '10000', basis: 'SELL' }], after: [{ minAge: 0, maxAge: 5, amountMinor: '5000' }, { minAge: 6, maxAge: 17, amountMinor: '9000' }] })
     })
+    it('refuses a stored line that moves by more than the guardrail until the change is confirmed, and writes nothing until then', async () => {
+      const id = await newPlan(false)
+      await put(id, [child(0, 11, '15000'), extraAdult('30000')]).then((r) => expectStatus(r, 200))
+      const refused = await put(id, [child(0, 11, '1500'), extraAdult('30000')]).then((r) => expectStatus(r, 409))
+      expect(refused.body.error.code).toBe('PRICE_GUARDRAIL_CONFIRMATION_REQUIRED')
+      expect((await lines(id)).map((line) => line.amountMinor)).toEqual([15000n, 30000n])
+      const saved = (await api(operator).put(`/supply/rate-plans/${id}/guest-prices`, { expectedUpdatedAt: await version(id), lines: [child(0, 11, '1500'), extraAdult('30000')], confirmLargeChanges: true }).then((r) => expectStatus(r, 200))).body.data
+      expect(saved.lines.map((line: { amountMinor: string }) => line.amountMinor)).toEqual(['1500', '30000'])
+    })
     it('an empty list removes every line, returning the plan to the flat rule', async () => {
       const id = await newPlan(false)
       await put(id, [child(0, 17, '10000')]).then((r) => expectStatus(r, 200))

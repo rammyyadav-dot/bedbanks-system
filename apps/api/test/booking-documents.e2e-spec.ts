@@ -138,17 +138,21 @@ describe('booking documents (PostgreSQL)', () => {
 
   it('refuses ineligible documents and foreign tenants', async () => {
     const bookingId = await bookConfirmed(`${suffix}-elig`)
-    await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('only for a cancelled booking')
+    await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('only once the booking is cancelled')
     const hold = await newHold(`${suffix}-pending`)
     const pending = await tx.prebook({ tenantId, userId, requestId: 'p', inventoryHoldId: hold.holdId, idempotencyKey: `${suffix}-pending`, adults: 2, children: 0, childAges: [], leadGuest: guest })
     await expect(get(pending.bookingId, 'VOUCHER')).rejects.toThrow('never confirmed')
     await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: null } })
     await expect(get(bookingId, 'VOUCHER')).rejects.toThrow('hotel confirmation number')
     await prisma.booking.update({ where: { id: bookingId }, data: { hotelConfirmationNo: 'HC-RESTORED' } })
-    await expect(get(pending.bookingId, 'INVOICE')).rejects.toThrow('only for a charged booking')
+    await expect(get(pending.bookingId, 'INVOICE')).rejects.toThrow('never confirmed')
     await expect(get('does-not-exist', 'VOUCHER')).rejects.toThrow('Booking not found')
     const other = await prisma.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })
-    try { await expect(get(bookingId, 'VOUCHER', other.id)).rejects.toThrow('Booking not found') } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
+    await prisma.membership.create({ data: { tenantId: other.id, userId, role: 'owner' } })
+    try { await expect(get(bookingId, 'VOUCHER', other.id)).rejects.toThrow('Booking not found') } finally {
+      await prisma.membership.deleteMany({ where: { tenantId: other.id } })
+      await prisma.tenant.delete({ where: { id: other.id } })
+    }
     await holds.release(tenantId, hold.holdId, 'cleanup', { type: 'USER', userId })
   })
 
@@ -159,12 +163,13 @@ describe('booking documents (PostgreSQL)', () => {
     const voucher = await get(bookingId, 'VOUCHER')
     await cancellations.cancel({ tenantId, userId, requestId: 'cancel-cn', bookingId })
 
+    await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('Issue the invoice first')
+    const invoice = await get(bookingId, 'INVOICE') // issued after cancellation, from the frozen booking data
+    expect(invoice.alreadyIssued).toBe(false)
     const note = await get(bookingId, 'CREDIT_NOTE')
     expect(note.payload).toMatchObject({ currency: 'AED', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570' })
     expect(note.payload.originalInvoiceNumber).toBe(`INV-${(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).reference}`)
     expect(BigInt(note.payload.penaltyMinor) + BigInt(note.payload.refundMinor)).toBe(125099n)
-    const invoice = await get(bookingId, 'INVOICE') // issued late, from the frozen booking data
-    expect(invoice.alreadyIssued).toBe(false)
     const reprint = await get(bookingId, 'VOUCHER')
     expect(reprint).toMatchObject({ id: voucher.id, bookingStatus: 'CANCELLED' })
     expect(renderBookingDocument(reprint)).toContain('THIS BOOKING HAS BEEN CANCELLED')

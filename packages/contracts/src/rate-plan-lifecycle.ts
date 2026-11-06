@@ -126,6 +126,8 @@ export interface RatePlanGuestPricesInput {
   expectedUpdatedAt: string
   /** Each line: `minAge`/`maxAge` are required for CHILD and ignored for EXTRA_ADULT. */
   lines: Array<{ kind: GuestPriceKind; minAge?: number; maxAge?: number; amountMinor: string; amountBasis: 'NET' | 'SELL'; currency: string }>
+  /** ADR 0067 F-13. Required when a stored line (same kind and age band) moves by more than the price guardrail. */
+  confirmLargeChanges?: boolean
   reason?: string
 }
 

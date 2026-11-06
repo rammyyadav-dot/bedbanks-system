@@ -210,6 +210,8 @@ An adjustment needs a stored rate and keeps its basis. A night without a rate, o
 
 The threshold is a platform constant for now; a per-tenant setting can replace it without changing the rule.
 
+**Amendment (2026-11-06).** Replacing a rate plan's guest-price lines uses the same rule. A line is the same stored price when its kind and age band match. A new band is a first price, and removing a line is not a price write. A move past the threshold needs `confirmLargeChanges: true`; without it the replacement is refused with `PRICE_GUARDRAIL_CONFIRMATION_REQUIRED` and nothing is written. A stored amount of zero has no percentage base, so raising it is not flagged. The audit records how many lines moved past the threshold and whether that move was confirmed.
+
 ## F-16: Tabs follow the contracting workflow
 
 **Problem.** The hotel workspace put Bookings and Quick Update before Room Types and Rate Plans, and grouped contracts with rate plans and readiness. A contracting manager works a hotel in a fixed order (content, rooms, supplier mapping, contract, plans, rates and inventory, then distribution), and the order on screen did not match it.
