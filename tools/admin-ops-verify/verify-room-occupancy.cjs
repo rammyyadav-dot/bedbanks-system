@@ -34,20 +34,20 @@ async function login(browser, email) {
   let lastRoomCreateBody = null
   page.on('request', (r) => { if (new URL(r.url()).pathname.endsWith(`/hotels/${seed.hotelId}/rooms`) && r.method() === 'POST') { try { lastRoomCreateBody = JSON.parse(r.postData()) } catch { /* ignore */ } } })
 
-  // ---- room occupancy rules: the canonical rule (maxOccupancy >= maxAdults + maxChildren) is enforced, never bypassed by the UI ----
+  // ---- room occupancy profile (ADR 0114): max occupancy must cover the adult maximum and cannot exceed adults plus children ----
   await page.goto(`${BASE}/hotels/${seed.hotelId}?tab=rooms`)
   await page.waitForSelector('[data-testid=rooms-empty], table[aria-label="Rooms"]')
-  await page.getByRole('button', { name: '+ Add room' }).click()
+  await page.getByRole('button', { name: '+ Add Room Type' }).click()
   await page.waitForSelector('[data-testid=room-editor]')
-  await page.getByLabel('Room name').fill('Suite Room')
+  await page.getByLabel('Room Type Name').fill('Suite Room')
   await page.getByLabel('Room code').fill(`STE-${Date.now().toString(36)}`)
   await page.getByLabel('Max adults').fill('2')
   await page.getByLabel('Max children').fill('2')
-  await page.getByLabel('Max total occupancy').fill('2') // invalid: 2 adults + 2 children = 4 > 2
+  await page.getByLabel('Max total occupancy').fill('1') // below the adult maximum
   await page.getByTestId('room-save').click()
   await page.waitForSelector('[data-testid=room-error]', { timeout: 10000 })
   const occError = await page.getByTestId('room-error').innerText()
-  check('an occupancy triple that cannot hold its own adults and children is refused, not silently accepted', /maxOccupancy: must be at least maxAdults plus maxChildren/.test(occError), occError)
+  check('an occupancy below the adult maximum is refused, not silently accepted', /maxOccupancy: must be at least the adult maximum/.test(occError), occError)
   check('the refused room was not created', (await prisma.roomType.count({ where: { hotelId: seed.hotelId, name: 'Suite Room' } })) === 0)
 
   await page.getByLabel('Max children').fill('1')
@@ -57,8 +57,10 @@ async function login(browser, email) {
   await page.waitForSelector('[data-testid=rooms-flash]', { timeout: 10000 })
   const newRoom = await prisma.roomType.findFirstOrThrow({ where: { hotelId: seed.hotelId, name: 'Suite Room' } })
   check('a valid occupancy triple (2 adults + 1 child = 3) is accepted and stored exactly', newRoom.maxAdults === 2 && newRoom.maxChildren === 1 && newRoom.maxOccupancy === 3)
-  check("extra bed is recorded as descriptive metadata (SUPPORTED), not as a priced room field", newRoom.beddingMetadata.extraBed === 'SUPPORTED')
-  check('extra bed support carries no price anywhere on the room record (CLAUDE.md invariant 10: never present a placeholder as a priced capability)', !('amountMinor' in newRoom) && !('priceMinor' in newRoom) && !/\d/.test(JSON.stringify(newRoom.beddingMetadata).replace(/"(SUPPORTED|NOT_SUPPORTED|UNKNOWN)"/, '')))
+  const beddingOnly = { ...newRoom.beddingMetadata }
+  delete beddingOnly.occupancyPolicy
+  check("extra bed is recorded as descriptive metadata (SUPPORTED), not as a priced room field", beddingOnly.extraBed === 'SUPPORTED')
+  check('extra bed support carries no price anywhere on the room record (CLAUDE.md invariant 10: never present a placeholder as a priced capability)', !('amountMinor' in newRoom) && !('priceMinor' in newRoom) && !('amountMinor' in (newRoom.beddingMetadata.occupancyPolicy ?? {})) && !/\d/.test(JSON.stringify(beddingOnly).replace(/"(SUPPORTED|NOT_SUPPORTED|UNKNOWN)"/, '')))
   const roomAudit = await prisma.auditEvent.findMany({ where: { tenantId: seed.tenantA, entityType: 'room_type', entityId: newRoom.id, action: 'hotel.room.created' } })
   check('room creation left exactly one audit event', roomAudit.length === 1)
 

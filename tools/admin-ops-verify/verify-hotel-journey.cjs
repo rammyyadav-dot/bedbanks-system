@@ -68,8 +68,8 @@ async function login(browser, email) {
 
   // ---- 3. Rooms ----
   await page.goto(`${BASE}/hotels/${hotelId}?tab=rooms`); await page.waitForSelector('table[aria-label=Rooms], [data-testid=rooms-empty]', { timeout: 20000 })
-  await page.getByRole('button', { name: '+ Add room' }).click(); await page.waitForSelector('[data-testid=room-editor]')
-  await page.getByLabel('Room name').fill('Deluxe King'); await page.getByLabel('Room code').fill('DK-1'); await page.getByLabel('Max adults').fill('2'); await page.getByLabel('Max children').fill('1'); await page.getByLabel('Max total occupancy').fill('3')
+  await page.getByRole('button', { name: '+ Add Room Type' }).click(); await page.waitForSelector('[data-testid=room-editor]')
+  await page.getByLabel('Room Type Name').fill('Deluxe King'); await page.getByLabel('Room code').fill('DK-1'); await page.getByLabel('Max adults').fill('2'); await page.getByLabel('Max children').fill('1'); await page.getByLabel('Max total occupancy').fill('3')
   await page.getByLabel('King beds').fill('1'); await page.getByLabel('Extra bed').selectOption('SUPPORTED'); await page.getByLabel('Balcony', { exact: true }).check()
   await page.getByTestId('room-save').click(); await page.waitForSelector('[data-testid=rooms-flash]:has-text("Room created")', { timeout: 15000 })
   const roomRow = () => page.locator('table[aria-label=Rooms] tbody tr', { hasText: 'Deluxe King' })
