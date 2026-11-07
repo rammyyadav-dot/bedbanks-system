@@ -51,8 +51,10 @@ export function normaliseAmenities(value: unknown, scope: 'HOTEL' | 'ROOM', erro
 }
 
 export interface NormalisedRoom {
-  fields: { name?: string; code?: string; maxAdults?: number; maxChildren?: number; maxOccupancy?: number }
+  fields: { name?: string; code?: string; maxAdults?: number; maxChildren?: number; maxOccupancy?: number; isActive?: boolean }
   bedding?: Partial<RoomBedding>
+  /** Present when the request included a policy object. Validated against the merged caps by the service. */
+  policyInput?: unknown
   amenities?: AmenitySelection[]
   changed: string[]
 }
@@ -61,7 +63,7 @@ export interface NormalisedRoom {
 export function normaliseRoomSave(body: Partial<RoomSave>, mode: 'create' | 'update'): { data: NormalisedRoom; errors: string[] } {
   const errors: string[] = []
   const b = (body ?? {}) as Record<string, unknown>
-  const allowed = new Set(['idempotencyKey', 'expectedToken', 'reason', 'name', 'code', 'maxAdults', 'maxChildren', 'maxOccupancy', 'bedding', 'amenities'])
+  const allowed = new Set(['idempotencyKey', 'expectedToken', 'reason', 'name', 'code', 'maxAdults', 'maxChildren', 'maxOccupancy', 'active', 'bedding', 'policy', 'amenities'])
   for (const key of Object.keys(b)) if (!allowed.has(key)) errors.push(`${key}: is not a supported field`)
   const data: NormalisedRoom = { fields: {}, changed: [] }
   const text = (name: 'name', max: number) => {
@@ -78,6 +80,14 @@ export function normaliseRoomSave(body: Partial<RoomSave>, mode: 'create' | 'upd
   for (const k of ['maxAdults', 'maxChildren', 'maxOccupancy'] as const) {
     if (b[k] === undefined) { if (mode === 'create' && k !== 'maxChildren') errors.push(`${k}: is required`); continue }
     data.fields[k] = b[k] as number; data.changed.push(k)
+  }
+  if (b.active !== undefined) {
+    if (typeof b.active !== 'boolean') errors.push('active: must be true or false')
+    else { data.fields.isActive = b.active; data.changed.push('active') }
+  }
+  if (b.policy !== undefined) {
+    if (!b.policy || typeof b.policy !== 'object' || Array.isArray(b.policy)) errors.push('policy: must be an object')
+    else { data.policyInput = b.policy; data.changed.push('policy') }
   }
   if (b.bedding !== undefined) {
     const bd = b.bedding as Record<string, unknown> | null

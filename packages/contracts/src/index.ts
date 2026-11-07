@@ -25,6 +25,7 @@ export * from './booking-finance-posting';
 export * from './hotel-setup';
 export * from './hotel-quality';
 export * from './hotel-rooms';
+export * from './room-occupancy-policy';
 export * from './hotel-quick-update';
 export * from './hotel-images';
 export * from './hotel-inventory';

@@ -1,11 +1,14 @@
 /**
- * Hotel rooms and amenities contracts (ADR 0021, stage 2).
+ * Hotel rooms and amenities contracts (ADR 0021 stage 2, ADR 0114).
  *
  * - Rooms are the canonical Room Master (`RoomType`). Rooms are archived, never deleted: referenced rooms, rate plans and mappings stay.
  * - Bedding and extra-bed support live in the existing `beddingMetadata` JSON column under known keys; other keys are preserved.
- * - Child-age rules are contract policies (`ChildPolicy`) and are shown read-only beside the rooms; they are never edited here.
+ * - The room occupancy profile (age bands, minimums, extra beds, blocked parties) is stored beside bedding under `occupancyPolicy`.
+ *   Requests that omit it keep the older simultaneous-cap rule. Contract child supplements stay on `ChildPolicy` and are shown read-only.
  * - Amenities come from a controlled catalogue. A missing selection means "not recorded"; `UNKNOWN` fee is an explicit answer.
  */
+
+import type { RoomOccupancyPolicy } from './room-occupancy-policy'
 
 export const BED_TYPES = ['SINGLE', 'DOUBLE', 'QUEEN', 'KING', 'TWIN', 'SOFA_BED', 'BUNK'] as const;
 export type BedType = (typeof BED_TYPES)[number];
@@ -74,6 +77,12 @@ export interface HotelRoomView {
   maxOccupancy: number
   isActive: boolean
   bedding: RoomBedding
+  /** Null when this room has no stored occupancy profile yet. */
+  policy: RoomOccupancyPolicy | null
+  /** Active rate-plan meal plans, for the room card. Null when the read was denied; empty when none are active. */
+  boards: string[] | null
+  /** True when lock-after-first-booking is on and a live booking exists, or the booking read could not be checked. */
+  occupancyLocked: boolean
   amenities: AmenitySelection[] | null
   usage: RoomUsage
   /** Opaque. Send it back as `expectedToken`; a stale value is rejected. */
@@ -105,7 +114,10 @@ export interface RoomSave {
   expectedToken?: string
   reason?: string
   name?: string; code?: string; maxAdults?: number; maxChildren?: number; maxOccupancy?: number
+  /** Sets the room active or inactive. Archiving a room that already has sales still goes through the archive route, which requires a reason. */
+  active?: boolean
   bedding?: { description?: string | null; beds?: Array<{ type: string; count: number }>; extraBed?: string }
+  policy?: RoomOccupancyPolicy
   amenities?: AmenitySelection[]
 }
 export interface RoomArchive { idempotencyKey: string; expectedToken: string; reason: string }
