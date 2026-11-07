@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import {
-  BED_TYPES, EXTRA_BED_SUPPORT, compatibilityNote, defaultAgeBands, deriveOccupancyPolicy, explainParty, occupancyMatrix, policyProblems,
+  BED_TYPES, EXTRA_BED_SUPPORT, defaultAgeBands, deriveOccupancyPolicy, explainParty, occupancyMatrix, policyProblems,
   type BedType, type ExtraBedSupport, type AmenitySelection, type HotelRoomsView, type HotelRoomView, type RoomAgeBand, type RoomOccupancyPolicy, type RoomParty, type RoomSave,
 } from '@bedbanks/contracts'
 import { useUnsavedChanges } from '../useUnsavedChanges'
@@ -192,18 +192,14 @@ export function RoomTypeEditor({ hotelId, view, room, onClose, onDone, startArch
     })
   }
 
-  const childCount = num(form.maxChildren)
   return (
     <form className="room-type-editor" aria-label={isNew ? 'Create room type' : `Edit room ${room.name}`} data-testid="room-editor" onSubmit={(event) => { event.preventDefault(); void save() }}>
       <header className="room-type-editor-intro">
-        <p>Room type</p>
         <h2>{isNew ? 'Create Room Type' : `Edit ${room.name}`}</h2>
-        <span>Configure all room details, occupancy rules, and child policy</span>
       </header>
 
       <section className="room-type-section" aria-label="Room details">
         <h3>Room Details</h3>
-        <p>Basic information, amenities, and commercial settings</p>
         <div className="room-type-grid">
           <label style={field}>Room Type Name<input className="input-wrap" value={form.name} maxLength={120} required disabled={busy} onChange={(event) => set('name', event.target.value)} /></label>
           <label style={field}>Room code<input className="input-wrap" value={form.code} maxLength={40} required disabled={busy} onChange={(event) => set('code', event.target.value)} /></label>
@@ -225,31 +221,30 @@ export function RoomTypeEditor({ hotelId, view, room, onClose, onDone, startArch
 
       <section className="room-type-section room-type-section-occupancy" aria-label="Occupancy rules">
         <h3>Occupancy Rules</h3>
-        <p>Define maximum guests, adult and children limits, and extra bed capacity. Search and hold use the three caps below as separate limits.</p>
         {locked && <p role="status" className="room-type-lock">Locked after a booking. Occupancy limits cannot be reduced.</p>}
         <h4>A. Maximum Occupancy Rules</h4>
         <div className="room-type-grid">
-          <label style={field}>Max Total Occupancy<input className="input-wrap" type="number" min={1} value={form.maxOccupancy} disabled={busy || locked} onChange={(event) => set('maxOccupancy', event.target.value)} /><small>Must cover the adult maximum and cannot exceed adults plus children.</small></label>
-          <label style={field}>Max Adults<input className="input-wrap" type="number" min={1} value={form.maxAdults} disabled={busy || locked} onChange={(event) => set('maxAdults', event.target.value)} /><small>Adult-only scenario.</small></label>
-          <label style={field}>Max Children<input className="input-wrap" type="number" min={0} value={form.maxChildren} disabled={busy || locked} onChange={(event) => { const value = event.target.value; set('maxChildren', value); if (num(value) <= 0) toggleChildren(false); else if (!form.childrenAllowed) toggleChildren(true) }} /><small>Child cap. The maxima do not have to be booked together.</small></label>
+          <label style={field}>Max Total Occupancy<input className="input-wrap" type="number" min={1} value={form.maxOccupancy} disabled={busy || locked} onChange={(event) => set('maxOccupancy', event.target.value)} /></label>
+          <label style={field}>Max Adults<input className="input-wrap" type="number" min={1} value={form.maxAdults} disabled={busy || locked} onChange={(event) => set('maxAdults', event.target.value)} /></label>
+          <label style={field}>Max Children<input className="input-wrap" type="number" min={0} value={form.maxChildren} disabled={busy || locked} onChange={(event) => { const value = event.target.value; set('maxChildren', value); if (num(value) <= 0) toggleChildren(false); else if (!form.childrenAllowed) toggleChildren(true) }} /></label>
           <label style={field}>Max Adults (when travelling with children)<input className="input-wrap" type="number" min={0} value={form.maxAdultsWithChildren} disabled={busy || locked} onChange={(event) => set('maxAdultsWithChildren', event.target.value)} /></label>
         </div>
         <h4>B. Minimum Occupancy Rules</h4>
         <div className="room-type-grid">
-          <label style={field}>Min Total Occupancy<input className="input-wrap" type="number" min={1} value={form.minOccupancy} disabled={busy || locked} onChange={(event) => set('minOccupancy', event.target.value)} /><small>Stops a stay below this many guests.</small></label>
-          <label style={field}>Min Adults Required<input className="input-wrap" type="number" min={0} value={form.minAdults} disabled={busy || locked} onChange={(event) => set('minAdults', event.target.value)} /><small>Blocks a child-only booking when at least 1.</small></label>
+          <label style={field}>Min Total Occupancy<input className="input-wrap" type="number" min={1} value={form.minOccupancy} disabled={busy || locked} onChange={(event) => set('minOccupancy', event.target.value)} /></label>
+          <label style={field}>Min Adults Required<input className="input-wrap" type="number" min={0} value={form.minAdults} disabled={busy || locked} onChange={(event) => set('minAdults', event.target.value)} /></label>
         </div>
         <h4>C. Extra Bed Capacity</h4>
         <div className="room-type-grid">
-          <label style={field}>Max Extra Beds<input className="input-wrap" type="number" min={0} max={6} value={form.maxExtraBeds} disabled={busy || locked} onChange={(event) => set('maxExtraBeds', event.target.value)} /><small>0 means no extra bed.</small></label>
+          <label style={field}>Max Extra Beds<input className="input-wrap" type="number" min={0} max={6} value={form.maxExtraBeds} disabled={busy || locked} onChange={(event) => set('maxExtraBeds', event.target.value)} /></label>
           <label className="room-type-check"><input type="checkbox" checked={form.extraBedCountsTowardMax} disabled={busy || locked} onChange={(event) => set('extraBedCountsTowardMax', event.target.checked)} />Extra bed counts toward max occupancy</label>
         </div>
         <h4>D. Event Override Capacity</h4>
-        <label style={field}>Event Max Occupancy (optional)<input className="input-wrap" type="number" min={1} value={form.eventMaxOccupancy} disabled={busy || locked} onChange={(event) => set('eventMaxOccupancy', event.target.value)} /><small>Leave blank for a standard room. When set, it must be at least the standard maximum. Event sales do not use it yet.</small></label>
+        <label style={field}>Event Max Occupancy<input className="input-wrap" type="number" min={1} value={form.eventMaxOccupancy} disabled={busy || locked} onChange={(event) => set('eventMaxOccupancy', event.target.value)} /></label>
         <h4>E. Admin Governance</h4>
-        <label className="room-type-check"><input type="checkbox" checked={form.lockAfterFirstBooking} disabled={busy} onChange={(event) => set('lockAfterFirstBooking', event.target.checked)} />Lock after first booking. Limits cannot be reduced once a live booking exists.</label>
+        <label className="room-type-check"><input type="checkbox" checked={form.lockAfterFirstBooking} disabled={busy} onChange={(event) => set('lockAfterFirstBooking', event.target.checked)} />Lock after first booking</label>
         <div className="room-type-matrix" aria-label="Allowed occupancy matrix">
-          <p>Allowed occupancy matrix. A green cell is bookable. A red cell is blocked. Select a bookable cell to block it.</p>
+          <h4>Occupancy</h4>
           {previewProblems.length > 0 ? <ul>{previewProblems.map((problem) => <li key={problem}>{problem}</li>)}</ul> : (
             <table>
               <thead><tr><th scope="col">Adults \ Children</th>{Array.from({ length: Math.min(Math.max(previewCaps.maxChildren, 0), 8) + 1 }, (_, children) => <th scope="col" key={children}>{children}</th>)}</tr></thead>
@@ -268,8 +263,7 @@ export function RoomTypeEditor({ hotelId, view, room, onClose, onDone, startArch
 
       <section className="room-type-section room-type-section-child" aria-label="Child policy and extra bed">
         <h3>Child Policy & Extra Bed</h3>
-        <p>Age brackets and extra-bed availability for this room. A percent is that share of one adult's portion of the nightly rate, stored in basis points. Search applies it to children beyond the rate plan's base party when the plan has no child price of its own. A plan's own child lines, otherwise the contract supplement, remain the price.</p>
-        <h4>Step 1 — Age Band Engine</h4>
+        <h4>Age bands</h4>
         <label className="room-type-check"><input type="checkbox" checked={form.childrenAllowed} disabled={busy || locked} onChange={(event) => toggleChildren(event.target.checked)} />Children allowed in this room</label>
         <div className="room-type-bands">
           {form.ageBands.map((band, index) => (
@@ -285,18 +279,13 @@ export function RoomTypeEditor({ hotelId, view, room, onClose, onDone, startArch
           ))}
         </div>
         <button type="button" className="admin-btn" disabled={busy || locked || !form.childrenAllowed} onClick={addBand}>Add age band</button>
-        <div className="room-type-preview" aria-label="Age band preview">
-          {form.ageBands.map((band) => <p key={`${band.kind}-${band.minAge}`}>{band.kind} · ages {band.minAge}–{band.maxAge} · {band.charge === 'FREE' ? (band.kind === 'ADULT' ? 'base rate' : 'free') : `${(band.percentBp ?? 0) / 100}% of adult rate`}</p>)}
-        </div>
-        <h4>Step 2 — Bed & Occupancy Logic</h4>
-        <p style={note}>Max children per room: {Number.isInteger(childCount) ? childCount : '—'}. Capped by max total occupancy ({form.maxOccupancy || '—'}).</p>
-        <label className="room-type-check"><input type="checkbox" checked={form.sharingBedAllowed} disabled={busy || locked || !form.childrenAllowed} onChange={(event) => set('sharingBedAllowed', event.target.checked)} />Sharing bed allowed. One child can share a bed and does not count toward occupancy.</label>
+        <h4>Beds</h4>
+        <label className="room-type-check"><input type="checkbox" checked={form.sharingBedAllowed} disabled={busy || locked || !form.childrenAllowed} onChange={(event) => set('sharingBedAllowed', event.target.checked)} />Sharing bed allowed</label>
         <label className="room-type-check"><input type="checkbox" checked={form.childExtraBedAllowed} disabled={busy || locked} onChange={(event) => set('childExtraBedAllowed', event.target.checked)} />Extra bed allowed for children</label>
         <label className="room-type-check"><input type="checkbox" checked={form.adultExtraBedAllowed} disabled={busy || locked} onChange={(event) => set('adultExtraBedAllowed', event.target.checked)} />Adult extra bed available</label>
-        {previewProblems.length === 0 && <p className="room-type-compat">{compatibilityNote(previewPolicy, previewCaps)}</p>}
       </section>
 
-      {!isNew && <label style={field}>Reason (optional for edits, required to archive, restore, or turn off the booking lock)<input className="input-wrap" value={form.reason} maxLength={500} onChange={(event) => { key.current = null; set('reason', event.target.value) }} /></label>}
+      {!isNew && <label style={field}>Reason<input className="input-wrap" value={form.reason} maxLength={500} onChange={(event) => { key.current = null; set('reason', event.target.value) }} /></label>}
       <div className="room-type-actions">
         <button type="button" className="admin-btn" onClick={onClose} disabled={busy}>Cancel</button>
         <button type="submit" className="button primary" disabled={busy || !dirty} data-testid="room-save">{busy ? 'Saving…' : isNew ? 'Create Room Type' : 'Save room'}</button>

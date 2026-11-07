@@ -37,7 +37,7 @@ export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCo
   const commercial = useMemo(() => new Map(data.rooms.map((r) => [r.id, r])), [data.rooms])
   const done = (text: string) => { setFlash(text); setEditing(null); setVersion((v) => v + 1); onChanged() }
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div className="fabbeds" style={{ display: 'grid', gap: 16 }}>
       {flash && <div role="status" className="workspace-panel" data-testid="rooms-flash" style={{ padding: 12 }}><strong>{flash}</strong></div>}
       <OpsState state={state} onRetry={reload}>
         {(view) => (
@@ -45,8 +45,7 @@ export function RoomsPanel({ data, onChanged, compact = false }: { data: HotelCo
             <div className={compact ? 'hotel-room-card' : 'workspace-panel'} style={compact ? undefined : { padding: 18 }} data-testid="hotels-rooms">
               <div className="room-type-toolbar">
                 <div>
-                  <h2 style={{ fontSize: 14, margin: 0 }}>{compact ? 'Room Types' : `Rooms (${view.rooms.length})`}</h2>
-                  <p style={note}>Manage room types for this hotel</p>
+                  <h2 style={{ fontSize: 16, margin: 0 }}>{compact ? 'Room Types' : `Rooms (${view.rooms.length})`}</h2>
                 </div>
                 {canManage && <button type="button" className="button primary" onClick={() => { setFlash(null); setArchiveRequested(false); setEditing('new') }}>+ Add Room Type</button>}
               </div>
