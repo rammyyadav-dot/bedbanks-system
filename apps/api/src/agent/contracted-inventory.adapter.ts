@@ -260,6 +260,7 @@ export class ContractedInventoryAdapter implements SupplierAdapter {
           { occupancy },
           { occupancy: { lte: occupancy }, guestPrices: { some: {} } },
           { occupancy: { lte: occupancy }, contract: { childPolicies: { some: {} } } },
+          { occupancy: { lte: occupancy }, roomType: { beddingMetadata: { path: ['occupancyPolicy', 'childrenAllowed'], equals: true } } },
         ],
         boardBasis: { tenantId, isActive: true, ...(criteria.filters?.boardBasisIds ? { id: { in: criteria.filters.boardBasisIds } } : {}) },
         roomType: {

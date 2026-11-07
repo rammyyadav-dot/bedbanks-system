@@ -1,4 +1,7 @@
-import { EXTRA_ADULT_BAND, effectiveGuestLines, resolveGuestPricing, validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
+import { deriveOccupancyPolicy } from '@bedbanks/contracts'
+import { EXTRA_ADULT_BAND, effectiveGuestLines, perAdultShare, resolveGuestPricing, roomPolicyNightExtra, validateGuestPriceLines, type GuestPriceLine } from './guest-pricing'
+import { evaluateContractedStay } from './contracted-sellability'
+import { buildStaySnapshot, type StayPlanInput } from './stay-snapshot'
 
 const limits = { maxAdults: 3, maxChildren: 2, maxOccupancy: 4 }
 const child = (minAge: number, maxAge: number, amountMinor: bigint, basis: 'NET' | 'SELL' = 'SELL'): GuestPriceLine => ({ kind: 'CHILD', minAge, maxAge, amountMinor, basis, currency: 'AED' })
@@ -121,5 +124,55 @@ describe('guest pricing (ADR 0057, S6)', () => {
     it('a band in another currency is refused, never converted', () => {
       expect(price({ lines: effectiveGuestLines([], [{ minAge: 0, maxAge: 17, supplementMinor: 1n, currency: 'USD' }], 'AED'), children: 1, childAges: [5] }).reasons).toContain('GUEST_PRICE_CURRENCY_MISMATCH')
     })
+  })
+})
+
+describe('room age bands price an extra child as a share of the adult rate (ADR 0114)', () => {
+  const caps = { maxAdults: 3, maxChildren: 2, maxOccupancy: 4 }
+  const policy = deriveOccupancyPolicy(caps, false)
+  policy.maxAdultsWithChildren = 2
+  policy.baseOccupancy = 2
+  const at = (day: string) => new Date(`${day}T00:00:00.000Z`)
+  const dates = ['2026-11-10', '2026-11-11']
+  function plan(patch: Partial<StayPlanInput> = {}): StayPlanInput {
+    return {
+      id: 'p1', boardBasisId: 'bb', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], dealRules: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0,
+      roomType: { hotelId: 'h1', isActive: true, maxAdults: 3, maxChildren: 2, maxOccupancy: 4, beddingMetadata: { occupancyPolicy: policy }, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },
+      boardBasis: { isActive: true },
+      contract: { cancellationPolicies: [], leadTimeRules: [], minStayMode: 'STAY_THROUGH', supplements: [], eventSupplements: [], childPolicies: [{ minAge: 0, maxAge: 12, supplementMinor: 9_999n, currency: 'AED' }], status: 'ACTIVE', validFrom: at('2026-01-01'), validTo: at('2027-01-01'), settlementCurrency: 'AED', supplier: { status: 'ACTIVE' } },
+      dailyRates: dates.map((day) => ({ stayDate: at(day), amountMinor: 20_000n, currency: 'AED', amountBasis: 'SELL' as const })),
+      availability: [...dates, '2026-11-12'].map((day) => ({ stayDate: at(day), allotment: 5, sold: 0, held: 0, stopSell: false, minStay: 1, closedToArrival: false, releaseDays: null, inventoryMode: 'FREE_SALE', source: 'ADMIN', freshUntil: null })),
+      ...patch,
+    }
+  }
+  const quote = (request: { adults: number; children: number; childAges?: number[] }, source: StayPlanInput = plan()) => evaluateContractedStay(
+    buildStaySnapshot(source, { status: 'MAPPED', hotelId: 'h1' }, { status: 'MAPPED' }, dates, undefined, { adults: request.adults }),
+    { checkIn: dates[0]!, checkOut: '2026-11-12', rooms: 1, currency: 'AED', now: new Date('2026-11-01T08:00:00.000Z'), ...request },
+  )
+
+  it('splits a night into equal adult shares, half up', () => {
+    expect(perAdultShare(20_000n, 2)).toBe(10_000n)
+    expect(perAdultShare(10_001n, 2)).toBe(5_001n)
+  })
+  it('charges 50% of one adult share for an extra child and does not also add the contract supplement', () => {
+    expect(roomPolicyNightExtra({ policy, nightlyMinor: 20_000n, planOccupancy: 2, adults: 2, children: 1, childAges: [8] })).toEqual({ extraMinor: 5_000n, reasons: [] })
+    const sold = quote({ adults: 2, children: 1, childAges: [8] })
+    expect(sold.reasons).toEqual([])
+    // Two nights at 20_000 plus 5_000. The contract's 9_999 supplement is not added.
+    expect(sold.totalMinor).toBe(50_000n)
+  })
+  it('an infant on a free band adds nothing, and a sharing child is not charged', () => {
+    expect(roomPolicyNightExtra({ policy, nightlyMinor: 20_000n, planOccupancy: 2, adults: 2, children: 1, childAges: [0] })).toEqual({ extraMinor: 0n, reasons: [] })
+    const sharing = { ...policy, sharingBedAllowed: true }
+    expect(roomPolicyNightExtra({ policy: sharing, nightlyMinor: 20_000n, planOccupancy: 2, adults: 2, children: 1, childAges: [8] })).toEqual({ extraMinor: 0n, reasons: [] })
+  })
+  it('refuses a party the matrix blocks, and a plan child line replaces the room percent', () => {
+    expect(quote({ adults: 3, children: 2, childAges: [4, 6] }).reasons).toContain('OCCUPANCY_UNSUPPORTED')
+    const own = plan({ guestPrices: [{ kind: 'CHILD', minAge: 0, maxAge: 17, amountMinor: 1_000n, amountBasis: 'SELL', currency: 'AED' }] })
+    expect(quote({ adults: 2, children: 1, childAges: [8] }, own).totalMinor).toBe(42_000n)
+  })
+  it('a missing age is refused and priced at nothing', () => {
+    expect(roomPolicyNightExtra({ policy, nightlyMinor: 20_000n, planOccupancy: 2, adults: 2, children: 1 })).toEqual({ extraMinor: 0n, reasons: ['CHILD_AGES_REQUIRED'] })
+    expect(quote({ adults: 2, children: 1 }).reasons).toContain('CHILD_AGES_REQUIRED')
   })
 })

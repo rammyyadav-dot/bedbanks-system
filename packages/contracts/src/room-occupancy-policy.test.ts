@@ -77,6 +77,6 @@ describe('room occupancy policy', () => {
     assert.equal(parseOccupancyPolicy({ occupancyPolicy: stored }, room)?.maxExtraBeds, 1)
     assert.equal(parseOccupancyPolicy({ occupancyPolicy: { ...stored, ageBands: [] } }, room), null)
     assert.equal(parseOccupancyPolicy({}, room), null)
-    assert.match(compatibilityNote(stored, room), /Contract child supplements stay on the contract/)
+    assert.match(compatibilityNote(stored, room), /contract supplement, are the price/)
   })
 })

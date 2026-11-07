@@ -2,7 +2,8 @@ import { markupMinor, MAX_MARKUP_BASIS_POINTS } from '@bedbanks/pricing'
 import { releaseAllows, zonedLocalToUtc } from './zoned-time'
 import { hotelToday } from './rate-plan-expiry'
 import { evaluatePromotions, leadDays, type AppliedPromotion, type PromotionConsideration, type PromotionRule } from './promotions'
-import { resolveGuestPricing, type GuestPriceLine } from './guest-pricing'
+import { explainParty, type RoomOccupancyPolicy } from '@bedbanks/contracts'
+import { resolveGuestPricing, roomPolicyNightExtra, type GuestPriceLine } from './guest-pricing'
 import { marketReasons, normalizeCountry, planMarketReasons, type BuyerContext, type ContractMarketRules } from './market-rules'
 import { supplementNights, type SupplementKind, type SupplementRule } from './supplements'
 import { eventSupplementNights, type EventSupplementRule } from './event-supplements'
@@ -102,6 +103,8 @@ export interface ContractedStaySnapshot {
   maxAdults: number
   maxChildren: number
   maxOccupancy: number
+  /** Room age bands and occupancy matrix (ADR 0114). Absent or null: the three caps and the plan or contract child price apply unchanged. */
+  roomPolicy?: RoomOccupancyPolicy | null
   nights: StayNightSnapshot[]
 }
 
@@ -185,6 +188,16 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const guestPricing = resolveGuestPricing({ planOccupancy: snapshot.ratePlanOccupancy, currency: snapshot.ratePlanCurrency, adults: request.adults, children: request.children, childAges: request.childAges, lines: snapshot.guestPrices, limits: { maxAdults: snapshot.maxAdults, maxChildren: snapshot.maxChildren, maxOccupancy: snapshot.maxOccupancy } })
   if (request.rooms < 1) reasons.push('OCCUPANCY_UNSUPPORTED')
   reasons.push(...guestPricing.reasons)
+  const roomPolicy = snapshot.roomPolicy ?? null
+  const roomPricesChildren = !!roomPolicy && !snapshot.guestPrices.some((line) => line.kind === 'CHILD')
+  if (roomPolicy) {
+    const fit = explainParty(roomPolicy, { maxAdults: snapshot.maxAdults, maxChildren: snapshot.maxChildren, maxOccupancy: snapshot.maxOccupancy }, request.adults, request.children)
+    if (fit.state !== 'bookable') reasons.push('OCCUPANCY_UNSUPPORTED')
+    else if (roomPricesChildren && guestPricing.mode === 'FLAT' && request.adults >= 1 && request.adults + request.children >= snapshot.ratePlanOccupancy) {
+      // The flat rule only knows "party size equals the plan". The room profile prices the guests beyond that base.
+      for (let i = reasons.length - 1; i >= 0; i -= 1) if (reasons[i] === 'OCCUPANCY_UNSUPPORTED') reasons.splice(i, 1)
+    }
+  }
   const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
   const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
@@ -225,6 +238,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   let sawUnverified = false
   let sawGuestBasisMismatch = false
   let sawNet = false
+  let sawRoomChild: string[] = []
   let sawMissingAvailability = false
   let sawStopSell = false
   let sawClosedArrival = false
@@ -244,9 +258,15 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
       else if (night.amountBasis === 'NET') {
         // NET sells only under a valid markup rule; anything else stays unsellable (fail closed). Guest lines are added to the nightly net BEFORE the promotion and the markup.
         const bp = night.markupBasisPoints
+        const roomChild = roomPricesChildren ? roomPolicyNightExtra({ policy: roomPolicy!, nightlyMinor: night.rateAmountMinor, planOccupancy: snapshot.ratePlanOccupancy, adults: request.adults, children: request.children, childAges: request.childAges }) : { extraMinor: 0n, reasons: [] as string[] }
+        if (roomChild.reasons.length) sawRoomChild = roomChild.reasons
         if (bp === null || bp === undefined || !Number.isSafeInteger(bp) || bp < 0 || bp > MAX_MARKUP_BASIS_POINTS) sawNet = true
-        else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp, base: night.rateAmountMinor }
-      } else nightNets[index] = { net: night.rateAmountMinor + extraPerNight, bp: null, base: night.rateAmountMinor }
+        else nightNets[index] = { net: night.rateAmountMinor + extraPerNight + roomChild.extraMinor, bp, base: night.rateAmountMinor }
+      } else {
+        const roomChild = roomPricesChildren ? roomPolicyNightExtra({ policy: roomPolicy!, nightlyMinor: night.rateAmountMinor, planOccupancy: snapshot.ratePlanOccupancy, adults: request.adults, children: request.children, childAges: request.childAges }) : { extraMinor: 0n, reasons: [] as string[] }
+        if (roomChild.reasons.length) sawRoomChild = roomChild.reasons
+        nightNets[index] = { net: night.rateAmountMinor + extraPerNight + roomChild.extraMinor, bp: null, base: night.rateAmountMinor }
+      }
     }
     if (!night.availability) sawMissingAvailability = true
     else {
@@ -306,6 +326,7 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   if (sawCurrencyMismatch) reasons.push('RATE_CURRENCY_MISMATCH')
   if (sawUnverified) reasons.push('RATE_AMOUNT_BASIS_UNVERIFIED')
   if (sawGuestBasisMismatch) reasons.push('GUEST_PRICE_BASIS_MISMATCH')
+  reasons.push(...sawRoomChild)
   if (sawNet) reasons.push('NET_RATE_MARKUP_UNAVAILABLE')
   if (sawMissingAvailability) reasons.push('AVAILABILITY_MISSING')
   if (sawStopSell) reasons.push('STOP_SELL')

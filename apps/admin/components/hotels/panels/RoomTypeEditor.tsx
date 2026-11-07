@@ -268,7 +268,7 @@ export function RoomTypeEditor({ hotelId, view, room, onClose, onDone, startArch
 
       <section className="room-type-section room-type-section-child" aria-label="Child policy and extra bed">
         <h3>Child Policy & Extra Bed</h3>
-        <p>Age brackets and extra-bed availability for this room. A percent is a share of the adult rate, stored in basis points, and is not applied to the contracted daily rate. The priced child supplement stays on the contract.</p>
+        <p>Age brackets and extra-bed availability for this room. A percent is that share of one adult's portion of the nightly rate, stored in basis points. Search applies it to children beyond the rate plan's base party when the plan has no child price of its own. A plan's own child lines, otherwise the contract supplement, remain the price.</p>
         <h4>Step 1 — Age Band Engine</h4>
         <label className="room-type-check"><input type="checkbox" checked={form.childrenAllowed} disabled={busy || locked} onChange={(event) => toggleChildren(event.target.checked)} />Children allowed in this room</label>
         <div className="room-type-bands">

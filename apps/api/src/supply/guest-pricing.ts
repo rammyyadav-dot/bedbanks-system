@@ -1,3 +1,5 @@
+import type { RoomOccupancyPolicy } from '@bedbanks/contracts'
+
 /**
  * Child and extra-adult pricing for a rate plan (ADR 0057, S6). Pure: no I/O.
  *
@@ -109,4 +111,42 @@ export function validateGuestPriceLines(lines: ReadonlyArray<{ kind: string; min
   const sorted = [...children].sort((a, b) => a.min - b.min)
   for (let i = 1; i < sorted.length; i++) if (sorted[i]!.min <= sorted[i - 1]!.max) { issues.push({ code: 'GUEST_PRICE_AGE_BANDS_OVERLAP', message: `Child bands ${sorted[i - 1]!.min}-${sorted[i - 1]!.max} and ${sorted[i]!.min}-${sorted[i]!.max} overlap; a child must match exactly one.` }); break }
   return issues
+}
+
+/** One adult's share of a night sold for `planOccupancy` adults. Half up, integer minor units only. */
+export function perAdultShare(nightlyMinor: bigint, planOccupancy: number): bigint {
+  if (nightlyMinor < 0n || !Number.isSafeInteger(planOccupancy) || planOccupancy < 1) return 0n
+  const divisor = BigInt(planOccupancy)
+  return (nightlyMinor + divisor / 2n) / divisor
+}
+
+/**
+ * Extra charge for one night from the room's age bands (ADR 0114). Used only when the plan has no CHILD lines of its own, so a contract
+ * supplement is not added as well. The oldest children fill base places the adults left empty and pay nothing extra. A sharing child, the
+ * youngest, is not charged. FREE is an explicit zero. PERCENT is that many basis points of one adult's share of this night. An age that
+ * falls in the adult band pays a full adult share. A missing age or band is refused and contributes no amount.
+ */
+export function roomPolicyNightExtra(input: { policy: RoomOccupancyPolicy; nightlyMinor: bigint; planOccupancy: number; adults: number; children: number; childAges?: readonly number[] }): { extraMinor: bigint; reasons: string[] } {
+  if (input.children === 0) return { extraMinor: 0n, reasons: [] }
+  const ages = input.childAges ?? []
+  if (ages.length !== input.children || ages.some((age) => !Number.isInteger(age) || age < 0 || age > 17)) return { extraMinor: 0n, reasons: ['CHILD_AGES_REQUIRED'] }
+  let remaining = [...ages]
+  if (input.policy.sharingBedAllowed) {
+    const youngest = Math.min(...remaining)
+    remaining.splice(remaining.indexOf(youngest), 1)
+  }
+  const basePlaces = Math.max(0, input.planOccupancy - input.adults)
+  const extras = remaining.sort((a, b) => b - a).slice(basePlaces)
+  const share = perAdultShare(input.nightlyMinor, input.planOccupancy)
+  const reasons = new Set<string>()
+  let extra = 0n
+  for (const age of extras) {
+    const band = input.policy.ageBands.find((item) => age >= item.minAge && age <= item.maxAge)
+    if (!band) { reasons.add('CHILD_AGE_NOT_COVERED'); continue }
+    if (band.kind === 'ADULT') { extra += share; continue }
+    if (band.charge === 'FREE') continue
+    if (band.percentBp === null) { reasons.add('CHILD_PRICE_MISSING'); continue }
+    extra += (share * BigInt(band.percentBp) + 5_000n) / 10_000n
+  }
+  return { extraMinor: reasons.size ? 0n : extra, reasons: [...reasons] }
 }

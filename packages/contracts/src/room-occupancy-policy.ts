@@ -6,8 +6,9 @@
  * maxAdults + maxChildren may be greater than maxOccupancy (a room can sleep 3 adults or 2 children,
  * but not both at once). Requests that omit this profile keep the older simultaneous-cap rule.
  *
- * Age-band percents are integer basis points (5000 = 50% of the adult rate). They are not a sell price
- * and are not applied by the contracted evaluator; contract child supplements remain that price.
+ * Age-band percents are integer basis points (5000 = 50% of one adult's share of the night). The contracted
+ * evaluator applies them when the rate plan has no child price lines of its own, and then does not also add
+ * the contract child supplement. A plan's own child lines stay the price.
  */
 
 export const ROOM_AGE_MAX = 99
@@ -107,7 +108,7 @@ export function compatibilityNote(policy: RoomOccupancyPolicy, caps: RoomOccupan
   const sharing = policy.sharingBedAllowed
     ? 'Sharing bed: yes — one child does not count toward occupancy.'
     : 'Sharing bed: no — each child counts toward total occupancy.'
-  return `Room max occupancy: ${caps.maxOccupancy} guests. The child age bands are capped to this limit. ${sharing} Agent search admits a party when the three caps fit; minimums, blocked cells, sharing and extra beds are stored on the room and are not yet a second search price. Contract child supplements stay on the contract.`
+  return `Room max occupancy: ${caps.maxOccupancy} guests. The child age bands are capped to this limit. ${sharing} Search uses this matrix. A child percent is that share of one adult's portion of the night when the rate plan has no child price of its own; otherwise the plan's own lines, or the contract supplement, are the price.`
 }
 
 function text(value: unknown, max: number, field: string, errors: string[]): string | undefined {

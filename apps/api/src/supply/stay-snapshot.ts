@@ -1,3 +1,4 @@
+import { parseOccupancyPolicy } from '@bedbanks/contracts'
 import { parseMarketRules } from './market-rules'
 import { rulesForPlan } from './cancellation-rules'
 import { effectiveGuestLines, type GuestPriceLine } from './guest-pricing'
@@ -40,7 +41,7 @@ export interface StayPlanInput {
   inventoryPoolId?: string | null
   /** The plan's pool with the stock days of the window. Absent when the plan has no pool. */
   inventoryPool?: { name?: string; days: PoolDayInput[] } | null
-  roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; hotel: { contentStatus: string; timeZone?: string } }
+  roomType: { hotelId: string; isActive: boolean; maxAdults: number; maxChildren: number; maxOccupancy: number; beddingMetadata?: unknown; hotel: { contentStatus: string; timeZone?: string } }
   boardBasis: { isActive: boolean }
   /** ADR 0067 F-02: the contract's booking lead-time rule (zero or one row). Required so a loader that forgot it fails type-check instead of selling inside the cut-off. */
   /** ADR 0067 F-03: the contract child bands, inherited by a plan without CHILD lines of its own. Required for the same reason. */
@@ -106,6 +107,10 @@ export function buildStaySnapshot(
   // party's adult count prices the stay when EVERY night has a rate for it; otherwise the plan's base occupancy does, with guest lines on top
   // (finding F12). Never a mix of occupancies within one stay.
   const occupancy = pricedOccupancy(plan, nights, party)
+  const roomCaps = { maxAdults: plan.roomType.maxAdults, maxChildren: plan.roomType.maxChildren, maxOccupancy: plan.roomType.maxOccupancy }
+  const roomPolicy = parseOccupancyPolicy(plan.roomType.beddingMetadata, roomCaps)
+  const planHasChildLines = plan.guestPrices.some((line) => line.kind === 'CHILD')
+  const contractBands = roomPolicy && !planHasChildLines ? [] : plan.contract.childPolicies
   const rates = new Map(plan.dailyRates.filter((rate) => (rate.occupancy ?? plan.occupancy) === occupancy).map((rate) => [dayKey(rate.stayDate), rate]))
   const availability = new Map(plan.availability.map((row) => [dayKey(row.stayDate), row]))
   // A pooled plan whose night has no pool day is reported AVAILABILITY_MISSING, never zero.
@@ -143,7 +148,8 @@ export function buildStaySnapshot(
     contractValidFrom: dayKey(plan.contract.validFrom),
     contractValidTo: dayKey(plan.contract.validTo),
     contractCurrency: plan.contract.settlementCurrency,
-    guestPrices: effectiveGuestLines(plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })), plan.contract.childPolicies, plan.currency),
+    guestPrices: effectiveGuestLines(plan.guestPrices.map((line): GuestPriceLine => ({ kind: line.kind as GuestPriceLine['kind'], minAge: line.minAge, maxAge: line.maxAge, amountMinor: line.amountMinor, basis: line.amountBasis as GuestPriceLine['basis'], currency: line.currency })), contractBands, plan.currency),
+    roomPolicy,
     derivedProblem: plan.derivedProblem,
     promotions: [...plan.promotions.map((promo): PromotionRule => ({ id: promo.id, kind: promo.kind as PromotionKind, name: promo.name, percentBp: promo.percentBp, minLeadDays: promo.minLeadDays, maxLeadDays: promo.maxLeadDays, minNights: promo.minNights, freeNights: promo.freeNights, bookFrom: promo.bookFrom ? dayKey(promo.bookFrom) : null, bookTo: promo.bookTo ? dayKey(promo.bookTo) : null, stayFrom: promo.stayFrom ? dayKey(promo.stayFrom) : null, stayTo: promo.stayTo ? dayKey(promo.stayTo) : null , combinable: promo.combinable, stayWindowMode: promo.stayWindowMode as StayWindowMode, discountBase: promo.discountBase as DiscountBase})), ...plan.dealRules],
     cancellationPolicyMissing: rulesForPlan(plan, plan.contract.cancellationPolicies).missing,
