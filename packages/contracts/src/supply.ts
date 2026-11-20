@@ -156,7 +156,13 @@ export interface ExecuteSupplierCancellationRequest {
   expectedCustomerLiabilityMinor: string
   refundMinor: string
   currency: string
+  /**
+   * Sandbox-only: force a supplier outcome. The API refuses the request with
+   * `SUPPLIER_SIMULATION_DISABLED` unless SUPPLIER_SIMULATION_ENABLED === 'true'
+   * AND NODE_ENV !== 'production'. Never set from a production surface.
+   */
   simulatedSupplierOutcome?: 'confirmed' | 'rejected' | 'timeout'
+  /** Sandbox-only: see simulatedSupplierOutcome. Refused in production. */
   simulatedSupplierPenaltyMinor?: string
 }
 export interface ExecuteSupplierCancellationResult {
