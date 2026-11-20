@@ -102,6 +102,18 @@ const planMarketsOrThrow = (input: Record<string, unknown>, current: { salesMark
 }
 const dateOrNull = (value: string | null): Date | null => (value ? new Date(`${value}T00:00:00.000Z`) : null)
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
+
+/**
+ * Supplier-outcome simulation (simulatedSupplierOutcome, simulatedSupplierPenaltyMinor) is a sandbox facility
+ * for staging and development only. It must never be reachable in production: an operator-chosen "outcome"
+ * synthesises supplier confirmations and penalties and would violate CLAUDE.md invariants #5 and #10.
+ *
+ * Enabled only when SUPPLIER_SIMULATION_ENABLED === 'true' AND NODE_ENV is not 'production'. Production
+ * ignores the flag entirely, so there is no way to turn simulation on with a config change alone.
+ */
+export const supplierSimulationEnabled = (env: Record<string, string | undefined> = process.env): boolean =>
+  env.SUPPLIER_SIMULATION_ENABLED === 'true' && env.NODE_ENV !== 'production'
+
 const minorBigInt = (value: unknown, field: string): bigint => {
   if (typeof value === 'number' && Number.isSafeInteger(value)) return BigInt(value)
   if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return BigInt(value.trim())
@@ -1301,6 +1313,10 @@ export class SupplyService {
     }
     const expectedCustomerLiabilityMinor = minorBigInt(input.expectedCustomerLiabilityMinor ?? '0', 'expectedCustomerLiabilityMinor')
     const refundMinor = minorBigInt(input.refundMinor ?? '0', 'refundMinor')
+    const simulationRequested = input.simulatedSupplierOutcome != null || input.simulatedSupplierPenaltyMinor != null
+    if (simulationRequested && !supplierSimulationEnabled()) {
+      throw new BadRequestException({ message: 'Supplier-outcome simulation is disabled in this environment', code: 'SUPPLIER_SIMULATION_DISABLED' })
+    }
     const simulatedSupplierPenaltyMinor = input.simulatedSupplierPenaltyMinor != null
       ? minorBigInt(input.simulatedSupplierPenaltyMinor, 'simulatedSupplierPenaltyMinor')
       : undefined
