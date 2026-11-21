@@ -1,3 +1,4 @@
+import { testArtifactDir } from './artifact-dir'
 import { mkdirSync, writeFileSync } from 'fs'
 import { PrismaClient, type Prisma } from '@prisma/client'
 
@@ -54,8 +55,8 @@ describe('disposable RLS role hotel isolation', () => {
       `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles
         WHERE rolcanlogin AND NOT rolsuper AND NOT rolbypassrls AND rolname <> 'postgres'
         ORDER BY rolname`)
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/rls-nologin-role.json', JSON.stringify({
+    mkdirSync(testArtifactDir(), { recursive: true })
+    writeFileSync(`${testArtifactDir()}/rls-nologin-role.json`, JSON.stringify({
       connectionRole: connection[0],
       restrictedRole: restricted[0],
       tables,

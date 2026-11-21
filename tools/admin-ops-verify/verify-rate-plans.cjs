@@ -31,7 +31,7 @@ const status = async (page, code) => row(page, code).getAttribute('data-status')
   const template = await prisma.ratePlan.findFirstOrThrow({ where: { roomType: { hotelId }, status: 'ACTIVE' }, include: { roomType: true } })
   const tag = Date.now().toString(36)
   const mk = async (code, st, complete) => {
-    const p = await prisma.ratePlan.create({ data: { tenantId: template.tenantId, contractId: template.contractId, roomTypeId: template.roomTypeId, boardBasisId: template.boardBasisId, code, status: st, occupancy: 2, currency: 'AED', refundable: false } })
+    const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: template.tenantId, contractId: template.contractId, roomTypeId: template.roomTypeId, boardBasisId: template.boardBasisId, code, status: st, occupancy: 2, currency: 'AED', refundable: false } })
     if (complete) {
       const range = Array.from({ length: 40 }, (_, i) => new Date(utc(-1 + i)))
       await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: p.tenantId, ratePlanId: p.id, stayDate, occupancy: 2, amountMinor: 52_500n, currency: 'AED', amountBasis: 'SELL' })) })

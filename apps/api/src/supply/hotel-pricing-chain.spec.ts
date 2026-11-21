@@ -22,7 +22,7 @@ const GALA = { kind: 'COMPULSORY', name: 'Gala dinner', boardBasisId: null, rate
 
 function plan(over: Partial<StayPlanInput> = {}, basis: 'NET' | 'SELL' = 'NET', rows: Avail[] = allRows()): StayPlanInput {
   return {
-    id: 'plan-1', boardBasisId: 'bb-bb', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null,
+    id: 'plan-1', boardBasisId: 'bb-bb', status: 'ACTIVE', occupancy: 2, currency: 'AED', taxesIncluded: true, feesIncluded: true, minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null,
     promotions: [], dealRules: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0, releaseTimeLocal: '00:00',
     inventoryPoolId: null, inventoryPool: null,
     roomType: { hotelId: 'h1', isActive: true, maxAdults: 2, maxChildren: 0, maxOccupancy: 2, hotel: { contentStatus: 'COMPLETE', timeZone: 'Asia/Dubai' } },

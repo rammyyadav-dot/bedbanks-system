@@ -1,3 +1,4 @@
+import { dayInZone } from '../src/hotel-setup/quick-update-rules'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
@@ -17,7 +18,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
   const suffix = `dubai-scale-${Date.now()}-${Math.random().toString(36).slice(2)}`
   const password = 'dubai-scale-certification-password'
   const hotelCount = 100
-  const startDate = process.env.DUBAI_ACCEPTANCE_START_DATE ?? '2026-11-20'
+  const startDate = process.env.DUBAI_ACCEPTANCE_START_DATE ?? dayInZone(new Date(), 'Asia/Dubai')
   const start = new Date(`${startDate}T00:00:00.000Z`)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !Number.isFinite(start.getTime()) || start.toISOString().slice(0, 10) !== startDate) throw new Error('INVALID_ACCEPTANCE_DATE')
   const dates = Array.from({ length: 7 }, (_, offset) => new Date(start.getTime() + offset * 86400000))
@@ -137,6 +138,7 @@ describe('Dubai MVP 100-hotel commercial operations certification', () => {
     const rooms = await prisma.roomType.findMany({ where: { hotelId: { in: hotels.map((hotel) => hotel.id) } }, orderBy: { code: 'asc' } })
     await prisma.ratePlan.createMany({
       data: rooms.map((room, index) => ({
+        taxesIncluded: true, feesIncluded: true,
         tenantId, contractId, roomTypeId: room.id, boardBasisId: boardId, code: `${suffix}-FLEX-${index + 1}`,
         status: 'ACTIVE', refundable: true, occupancy: 2, currency: 'AED', minStay: 1, releaseDays: 0,
       })),

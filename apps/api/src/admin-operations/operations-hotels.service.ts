@@ -108,7 +108,7 @@ export class OperationsHotelsService {
       out.set(hotel.id, {
         hotel: { id: hotel.id, name: hotel.name, contentStatus: hotel.contentStatus, starRating: hotel.starRating },
         rooms: rooms.filter((r) => r.hotelId === hotel.id),
-        plans: plans.filter((p) => p.roomType.hotelId === hotel.id) as unknown as AssessPlan[],
+        plans: plans.filter((p) => p.roomType.hotelId === hotel.id) satisfies AssessPlan[],
         contracts: mappedContracts.filter((c) => c.supplierHotelMapping?.hotelId === hotel.id).map((c): AssessContract => ({ id: c.id, code: c.code, status: c.status, validFrom: c.validFrom, validTo: c.validTo, supplierId: c.supplierId, supplierName: c.supplier.displayName, supplierStatus: c.supplier.status, supplierHotelMappingId: c.supplierHotelMappingId })),
         mappings: mappings.filter((m) => m.hotelId === hotel.id).map((m) => ({ id: m.id, supplierId: m.supplierId, supplierName: m.supplier.displayName, hotelId: m.hotelId, status: m.status, supplierHotelId: m.supplierHotelId, confidence: m.confidence, updatedAt: m.updatedAt })),
         roomMappings: roomMappings.filter((m) => rooms.some((r) => r.id === m.roomTypeId && r.hotelId === hotel.id)),

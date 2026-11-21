@@ -333,7 +333,7 @@ describe('Admin booking lifecycle (PostgreSQL, HTTP, strict API role + booking r
     const room = await owner.roomType.create({ data: { hotelId: hotelA, name: 'Linked room', code: `${suffix}-linked`, maxAdults: 2, maxOccupancy: 2 } })
     const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: 'Room only' } })
     const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, code: `${suffix}-linked`, status: 'ACTIVE', validFrom: new Date('2020-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED', clientBufferDays: 2 } })
-    const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `${suffix}-linked`, status: 'ACTIVE', occupancy: 2, currency: 'AED', cancellationPolicySet: 'Flexible' } })
+    const plan = await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `${suffix}-linked`, status: 'ACTIVE', occupancy: 2, currency: 'AED', cancellationPolicySet: 'Flexible' } })
     await owner.cancellationPolicy.createMany({ data: [{ contractId: contract.id, policySet: 'Flexible', daysBeforeCheckin: 3, penaltyNights: 1 }, { contractId: contract.id, policySet: 'Flexible', kind: 'NO_SHOW', daysBeforeCheckin: 0, penaltyPercent: 100 }, { contractId: contract.id, daysBeforeCheckin: 30, penaltyPercent: 100 }] })
     const body = manual({ supplier: supplier.displayName, ratePlanId: plan.id, isRefundable: undefined })
     const k = key()

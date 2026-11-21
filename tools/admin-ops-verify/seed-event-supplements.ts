@@ -27,21 +27,21 @@ async function main() {
   const hotel = await prisma.hotel.create({ data: { tenantId: A, name: 'Event Overlay Hotel', externalRef: `ES-${tag.slice(-6)}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 5, timeZone: 'Asia/Dubai' } })
   const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Deluxe Room', code: 'DLX', maxAdults: 3, maxChildren: 1, maxOccupancy: 4 } })
   const contract = await prisma.contract.create({ data: { tenantId: A, supplierId: supplierA, code: `${tag}-c1`, status: 'ACTIVE', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
-  const plan = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code: `ES-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code: `ES-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   const range = Array.from({ length: 60 }, (_, i) => utc(i - 2))
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
   await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, allotment: 10, sold: 0 })) })
 
   // A second, independent contract/plan to show an event supplement is bound to one contract and never leaks onto another.
   const contract2 = await prisma.contract.create({ data: { tenantId: A, supplierId: supplierA, code: `${tag}-c2`, status: 'ACTIVE', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
-  const plan2 = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract2.id, roomTypeId: room.id, boardBasisId: boardA, code: `ES-OTHER-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const plan2 = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract2.id, roomTypeId: room.id, boardBasisId: boardA, code: `ES-OTHER-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan2.id, stayDate, occupancy: 2, amountMinor: 40_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
 
   // Tenant B: one hotel, contract and plan, for the cross-tenant checks.
   const hotelB = await prisma.hotel.create({ data: { tenantId: B, name: 'Other Tenant Hotel', externalRef: `ESB-${tag.slice(-6)}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 4, timeZone: 'Asia/Dubai' } })
   const roomB = await prisma.roomType.create({ data: { hotelId: hotelB.id, name: 'Standard Room', code: 'STD', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
   const contractB = await prisma.contract.create({ data: { tenantId: B, supplierId: supplierB, code: `${tag}-cb`, status: 'ACTIVE', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
-  const planB = await prisma.ratePlan.create({ data: { tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `ES-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const planB = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `ES-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   void planB
 
   const perms = ['supply.room_events.read', 'supply.room_events.manage', 'supply.event_supplements.read', 'supply.event_supplements.manage', 'supply.contracts.read', 'supply.rates.read', 'supply.hotels.read']

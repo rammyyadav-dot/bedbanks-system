@@ -29,7 +29,7 @@ async function main() {
 
   const range = Array.from({ length: 90 }, (_, i) => utc(i - 2))
   const plan = async (code: string, currency: string, amount: bigint) => {
-    const p = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code, status: 'ACTIVE', occupancy: 2, currency, minStay: 1 } })
+    const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code, status: 'ACTIVE', occupancy: 2, currency, minStay: 1 } })
     await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: p.id, stayDate, occupancy: 2, amountMinor: amount, currency, amountBasis: 'SELL' as const })) })
     await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: p.id, stayDate, allotment: 10, sold: 0 })) })
     return p
@@ -38,14 +38,14 @@ async function main() {
   const second = await plan(`QU-SECOND-${tag.slice(-4)}`, 'AED', 50_000n)
   const gbp = await plan(`QU-GBP-${tag.slice(-4)}`, 'GBP', 40_000n)
   // A DRAFT plan: never writable by Quick Update (WRITABLE_PLAN_STATUSES excludes it), used to show an INVALID row rather than a crash.
-  const draft = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code: `QU-DRAFT-${tag.slice(-4)}`, status: 'DRAFT', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const draft = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract.id, roomTypeId: room.id, boardBasisId: boardA, code: `QU-DRAFT-${tag.slice(-4)}`, status: 'DRAFT', occupancy: 2, currency: 'AED', minStay: 1 } })
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: draft.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
 
   // Tenant B: one hotel, one plan, for the cross-tenant direct-API check.
   const hotelB = await prisma.hotel.create({ data: { tenantId: B, name: 'Other Tenant Hotel', externalRef: `QUB-${tag.slice(-6)}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 4, timeZone: 'Asia/Dubai' } })
   const roomB = await prisma.roomType.create({ data: { hotelId: hotelB.id, name: 'Standard Room', code: 'STD', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
   const contractB = await prisma.contract.create({ data: { tenantId: B, supplierId: supplierB, code: `${tag}-cb`, status: 'ACTIVE', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
-  const planB = await prisma.ratePlan.create({ data: { tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `QU-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const planB = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `QU-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: B, ratePlanId: planB.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
 
   const perms = ['supply.rates.read', 'supply.rates.manage', 'supply.availability.manage', 'supply.hotels.read']

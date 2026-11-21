@@ -43,7 +43,7 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
   }
   /** A DRAFT plan, optionally complete with rates and availability for the five test nights. */
   const newPlan = async (complete: boolean, body: Record<string, unknown> = {}) => {
-    const plan = await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
+    const plan = await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
     const id = plan.body.data.id as string
     if (complete) {
       await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: id, stayDate, occupancy: 2, amountMinor: '45000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
@@ -167,12 +167,12 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
     })
 
     it('does not accept a status on create, so nothing is born active', async () => {
-      await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-BORN`, occupancy: 2, currency: 'AED', status: 'ACTIVE' }).expect(400)
+      await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-BORN`, occupancy: 2, currency: 'AED', status: 'ACTIVE' }).expect(400)
       expect(await prisma.ratePlan.count({ where: { tenantId, code: `${suffix}-BORN` } })).toBe(0)
     })
 
     it('refuses to create a rate plan whose occupancy exceeds the room maxOccupancy, and refuses lowering room maxOccupancy below an active plan', async () => {
-      await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-OCC-OVER`, occupancy: 4, currency: 'AED' }).expect(400)
+      await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-OCC-OVER`, occupancy: 4, currency: 'AED' }).expect(400)
       expect(await prisma.ratePlan.count({ where: { tenantId, code: `${suffix}-OCC-OVER` } })).toBe(0)
       const activePlanId = await newPlan(true, { occupancy: 3 })
       await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: activePlanId, stayDate, occupancy: 3, amountMinor: '55000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
@@ -365,7 +365,7 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
 
     it('refuses a window that extends the contract, an inverted window, a bad day and an unknown payment type, writing nothing', async () => {
       const before = await planCount()
-      const attempt = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-X${++n}`, occupancy: 2, currency: 'AED', ...body })
+      const attempt = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-X${++n}`, occupancy: 2, currency: 'AED', ...body })
       expect((await attempt({ validTo: iso(400) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
       expect((await attempt({ validFrom: iso(-60) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_OUTSIDE_CONTRACT')
       expect((await attempt({ validFrom: iso(50), validTo: iso(40) }).then((r) => expectStatus(r, 400))).body.error.code).toBe('RATE_PLAN_VALIDITY_INVALID')
@@ -440,7 +440,7 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
     it('an ACTIVE contract refuses a new rule outright (ADR 0067)', async () => {
       expect((await postRule('FLEX-7', 7).then((r) => expectStatus(r, 409))).body.error.code).toBe('CONTRACT_TERMS_LOCKED')
     })
-    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-S${++n}`, occupancy: 2, currency: 'AED', ...body })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-S${++n}`, occupancy: 2, currency: 'AED', ...body })
 
     it('stores rules in a named set, leaving the contract default untouched', async () => {
       await addRule('FLEX-7', 7).then((r) => expectStatus(r, 201))
@@ -501,7 +501,7 @@ describe('Rate plan lifecycle (activation bypass closure)', () => {
   })
   describe('plan buyer markets (ADR 0057, S3)', () => {
     const planRow = (id: string) => prisma.ratePlan.findUniqueOrThrow({ where: { id } })
-    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-M${++n}`, occupancy: 2, currency: 'AED', ...body })
+    const createWith = (body: Record<string, unknown>) => api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-M${++n}`, occupancy: 2, currency: 'AED', ...body })
     const restrictContract = (salesMarkets: string[], nationalities: string[] = []) => prisma.contract.update({ where: { id: contractId }, data: { salesMarkets, nationalities } })
 
     afterEach(async () => { await restrictContract(['AE']) })

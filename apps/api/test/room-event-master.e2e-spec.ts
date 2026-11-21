@@ -102,12 +102,12 @@ describe('Room Event Master and event supplements (ADR 0089)', () => {
     await prisma.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: mapping.id, hotelId, supplierRoomId: `${suffix}-room`, roomTypeId: room.id, status: 'MAPPED' } })
     const contract = await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: mapping.id, code: `${suffix}-C1`, status: 'ACTIVE', validFrom: new Date(iso(-30)), validTo: new Date(iso(365)), settlementCurrency: 'AED' } as never })
     contractId = contract.id
-    const plan = await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: room.id, boardBasisId, code: 'EVT-BB', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+    const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: room.id, boardBasisId, code: 'EVT-BB', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
     ratePlanId = plan.id
     // A second contract and plan, kept DRAFT (never searchable) so it cannot compete with ratePlanId's offer in Agent search — it exists
     // only so the cross-entity validation test can prove a rate plan from a different contract is refused.
     const otherContract = await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: mapping.id, code: `${suffix}-C2`, status: 'ACTIVE', validFrom: new Date(iso(-30)), validTo: new Date(iso(365)), settlementCurrency: 'AED' } as never })
-    const otherPlan = await prisma.ratePlan.create({ data: { tenantId, contractId: otherContract.id, roomTypeId: room.id, boardBasisId, code: 'EVT-BB2', status: 'DRAFT', occupancy: 2, currency: 'AED', minStay: 1 } })
+    const otherPlan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: otherContract.id, roomTypeId: room.id, boardBasisId, code: 'EVT-BB2', status: 'DRAFT', occupancy: 2, currency: 'AED', minStay: 1 } })
     otherRatePlanId = otherPlan.id
     const range = Array.from({ length: 30 }, (_, i) => new Date(iso(i)))
     await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId, ratePlanId, stayDate, occupancy: 2, amountMinor: 29_900n, currency: 'AED', amountBasis: 'SELL' as const })) })

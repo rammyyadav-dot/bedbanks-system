@@ -43,7 +43,7 @@ describe('Rate plan clone role', () => {
     const contract = await prisma.contract.create({ data: { tenantId, supplierId: supplier.id, code: suffix, status: 'ACTIVE', validFrom: day(-30), validTo: day(300), settlementCurrency: 'AED' } })
     const user = await prisma.user.create({ data: { email: `${suffix}@example.test` } })
     poolId = (await prisma.inventoryPool.create({ data: { tenantId, hotelId: hotel.id, supplierId: supplier.id, name: 'Pool', createdById: user.id } })).id
-    source = await prisma.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `${suffix}-SRC`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    source = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `${suffix}-SRC`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
   }, 60000)
 
   afterAll(async () => {
@@ -127,7 +127,7 @@ describe('Rate plan clone role', () => {
   })
 
   it('does not constrain anyone else: the owner can still insert an ACTIVE plan (the trigger only binds the clone role)', async () => {
-    const plan = await prisma.ratePlan.create({ data: { tenantId, contractId: source.contractId, roomTypeId: source.roomTypeId, boardBasisId: source.boardBasisId, code: `${suffix}-OWNER`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: source.contractId, roomTypeId: source.roomTypeId, boardBasisId: source.boardBasisId, code: `${suffix}-OWNER`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
     expect(plan.status).toBe('ACTIVE')
   })
 

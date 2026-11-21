@@ -29,7 +29,7 @@ describe('inventory hold PostgreSQL concurrency', () => {
     const hotelMapping = await prisma.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId: `${suffix}-supplier-hotel`, status: 'MAPPED' } }); hotelMappingId = hotelMapping.id
     const roomMapping = await prisma.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: hotelMappingId, hotelId, supplierRoomId: `${suffix}-supplier-room`, roomTypeId: roomId, status: 'MAPPED' } }); roomMappingId = roomMapping.id
     const contract = await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: hotelMappingId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } }); contractId = contract.id
-    const plan = await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } }); ratePlanId = plan.id
+    const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } }); ratePlanId = plan.id
     await prisma.dailyAvailability.createMany({ data: [
       { tenantId, ratePlanId, stayDate: new Date('2099-01-01'), allotment: 1 },
       { tenantId, ratePlanId, stayDate: new Date('2099-01-02'), allotment: 1 },
@@ -62,6 +62,19 @@ describe('inventory hold PostgreSQL concurrency', () => {
     offerId: 'offer-a', searchId: 'search-a', ratePlanId, canonicalHotelId: hotelId,
     canonicalRoomTypeId: roomId, boardBasisId: boardId, checkIn: '2099-01-01', checkOut,
     rooms: 1, currency: 'AED', sellAmountMinor: 125099, offerExpiresAt: '2099-01-01T12:00:00.000Z',
+  })
+
+  it.each(['taxesIncluded', 'feesIncluded'] as const)('refuses an exclusive %s plan inside allocation without leaving a hold or changing stock', async (field) => {
+    const beforeHolds = await prisma.inventoryHold.count({ where: { tenantId } })
+    const beforeNights = await prisma.dailyAvailability.findMany({ where: { tenantId }, orderBy: { stayDate: 'asc' } })
+    await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { [field]: false } })
+    try {
+      await expect(holds.create(command(`${suffix}-exclusive-${field}`))).rejects.toBeInstanceOf(ConflictException)
+      expect(await prisma.inventoryHold.count({ where: { tenantId } })).toBe(beforeHolds)
+      expect(await prisma.dailyAvailability.findMany({ where: { tenantId }, orderBy: { stayDate: 'asc' } })).toEqual(beforeNights)
+    } finally {
+      await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { [field]: true } })
+    }
   })
 
   it('deducts once for an identical retry and releases once', async () => {

@@ -61,7 +61,7 @@ describe('tenant second wall, financial paths: confirm, cancel and fund refuse a
     const roomId = (await prisma.roomType.create({ data: { hotelId, name: 'R', code: key.slice(-30), maxAdults: 2, maxOccupancy: 2 } })).id
     const boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'RO', name: 'Room only' } })).id
     const contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: key, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
-    const ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key.slice(-30), status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    const ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key.slice(-30), status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 20 })) })
     await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 3, penaltyPercent: 100 } }) // a penalty only inside 3 days of check-in; 2099 is far away
     const booker = await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)

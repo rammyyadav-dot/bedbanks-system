@@ -54,6 +54,18 @@
     "test:watch": {
       "cache": false,
       "persistent": true
+    },
+    "@bedbanks/api#test": {
+      "cache": false,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "MAPPING_DATABASE_URL",
+        "TEST_OWNER_DATABASE_URL",
+        "REDIS_URL",
+        "GITHUB_ACTIONS",
+        "TEST_ARTIFACT_DIR"
+      ],
+      "outputs": []
     }
   }
 }

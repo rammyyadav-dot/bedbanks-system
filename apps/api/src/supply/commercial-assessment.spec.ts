@@ -17,6 +17,7 @@ interface PlanOpts {
 function plan(o: PlanOpts = {}): AssessPlan {
   const id = o.id ?? 'plan-1'
   return {
+    taxesIncluded: true, feesIncluded: true,
     id, code: `CODE-${id}`, status: o.status ?? 'ACTIVE', occupancy: o.occupancy ?? 2, currency: o.currency ?? 'AED', minStay: 1, maxStay: null, validFrom: null, validTo: null, cancellationPolicySet: null, promotions: [], dealRules: [], derivedProblem: null, salesMarkets: [], nationalities: [], guestPrices: [], releaseDays: 0, refundable: true,
     contractId: 'c1', roomTypeId: 'room-1', boardBasisId: 'b1',
     boardBasis: { code: 'BB', isActive: o.boardActive ?? true },

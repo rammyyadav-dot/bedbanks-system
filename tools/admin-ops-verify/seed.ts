@@ -37,7 +37,7 @@ async function main() {
     const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Deluxe', code: slug.slice(0, 20), maxAdults: 2, maxOccupancy: 2 } })
     const board = await prisma.boardBasis.create({ data: { tenantId: t.id, code: 'RO', name: 'Room only' } })
     const contract = await prisma.contract.create({ data: { tenantId: t.id, supplierId: sup.id, code: slug, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
-    const rp = await prisma.ratePlan.create({ data: { tenantId: t.id, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: slug, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    const rp = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: t.id, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: slug, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
     await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId: t.id, ratePlanId: rp.id, stayDate, allotment: 20 })) })
     await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId: t.id, ratePlanId: rp.id, stayDate, occupancy: 2, amountMinor: 62_550n, currency: 'AED', amountBasis: 'SELL' })) })
     await prisma.wallet.create({ data: { tenantId: t.id, currency: 'AED', creditLimit: 1_000_000n, cachedBalance: 0n } })

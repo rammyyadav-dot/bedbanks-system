@@ -81,7 +81,7 @@ describe('durable supplier mutation journal (PostgreSQL)', () => {
     roomId = (await prisma.roomType.create({ data: { hotelId, name: 'R', code: suffix.slice(0, 12), maxAdults: 3, maxChildren: 2, maxOccupancy: 4 } })).id
     boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'RO', name: 'Room only' } })).id
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
-    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 40 })) })
     walletId = (await prisma.wallet.create({ data: { tenantId, currency: 'AED', creditLimit: 50_000_000n, cachedBalance: 0n } })).id
   })

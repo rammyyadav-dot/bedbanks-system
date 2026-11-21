@@ -95,6 +95,17 @@ describe('booking finance posting under its narrow database role (ADR 0076, Post
     expect(grants).not.toMatch(/ON "(users|sessions|BookingGuest|FundingReceipt|BookingEvent)"/)
   })
 
+  it('ROLE-CERTIFY: a missing ledger trigger predicate dependency is detected before posting', async () => {
+    await owner.$executeRawUnsafe('REVOKE EXECUTE ON FUNCTION fbeds_is_booking_transaction_role() FROM fbeds_finpost')
+    try {
+      const report = await certifyFinpostRole(narrow)
+      expect(report.role.ok).toBe(false)
+      expect(report.role.failures).toContain('role cannot evaluate the ledger booking-role guard')
+    } finally {
+      await owner.$executeRawUnsafe('GRANT EXECUTE ON FUNCTION fbeds_is_booking_transaction_role() TO fbeds_finpost')
+    }
+  })
+
   it('CONFIRM: debits the agency, accrues the supplier payable, records the posting and one audit event', async () => {
     const b = await booking('confirm')
     const e = await fact(b.id, 'CONFIRMED')

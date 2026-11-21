@@ -104,7 +104,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     hotelMappingId = (await prisma.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId: `${suffix}-sh`, status: 'MAPPED' } })).id
     roomMappingId = (await prisma.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: hotelMappingId, hotelId, supplierRoomId: `${suffix}-sr`, roomTypeId: roomId, status: 'MAPPED' } })).id
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: hotelMappingId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
-    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 3, penaltyPercent: 100 } })
     await prisma.dailyAvailability.createMany({ data: ['2099-03-01', '2099-03-02', '2099-03-03', '2099-03-04'].map(d => ({ tenantId, ratePlanId, stayDate: new Date(d), allotment: 5 })) })
     walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId
@@ -183,7 +183,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     expect(voucher).toMatchObject({ alreadyIssued: false, number: `VCH-${first.reference}` })
     expect(voucher.payload.stay).toMatchObject(stay)
     expect(await doc(pre.bookingId, 'VOUCHER')).toMatchObject({ alreadyIssued: true, id: voucher.id })
-    await expect(doc(pre.bookingId, 'CREDIT_NOTE')).rejects.toThrow('cancelled booking')
+    await expect(doc(pre.bookingId, 'CREDIT_NOTE')).rejects.toMatchObject({ response: { code: 'NOT_CANCELLED' } })
     await doc(pre.bookingId, 'INVOICE')
 
     // cancel: inventory returned, refund posted once, replay is a no-op

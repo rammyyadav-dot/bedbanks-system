@@ -63,7 +63,7 @@ describe('agent hotel images (PostgreSQL, HTTP, two tenants)', () => {
     const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId, hotelId, supplierHotelId: `${suffix}-sh`, status: 'MAPPED' } })
     await prisma.supplierRoomMapping.create({ data: { tenantId: tenantA, supplierHotelMappingId: mapping.id, hotelId, supplierRoomId: `${suffix}-sr`, roomTypeId: room.id, status: 'MAPPED' } })
     const contract = await prisma.contract.create({ data: { tenantId: tenantA, supplierId, supplierHotelMappingId: mapping.id, code: suffix, status: 'ACTIVE', validFrom: utc(-400), validTo: utc(400), settlementCurrency: 'AED' } as never })
-    const plan = await prisma.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId, code: 'BB1', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+    const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId, code: 'BB1', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
     const range = Array.from({ length: 30 }, (_, i) => utc(i))
     await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: tenantA, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 10_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
     await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: tenantA, ratePlanId: plan.id, stayDate, allotment: 5, sold: 0, stopSell: false })) })

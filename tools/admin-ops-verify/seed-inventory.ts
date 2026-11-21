@@ -29,7 +29,7 @@ async function main() {
     const range = Array.from({ length: 60 }, (_, i) => utc(i))
     if (pool) await prisma.inventoryPoolDay.createMany({ data: range.map((stayDate) => ({ tenantId: A, poolId: pool.id, stayDate, capacity: 5 })) })
     for (const code of plans) {
-      const p = await prisma.ratePlan.create({ data: { tenantId: A, contractId: c.id, roomTypeId: room.id, boardBasisId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool?.id ?? null } })
+      const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: c.id, roomTypeId: room.id, boardBasisId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool?.id ?? null } })
       if (pooled) planIds.push(p.id)
       await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: p.id, stayDate, occupancy: 2, amountMinor: 49_900n, currency: 'AED', amountBasis: 'SELL' as const })) })
       await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: p.id, stayDate, allotment: pooled ? 9 : 4 })) })

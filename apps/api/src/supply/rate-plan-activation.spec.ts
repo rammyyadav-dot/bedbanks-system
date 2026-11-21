@@ -3,7 +3,7 @@ import { assessRatePlanActivation, cloneDraftFields, rateGaps, transitionTarget,
 const rate = (stayDate: string, over: Partial<ActivationFacts['rates'][number]> = {}) => ({ stayDate, amountBasis: 'NET', currency: 'AED', amountMinor: 45000n, ...over })
 const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
   today: '2026-10-11',
-  plan: { status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, validFrom: null, validTo: null, cancellationPolicySet: null, markets: { salesMarkets: [], nationalities: [] } },
+  plan: { status: 'DRAFT', taxesIncluded: true, feesIncluded: true, currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, validFrom: null, validTo: null, cancellationPolicySet: null, markets: { salesMarkets: [], nationalities: [] } },
   room: { hotelId: 'h1', maxOccupancy: 3, isActive: true },
   board: { isActive: true },
   contract: { status: 'ACTIVE', validFrom: '2026-01-01', validTo: '2027-12-31', settlementCurrency: 'AED', mappedHotelId: 'h1', cancellationPolicyCount: 1, markets: { salesMarkets: [], nationalities: [] } },
@@ -15,6 +15,12 @@ const base = (over: Partial<ActivationFacts> = {}): ActivationFacts => ({
 const failed = (facts: ActivationFacts) => assessRatePlanActivation(facts).checks.filter((c) => !c.ok).map((c) => c.code)
 
 describe('rate plan activation readiness', () => {
+  it.each([false, undefined, null])('blocks activation when taxes or fees are not explicitly inclusive (%s)', (basis) => {
+    const facts = base()
+    expect(failed({ ...facts, plan: { ...facts.plan, taxesIncluded: basis as boolean } })).toContain('TAX_BASIS_NOT_INCLUSIVE')
+    expect(failed({ ...facts, plan: { ...facts.plan, feesIncluded: basis as boolean } })).toContain('FEE_BASIS_NOT_INCLUSIVE')
+  })
+
   it('is ready when every fact is satisfied', () => {
     const result = assessRatePlanActivation(base())
     expect(result.ready).toBe(true)

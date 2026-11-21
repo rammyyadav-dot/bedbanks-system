@@ -5,7 +5,7 @@ const at = new Date('2030-01-01T10:00:00.000Z')
 const future = (n: number) => new Date(Date.UTC(2099, 0, n))
 const planRow = (extra: Record<string, unknown> = {}) => ({
   id: 'plan', tenantId: 'tenant', status: 'DRAFT', currency: 'AED', occupancy: 2, refundable: true, minStay: 1, maxStay: null, inventoryPoolId: null, cancellationPolicySet: null, guestPrices: [], promotions: [], derivedProblem: null, derivedFromId: null, derivedMode: null, derivedAdjustment: null, derivedFrom: null, updatedAt: at,
-  contractId: 'contract', roomTypeId: 'room', boardBasisId: 'board', taxesIncluded: false, feesIncluded: false, releaseDays: 0, releaseTimeLocal: '00:00',
+  contractId: 'contract', roomTypeId: 'room', boardBasisId: 'board', taxesIncluded: true, feesIncluded: true, releaseDays: 0, releaseTimeLocal: '00:00',
   roomType: { hotelId: 'h1', maxOccupancy: 3, isActive: true, hotel: { id: 'h1', timeZone: 'Asia/Dubai' } },
   boardBasis: { isActive: true },
   contract: { status: 'ACTIVE', validFrom: new Date('2020-01-01'), validTo: new Date('2100-12-31'), settlementCurrency: 'AED', supplierHotelMapping: { hotelId: 'h1' }, cancellationPolicies: [{ policySet: null }] },
@@ -28,6 +28,13 @@ function setup(plan: Record<string, unknown> = planRow(), perms = ['supply.rates
 }
 
 describe('rate plan readiness and lifecycle', () => {
+  it.each(['taxesIncluded', 'feesIncluded'])('refuses activation without an inclusive %s declaration and writes nothing', async (field) => {
+    const { service, tx } = setup(planRow({ [field]: false }))
+    await expect(service.transitionRatePlan('tenant', 'user', 'plan', 'activate', { expectedUpdatedAt: at.toISOString() })).rejects.toMatchObject({ response: { code: 'RATE_PLAN_NOT_READY' } })
+    expect(tx.ratePlan.updateMany).not.toHaveBeenCalled()
+    expect(tx.auditEvent.createMany).not.toHaveBeenCalled()
+  })
+
   it('reports a ready plan with its version', async () => {
     const { service } = setup()
     expect(await service.ratePlanReadiness('tenant', 'user', 'plan')).toMatchObject({ ready: true, status: 'DRAFT', updatedAt: at.toISOString() })

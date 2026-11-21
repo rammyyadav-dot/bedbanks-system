@@ -1,3 +1,4 @@
+import { testArtifactDir } from './artifact-dir'
 import { randomBytes } from 'crypto'
 import { mkdirSync, writeFileSync } from 'fs'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
@@ -124,8 +125,8 @@ describe('API runtime login role', () => {
               (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                 WHERE n.nspname = 'public' AND c.relkind = 'r' AND pg_get_userbyid(c.relowner) = r.rolname) AS owned
          FROM pg_roles r WHERE r.rolname = current_user`)
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/rls-runtime-role.json', JSON.stringify({
+    mkdirSync(testArtifactDir(), { recursive: true })
+    writeFileSync(`${testArtifactDir()}/rls-runtime-role.json`, JSON.stringify({
       role: API_RUNTIME_LOGIN_ROLE,
       ...attrs,
       owner: false,

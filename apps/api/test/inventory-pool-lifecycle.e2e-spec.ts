@@ -80,7 +80,7 @@ describe('shared pool counter lifecycle (PostgreSQL)', () => {
     poolId = (await prisma.inventoryPool.create({ data: { tenantId, hotelId, supplierId, name: 'Shared 5', createdById: userId } })).id
     await prisma.inventoryPoolDay.createMany({ data: [N1, N2].map((stayDate) => ({ tenantId, poolId, stayDate, capacity: 5 })) })
     for (const code of ['A', 'B', 'C']) {
-      const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
+      const id = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
       plans.push(id)
       await prisma.dailyAvailability.createMany({ data: [N1, N2].map((stayDate) => ({ tenantId, ratePlanId: id, stayDate, allotment: 5 })) })
     }

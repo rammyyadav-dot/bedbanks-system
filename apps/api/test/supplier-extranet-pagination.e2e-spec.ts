@@ -59,7 +59,7 @@ describe('Supplier extranet pagination (strict runtime role, PostgreSQL, HTTP)',
     for (const [index, validFrom] of starts.entries()) {
       const c = await owner.contract.create({ data: { tenantId: tenant, supplierId: s1, code: `${suffix}-C${index}`, validFrom: new Date(validFrom), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
       s1Contracts.push(c.id)
-      if (index === 0) await owner.ratePlan.create({ data: { tenantId: tenant, contractId: c.id, roomTypeId: room.id, boardBasisId: board.id, code: 'RP1', occupancy: 2, currency: 'AED' } })
+      if (index === 0) await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenant, contractId: c.id, roomTypeId: room.id, boardBasisId: board.id, code: 'RP1', occupancy: 2, currency: 'AED' } })
     }
     await owner.contract.create({ data: { tenantId: tenant, supplierId: s2, code: `${suffix}-OTHER`, validFrom: new Date('2099-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
 

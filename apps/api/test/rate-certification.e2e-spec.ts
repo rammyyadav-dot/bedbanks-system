@@ -50,7 +50,7 @@ describe('rate plan audit and certification (PostgreSQL, HTTP, two tenants)', ()
     const range = Array.from({ length: 16 }, (_, i) => 8 + i).filter((offset) => offset <= (o.rateEnd ?? 23))
     const plans: string[] = []
     for (const code of o.duplicate ? [`${key.toUpperCase()}-BB`, `${key.toUpperCase()}-BB-COPY`] : [`${key.toUpperCase()}-BB`]) {
-      const plan = await prisma.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId, code, status: (o.plan ?? 'ACTIVE') as never, occupancy: 2, currency: 'AED', minStay: 1 } })
+      const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId, code, status: (o.plan ?? 'ACTIVE') as never, occupancy: 2, currency: 'AED', minStay: 1 } })
       plans.push(plan.id)
       await prisma.dailyRate.createMany({ data: range.map((offset) => ({ tenantId, ratePlanId: plan.id, stayDate: utc(offset), occupancy: 2, amountMinor: (o.zeroDays ?? []).includes(offset) ? 0n : o.amount ?? 45_000n, currency: o.currency ?? 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis })) })
       await prisma.dailyAvailability.createMany({ data: Array.from({ length: 16 }, (_, i) => ({ tenantId, ratePlanId: plan.id, stayDate: utc(8 + i), allotment: 5, sold: 0 })) })

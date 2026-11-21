@@ -21,7 +21,7 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
   const criteria = (patch: Partial<SearchCriteria> = {}): SearchCriteria => ({ destination: 'Dubai', checkIn, checkOut, rooms: 1, adults: 2, children: 0, childAges: [], nationality: 'AE', currency: 'AED', ...patch })
 
   async function newPlan(code: string, opts: { poolId?: string; releaseDays?: number; releaseTimeLocal?: string; allotment?: number; basis?: 'SELL' | 'NET'; amount?: bigint; rows?: boolean; validFrom?: string; validTo?: string; paymentType?: 'PREPAID' | 'PAY_AT_HOTEL'; cancellationPolicySet?: string; occupancy?: number; guestPrices?: Array<{ kind: 'CHILD' | 'EXTRA_ADULT'; minAge: number; maxAge: number; amountMinor: bigint; basis: 'NET' | 'SELL' }>; salesMarkets?: string[]; nationalities?: string[]; derived?: { parentId: string; mode: 'PERCENT_BP' | 'FIXED_MINOR'; adjustment: number }; mode?: 'ALLOTMENT' | 'FREE_SALE' | 'ON_REQUEST' | 'CLOSED' } = {}): Promise<string> {
-    const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: opts.occupancy ?? 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [], ...(opts.derived ? { derivedFromId: opts.derived.parentId, derivedMode: opts.derived.mode, derivedAdjustment: opts.derived.adjustment } : {}) } })).id
+    const id = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: opts.occupancy ?? 2, currency: 'AED', releaseDays: opts.releaseDays ?? 0, releaseTimeLocal: opts.releaseTimeLocal ?? '00:00', inventoryPoolId: opts.poolId ?? null, validFrom: opts.validFrom ? new Date(opts.validFrom) : null, validTo: opts.validTo ? new Date(opts.validTo) : null, paymentType: opts.paymentType ?? null, cancellationPolicySet: opts.cancellationPolicySet ?? null, salesMarkets: opts.salesMarkets ?? [], nationalities: opts.nationalities ?? [], ...(opts.derived ? { derivedFromId: opts.derived.parentId, derivedMode: opts.derived.mode, derivedAdjustment: opts.derived.adjustment } : {}) } })).id
     if (!opts.derived) await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: opts.occupancy ?? 2, amountMinor: opts.amount ?? 50000n, amountBasis: opts.basis ?? ('SELL' as const), currency: 'AED' })) })
     if (opts.guestPrices?.length) await prisma.ratePlanGuestPrice.createMany({ data: opts.guestPrices.map((g) => ({ tenantId, ratePlanId: id, kind: g.kind, minAge: g.minAge, maxAge: g.maxAge, amountMinor: g.amountMinor, amountBasis: g.basis, currency: 'AED' })) })
     if (opts.rows !== false) {
@@ -68,6 +68,15 @@ describe('authoritative search and recheck over inventory (PostgreSQL)', () => {
     await prisma.$disconnect()
   })
   afterEach(resetPlans)
+
+  it.each(['taxesIncluded', 'feesIncluded'] as const)('withdraws search and recheck when %s becomes exclusive', async (field) => {
+    const plan = await newPlan(`inclusive-${field}`)
+    const original = forPlan(await rates(), plan)!
+    expect(original).toMatchObject({ taxAmountMinor: 0, feeAmountMinor: 0, priceIncludes: { taxes: true, fees: true } })
+    await prisma.ratePlan.update({ where: { id: plan }, data: { [field]: false } })
+    expect(forPlan(await rates(), plan)).toBeUndefined()
+    expect(await adapter.recheck({ offerId: original.offerId, searchId: 'inclusive-check' }, { tenantId, userId, requestId: 'inclusive-check' })).toEqual({ status: 'unavailable' })
+  })
 
   it('SR-01 allotment shows available, then limited when remaining is at or below the requested rooms; sold out disappears', async () => {
     const plan = await newPlan('a', { allotment: 5 })

@@ -29,7 +29,7 @@ describe('shared allotment pool counters (PostgreSQL)', () => {
     poolId = (await prisma.inventoryPool.create({ data: { tenantId, hotelId, supplierId, name: 'Shared 5', createdById: userId } })).id
     await prisma.inventoryPoolDay.createMany({ data: [D1, D2, D3].map((d) => ({ tenantId, poolId, stayDate: new Date(d), capacity: 5 })) })
     for (const code of ['A', 'B', 'C']) {
-      const id = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
+      const id = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
       planIds.push(id)
       // Each plan row advertises 5 rooms on its own: the pool, not the row, is the stock.
       await prisma.dailyAvailability.createMany({ data: [D1, D2, D3].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: 5 })) })

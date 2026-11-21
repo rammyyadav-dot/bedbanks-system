@@ -48,7 +48,7 @@ async function main() {
     if (pool) { await prisma.inventoryPoolDay.createMany({ data: range.map((stayDate) => ({ tenantId: t, poolId: pool.id, stayDate, capacity: 1 })) }); poolId = pool.id }
     plans[key] = []
     for (const code of o.codes ?? ['BB']) {
-      const p = await prisma.ratePlan.create({ data: { tenantId: t, contractId: ct.id, roomTypeId: room.id, boardBasisId: c0.boardBasisId, code: `${code}-${key}`.slice(0, 40), status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool?.id ?? null } })
+      const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: t, contractId: ct.id, roomTypeId: room.id, boardBasisId: c0.boardBasisId, code: `${code}-${key}`.slice(0, 40), status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool?.id ?? null } })
       plans[key].push(p.id)
       await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: t, ratePlanId: p.id, stayDate, occupancy: 2, amountMinor: o.price ?? 49_900n, currency: 'AED', amountBasis: 'SELL' as const })) })
       await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: t, ratePlanId: p.id, stayDate, allotment: pool ? 9 : o.allotment ?? 4, inventoryMode: o.mode ?? 'ALLOTMENT', ...(o.stale ? { source: 'SUPPLIER_FEED' as const, sourceUpdatedAt: new Date(Date.now() - 7_200_000), receivedAt: new Date(Date.now() - 7_200_000), freshUntil: new Date(Date.now() - 3_600_000) } : {}) })) })

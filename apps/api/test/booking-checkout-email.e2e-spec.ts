@@ -87,7 +87,7 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
     boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'BB', name: 'Bed and Breakfast' } })).id
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 7, penaltyPercent: 100 } })
-    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 40 })) })
     await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)
     await provisionBookingOpsRole(prisma, { password: opsPassword })

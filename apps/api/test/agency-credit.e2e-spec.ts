@@ -84,7 +84,7 @@ describe('agency credit limit (PostgreSQL, HTTP, two tenants)', () => {
     const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId, hotelId, supplierHotelId: `${suffix}-sh`, status: 'MAPPED' } })
     await prisma.supplierRoomMapping.create({ data: { tenantId: tenantA, supplierHotelMappingId: mapping.id, hotelId, supplierRoomId: `${suffix}-sr`, roomTypeId: roomId, status: 'MAPPED' } })
     const contract = await prisma.contract.create({ data: { tenantId: tenantA, supplierId, supplierHotelMappingId: mapping.id, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
-    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: roomId, boardBasisId: boardId, code: suffix.slice(0, 40), status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId: contract.id, roomTypeId: roomId, boardBasisId: boardId, code: suffix.slice(0, 40), status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.create({ data: { tenantId: tenantA, ratePlanId, stayDate: new Date(checkIn), allotment: 200 } })
     const admin = await user('admin', tenantA, ALL); const checker = await user('checker', tenantA, ALL)
     const reader = await user('reader', tenantA, ['agency.read']); const none = await user('none', tenantA, [])

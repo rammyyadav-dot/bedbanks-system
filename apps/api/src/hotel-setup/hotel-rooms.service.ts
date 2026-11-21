@@ -39,16 +39,16 @@ export class HotelRoomsService {
 
   private async amenitiesFor(tx: Tx, tenantId: string, roomIds: string[]): Promise<Map<string, Array<{ code: string; feeType: 'FREE' | 'PAID' | 'UNKNOWN' }>> | null> {
     if (roomIds.length === 0) return new Map()
-    await tx.$executeRawUnsafe('SAVEPOINT room_amenity_read')
+    await tx.$executeRaw(Prisma.sql`SAVEPOINT room_amenity_read`)
     try {
       const rows = await tx.roomAmenity.findMany({ where: { tenantId, roomTypeId: { in: roomIds } }, orderBy: { code: 'asc' } })
-      await tx.$executeRawUnsafe('RELEASE SAVEPOINT room_amenity_read')
+      await tx.$executeRaw(Prisma.sql`RELEASE SAVEPOINT room_amenity_read`)
       const out = new Map<string, Array<{ code: string; feeType: 'FREE' | 'PAID' | 'UNKNOWN' }>>()
       for (const r of rows) { const list = out.get(r.roomTypeId) ?? []; list.push({ code: r.code, feeType: r.feeType }); out.set(r.roomTypeId, list) }
       return out
     } catch (error) {
       if (!isBookingReadDenied(error)) throw error
-      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT room_amenity_read')
+      await tx.$executeRaw(Prisma.sql`ROLLBACK TO SAVEPOINT room_amenity_read`)
       return null
     }
   }
@@ -79,10 +79,10 @@ export class HotelRoomsService {
 
   private async boardsFor(tx: Tx, tenantId: string, roomIds: string[]): Promise<Map<string, string[]> | null> {
     if (roomIds.length === 0) return new Map()
-    await tx.$executeRawUnsafe('SAVEPOINT room_board_read')
+    await tx.$executeRaw(Prisma.sql`SAVEPOINT room_board_read`)
     try {
       const rows = await tx.ratePlan.findMany({ where: { tenantId, roomTypeId: { in: roomIds }, status: 'ACTIVE' }, select: { roomTypeId: true, boardBasis: { select: { name: true } } }, orderBy: { code: 'asc' } })
-      await tx.$executeRawUnsafe('RELEASE SAVEPOINT room_board_read')
+      await tx.$executeRaw(Prisma.sql`RELEASE SAVEPOINT room_board_read`)
       const out = new Map<string, string[]>()
       for (const row of rows) {
         const list = out.get(row.roomTypeId) ?? []
@@ -92,7 +92,7 @@ export class HotelRoomsService {
       return out
     } catch (error) {
       if (!isBookingReadDenied(error)) throw error
-      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT room_board_read')
+      await tx.$executeRaw(Prisma.sql`ROLLBACK TO SAVEPOINT room_board_read`)
       return null
     }
   }
@@ -100,16 +100,16 @@ export class HotelRoomsService {
   /** Live bookings that should freeze a locked room. Null when the API role cannot read them, which fails closed. */
   private async bookingCounts(tx: Tx, tenantId: string, roomIds: string[]): Promise<Map<string, number> | null> {
     if (roomIds.length === 0) return new Map()
-    await tx.$executeRawUnsafe('SAVEPOINT room_booking_read')
+    await tx.$executeRaw(Prisma.sql`SAVEPOINT room_booking_read`)
     try {
       const rows = await tx.bookingRoom.groupBy({ by: ['roomTypeId'], where: { tenantId, roomTypeId: { in: roomIds }, booking: { status: { notIn: ['CANCELLED', 'REJECTED', 'FAILED'] } } }, _count: { _all: true } })
-      await tx.$executeRawUnsafe('RELEASE SAVEPOINT room_booking_read')
+      await tx.$executeRaw(Prisma.sql`RELEASE SAVEPOINT room_booking_read`)
       const out = new Map<string, number>()
       for (const row of rows) if (row.roomTypeId) out.set(row.roomTypeId, row._count._all)
       return out
     } catch (error) {
       if (!isBookingReadDenied(error)) throw error
-      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT room_booking_read')
+      await tx.$executeRaw(Prisma.sql`ROLLBACK TO SAVEPOINT room_booking_read`)
       return null
     }
   }
@@ -148,18 +148,18 @@ export class HotelRoomsService {
   }
 
   private async childPolicies(tx: Tx, tenantId: string, hotelId: string): Promise<HotelChildPolicyRow[] | null> {
-    await tx.$executeRawUnsafe('SAVEPOINT child_policy_read')
+    await tx.$executeRaw(Prisma.sql`SAVEPOINT child_policy_read`)
     try {
       const rows = await tx.childPolicy.findMany({
         where: { contract: { tenantId, OR: [{ supplierHotelMapping: { is: { hotelId } } }, { ratePlans: { some: { roomType: { hotelId } } } }] } },
         include: { contract: { select: { id: true, code: true, supplier: { select: { displayName: true } } } } },
         orderBy: [{ contractId: 'asc' }, { minAge: 'asc' }], take: 200,
       })
-      await tx.$executeRawUnsafe('RELEASE SAVEPOINT child_policy_read')
+      await tx.$executeRaw(Prisma.sql`RELEASE SAVEPOINT child_policy_read`)
       return rows.map((p) => ({ contractId: p.contract.id, contractCode: p.contract.code, supplierName: p.contract.supplier.displayName, minAge: p.minAge, maxAge: p.maxAge, extraBedAllowed: p.extraBedAllowed, supplementMinor: p.supplementMinor === null ? null : p.supplementMinor.toString(), currency: p.currency }))
     } catch (error) {
       if (!isBookingReadDenied(error)) throw error
-      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT child_policy_read')
+      await tx.$executeRaw(Prisma.sql`ROLLBACK TO SAVEPOINT child_policy_read`)
       return null
     }
   }

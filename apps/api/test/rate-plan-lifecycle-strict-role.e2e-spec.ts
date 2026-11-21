@@ -49,7 +49,7 @@ describe('Rate plan lifecycle on the strict runtime login (fbeds_api_login)', ()
   }
   /** A DRAFT plan, optionally complete with rates and availability for the five test nights. */
   const newPlan = async (complete: boolean, body: Record<string, unknown> = {}) => {
-    const plan = await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
+    const plan = await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
     const id = plan.body.data.id as string
     if (complete) {
       await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: id, stayDate, occupancy: 2, amountMinor: '45000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)
@@ -237,7 +237,7 @@ describe('Rate plan lifecycle on the strict runtime login (fbeds_api_login)', ()
       await expect(prisma.ratePlan.findUniqueOrThrow({ where: { id: planId } })).resolves.toMatchObject({ status: 'SUSPENDED' })
 
       // 4. The readiness gate still applies on this path: a plan without rates cannot be activated by the role.
-      const bare = await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-BARE`, occupancy: 2, currency: 'AED' } })
+      const bare = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-BARE`, occupancy: 2, currency: 'AED' } })
       const bareVersion = bare.updatedAt.toISOString()
       const gate = await api(operator).post(`/supply/rate-plans/${bare.id}/activate`, { expectedUpdatedAt: bareVersion })
       expect(gate.status).toBe(409)

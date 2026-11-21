@@ -18,13 +18,13 @@ Grants, and nothing broader:
 
 - INSERT on the booking, hold, ledger, supplier-mutation, audit and wallet tables the transaction writes. No DELETE. No table-wide UPDATE.
 - UPDATE on named columns only: booking lifecycle and supplier answer, hold release, supplier-mutation progress, `DailyAvailability` and `InventoryPoolDay` `held`/`sold`, `Cancellation.refund_minor`, and `Wallet.updated_at` so `SELECT … FOR UPDATE` can lock the row.
-- SELECT on the tables the transaction must freeze and price, and column-only SELECT on hotel profile times and local charges, the tenant name, the agency name, membership, the credit-limit amount, the FX rate, and the `RoomSalesRule` mode, cap and scope keys that `reserveNight` reads before it moves `held`. The rule reason, actor and batch stay unreadable. No hotel contacts, no users, sessions, memberships, funding receipts, connector credentials, or finance-posting tables.
+- SELECT on the tables the transaction must freeze and price, and column-only SELECT on hotel profile times and local charges, the tenant name, the agency name, membership, the credit-limit amount, the FX rate, and the `RoomSalesRule` mode, cap and scope keys that `reserveNight` reads before it moves `held`. The rule reason, actor and batch stay unreadable. No hotel contacts, users, sessions, funding receipts, connector credentials, or finance-posting tables. ADR 0117 adds column-only authorization metadata, including membership revocation, for fresh booking scope checks.
 
 ## Amendment: sales-rule read (2026-11-06)
 
 `reserveNight` always reads `RoomSalesRule` before taking stock, including when no rule exists. Without that SELECT the hold fails closed as unavailable and writes nothing. The grant is the columns that query names, not the operator note. `AgencyCreditLimit.id` and `FxRate.id` are readable as well, because Prisma selects the primary key of a `findFirst` even when the caller names other columns. Approver and note columns stay unreadable.
 
-The contracted prebook proof reads the claimed hold through this login, because the API role cannot see offer or search columns on `InventoryHold`. Agency membership stays on the API role: confirmation resolves the caller's agency there, then the booking transaction only locks that agency's booking.
+The contracted prebook proof reads the claimed hold through this login, because the API role cannot see offer or search columns on `InventoryHold`. Confirmation resolves agency membership on the API role before its scoped lock. Booking history, cancellation and documents also revalidate scope inside the booking transaction using the authorization columns in ADR 0117.
 
 Two triggers, created by migration `202612200001_booking_transaction_role_guards`, apply only when the session is a member of `fbeds_booktx`:
 

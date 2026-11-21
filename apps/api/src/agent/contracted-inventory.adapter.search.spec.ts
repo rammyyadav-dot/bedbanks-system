@@ -316,6 +316,14 @@ describe.each([1, 100])('contracted inventory search and recheck over %i hotel(s
 })
 
 describe('contracted inventory search: batching, failures and offer memory', () => {
+  it.each(['taxesIncluded', 'feesIncluded'])('withdraws a quoted offer when its %s declaration changes', async (field) => {
+    const { adapter, store } = setup(1)
+    const rate = flat((await adapter.search(criteria(), context)).offers)[0]!.rate
+    store.fixtures[0]!.plan[field] = false
+    expect((await adapter.search(criteria(), context)).offers).toEqual([])
+    expect(await adapter.recheck({ offerId: rate.offerId, searchId: 's' }, context)).toEqual({ status: 'unavailable' })
+  })
+
   it('walks 100 hotels in several batches without losing or duplicating any (AGENT_SEARCH_HOTEL_BATCH=7)', async () => {
     const previous = process.env.AGENT_SEARCH_HOTEL_BATCH
     process.env.AGENT_SEARCH_HOTEL_BATCH = '7'

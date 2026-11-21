@@ -21,7 +21,7 @@ describe('daily rate amount must be greater than zero (PostgreSQL)', () => {
     const hotel = await prisma.hotel.create({ data: { tenantId, name: suffix, externalRef: suffix, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 5 } })
     const room = await prisma.roomType.create({ data: { hotelId: hotel.id, name: 'Deluxe', code: 'D', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     const contract = await prisma.contract.create({ data: { tenantId, supplierId: supplier.id, code: suffix, status: 'ACTIVE', validFrom: new Date(stay(-10)), validTo: new Date(stay(400)), settlementCurrency: 'AED' } })
-    planId = (await prisma.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: 'ZA-BB', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })).id
+    planId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: 'ZA-BB', status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })).id
   })
 
   afterAll(async () => {

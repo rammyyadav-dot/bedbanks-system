@@ -70,7 +70,7 @@ describe('strict runtime role: commercial read safety and Admin authorization (P
     const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId, hotelId, supplierHotelId: `${suffix}-${label}-h`, status: 'MAPPED' } })
     await owner.supplierRoomMapping.create({ data: { tenantId: tenantA, supplierHotelMappingId: mapping.id, hotelId, supplierRoomId: `${suffix}-${label}-r`, roomTypeId: roomId, status: 'MAPPED' } })
     const contractId = (await owner.contract.create({ data: { tenantId: tenantA, supplierId, supplierHotelMappingId: mapping.id, code: `${suffix}-${label}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })).id
-    const planId = (await owner.ratePlan.create({ data: { tenantId: tenantA, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `P-${label}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    const planId = (await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `P-${label}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     const nights = [day(20), day(21)].map((d) => new Date(d))
     await owner.dailyRate.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, ratePlanId: planId, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: basis })) })
     await owner.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, ratePlanId: planId, stayDate, allotment: 9 })) })

@@ -113,3 +113,27 @@ pnpm prisma:migrate:drift
 | Migration status/drift fails | Stop. Do not reset or push schema. Share output with the database owner and prepare a forward-only repair. |
 | Login returns 401 | Seed has not run or password differs from `FBEDS_SEED_ADMIN_PASSWORD`. |
 | Health reports DB unavailable | Verify local PostgreSQL is running and credentials are correct. |
+
+## Running the full test task
+
+`pnpm test` runs API unit tests followed by PostgreSQL integration tests. Supply `DATABASE_URL` for a disposable database and `REDIS_URL` for disposable Redis; configure the remaining test owner/mapping references as needed by the certification suites. The API Turbo test task is uncached and explicitly passes these private values only to API tests. They are not build inputs or frontend environment variables. The full API e2e process has a 6 GiB heap limit; run it separately from large parallel builds/type checks on memory-limited machines. Use the existing disposable setup and strict-role certification before running database suites.
+
+E2E metrics use `TEST_ARTIFACT_DIR` when supplied; otherwise they go to the operating system temporary directory under `fbeds-test-artifacts`. The test task passes this setting to API tests. CI should set it to a writable directory collected by its artifact uploader.
+
+### Opt-in financial and tenant-control certification
+
+The default task skips two suites that need additional disposable credentials. Run them separately on a fresh migrated `fbeds_ci` database with disposable Redis.
+
+For credit concurrency and forced RLS, set `DATABASE_URL` to the disposable owner connection. The suite provisions and removes its own restricted test login; its financial grants certify concurrency and tenant isolation, not production runtime grants.
+
+```bash
+ALLOW_DISPOSABLE_CREDIT_TESTS=true pnpm --filter @bedbanks/api test:e2e --runTestsByPath test/credit-concurrency-rls.e2e-spec.ts
+```
+
+For tenant-control certification, use the existing owner-run `ops:provision-api-runtime-role` and `ops:provision-tenant-control-role` procedures. Set `DATABASE_URL` to the strict API login, `TENANT_CONTROL_DATABASE_URL` to the distinct authoring login, and `TEST_OWNER_DATABASE_URL` to that database's owner connection. Then run:
+
+```bash
+pnpm --filter @bedbanks/api test:e2e --runTestsByPath test/tenant-control.e2e-spec.ts
+```
+
+These direct API invocations keep their additional credentials and opt-in flags out of frontend tasks. Run them sequentially with other database suites; temporary roles and shared catalogue state must not overlap.

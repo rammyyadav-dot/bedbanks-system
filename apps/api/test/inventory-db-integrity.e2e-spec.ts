@@ -16,7 +16,7 @@ describe('inventory foundation integrity (PostgreSQL)', () => {
     const board = await prisma.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'BB' } }, update: {}, create: { tenantId, code: 'BB', name: 'B&B' } })
     const room = await prisma.roomType.create({ data: { hotelId, name: key, code: key.slice(0, 20), maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
     const contract = await prisma.contract.create({ data: { tenantId, supplierId, code: `${suffix}-${key}`, status: 'ACTIVE', validFrom: new Date(day(-5)), validTo: new Date(day(300)), settlementCurrency: 'AED' } as never })
-    plans[key] = (await prisma.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    plans[key] = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
   }
   const sup = (tenantId: string, n: string) => prisma.supplier.create({ data: { tenantId, type: 'HOTEL_DIRECT', status: 'ACTIVE', legalName: `${suffix} ${n}`, displayName: n, countryCode: 'AE', defaultCurrency: 'AED' } as never }).then((s) => s.id)
   const hot = (tenantId: string, n: string) => prisma.hotel.create({ data: { tenantId, name: `${suffix} ${n}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 4 } }).then((h) => h.id)

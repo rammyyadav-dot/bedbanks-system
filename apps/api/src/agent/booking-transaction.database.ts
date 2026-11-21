@@ -41,6 +41,6 @@ export class BookingTransactionDatabase extends NarrowRoleDatabase implements Bo
 
   override async withTenant<T>(tenantId: string, work: (tx: Prisma.TransactionClient) => Promise<T>, options?: { isolationLevel?: Prisma.TransactionIsolationLevel; timeoutMs?: number }): Promise<T> {
     if (!this.configured()) throw new ServiceUnavailableException({ message: UNAVAILABLE, code: BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE })
-    return super.withTenant(tenantId, work, options?.timeoutMs !== undefined || options?.isolationLevel !== undefined ? { timeoutMs: options?.timeoutMs } : undefined)
+    return super.withTenant(tenantId, work, options)
   }
 }

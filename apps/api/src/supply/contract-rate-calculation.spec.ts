@@ -44,7 +44,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     ratePlanValidTo: null,
     ratePlanStatus: 'ACTIVE',
     ratePlanOccupancy: 2,
-    ratePlanCurrency: 'AED',
+    ratePlanCurrency: 'AED', ratePlanTaxesIncluded: true, ratePlanFeesIncluded: true,
     ratePlanMinStay: 1,
     ratePlanMaxStay: 14,
     ratePlanReleaseDays: 0,

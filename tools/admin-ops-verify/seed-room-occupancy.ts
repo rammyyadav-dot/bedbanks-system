@@ -32,7 +32,7 @@ async function main() {
   // The contract's child band: ages 2-12 may take an extra bed, charged a per-night supplement. No GuestPriceLine of its own on the plan,
   // so this band is what effectiveGuestLines falls back to (ADR 0067 F-03): one child policy governs a plan with no lines of its own.
   await prisma.childPolicy.create({ data: { contractId: contract1.id, minAge: 2, maxAge: 12, extraBedAllowed: true, supplementMinor: 5_000n, currency: 'AED' } })
-  const plan = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract1.id, roomTypeId: room.id, boardBasisId: boardA, code: `RO-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract1.id, roomTypeId: room.id, boardBasisId: boardA, code: `RO-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   const range = Array.from({ length: 30 }, (_, i) => utc(i - 2))
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
   await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, allotment: 10, sold: 0 })) })

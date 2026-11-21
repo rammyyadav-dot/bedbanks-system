@@ -117,7 +117,7 @@ describe('tenant and finance PostgreSQL hardening', () => {
     const board = await prisma.boardBasis.create({ data: { tenantId: a.tenant.id, code: 'BB', name: 'Bed and Breakfast' } })
     const mapping = await prisma.supplierHotelMapping.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, hotelId: hotel.id, supplierHotelId: `supplier-hotel-${suffix}`, status: 'MAPPED' } })
     const contract = await prisma.contract.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `UAE-${suffix}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2026-12-31'), settlementCurrency: 'AED' } })
-    const ratePlan = await prisma.ratePlan.create({ data: { tenantId: a.tenant.id, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: 'BAR', status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    const ratePlan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: a.tenant.id, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: 'BAR', status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
     await prisma.dailyAvailability.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-10'), allotment: 3, sold: 1 } })
     await prisma.dailyRate.create({ data: { tenantId: a.tenant.id, ratePlanId: ratePlan.id, stayDate: new Date('2026-12-10'), occupancy: 2, amountMinor: 125000n, currency: 'AED' } })
     const connector = await prisma.connectorDefinition.create({ data: { tenantId: a.tenant.id, supplierId: supplier.id, type: 'MANUAL_EXTRANET', name: 'manual', version: '1' } })

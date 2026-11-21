@@ -34,7 +34,7 @@ export function lockBookingSql(tenantId: string, bookingId: string, scope: Agent
 export async function resolveAgentBookingScope(tx: Prisma.TransactionClient, tenantId: string, userId: string): Promise<AgentBookingScope> {
   const membership = await tx.membership.findUnique({
     where: { userId_tenantId: { userId, tenantId } },
-    include: { tenant: true },
+    select: { id: true, role: true, revokedAt: true, tenantId: true, tenant: { select: { status: true } } },
   })
   if (!membership || membership.revokedAt || membership.tenantId !== tenantId || membership.tenant.status !== 'ACTIVE') {
     throw new ForbiddenException('Access denied')
@@ -46,7 +46,7 @@ export async function resolveAgentBookingScope(tx: Prisma.TransactionClient, ten
   if (member) return { level: 'AGENCY', agencyId: member.agencyId }
   const roles = await tx.userRole.findMany({
     where: { userId, tenantId, role: { tenantId } },
-    include: { role: { include: { permissions: { include: { permission: true } } } } },
+    select: { role: { select: { permissions: { select: { permission: { select: { key: true } } } } } } },
   })
   const formal = roles.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.key))
   if (!membershipGrantsPermission(membership.role, formal, PERMISSIONS.viewBookings)) throw new ForbiddenException('Access denied')

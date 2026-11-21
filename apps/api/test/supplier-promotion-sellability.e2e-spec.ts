@@ -51,7 +51,7 @@ describe('promoted supplier inventory is what search and recheck sell', () => {
   async function plan(room: string, code: string, extra: Record<string, unknown> = {}) {
     const board = await owner.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'ROH' } }, update: {}, create: { tenantId, code: 'ROH', name: `ROH ${suffix}` } })
     const contract = await owner.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: hotelMappingId, code: `${suffix}-${code}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
-    return (await owner.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: roomIds[room], boardBasisId: board.id, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', taxesIncluded: true, ...extra } })).id
+    return (await owner.ratePlan.create({ data: { feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: roomIds[room], boardBasisId: board.id, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', taxesIncluded: true, ...extra } })).id
   }
 
   beforeAll(async () => {

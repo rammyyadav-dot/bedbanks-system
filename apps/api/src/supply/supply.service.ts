@@ -745,7 +745,7 @@ export class SupplyService {
     const day = (value: Date) => value.toISOString().slice(0, 10)
     const readiness = assessRatePlanActivation({
       today,
-      plan: { status: plan.status, currency: plan.currency, occupancy: plan.occupancy, refundable: plan.refundable, minStay: plan.minStay, maxStay: plan.maxStay, inventoryPoolId: plan.inventoryPoolId, validFrom: dayOf(plan.validFrom), validTo: dayOf(plan.validTo), cancellationPolicySet: plan.cancellationPolicySet, markets: parseMarketRules(plan) },
+      plan: { status: plan.status, currency: plan.currency, taxesIncluded: plan.taxesIncluded, feesIncluded: plan.feesIncluded, occupancy: plan.occupancy, refundable: plan.refundable, minStay: plan.minStay, maxStay: plan.maxStay, inventoryPoolId: plan.inventoryPoolId, validFrom: dayOf(plan.validFrom), validTo: dayOf(plan.validTo), cancellationPolicySet: plan.cancellationPolicySet, markets: parseMarketRules(plan) },
       room: { hotelId: plan.roomType.hotelId, maxOccupancy: plan.roomType.maxOccupancy, isActive: plan.roomType.isActive },
       board: { isActive: plan.boardBasis.isActive },
       contract: { status: plan.contract.status, validFrom: day(plan.contract.validFrom), validTo: day(plan.contract.validTo), settlementCurrency: plan.contract.settlementCurrency, mappedHotelId: plan.contract.supplierHotelMapping?.hotelId ?? null, cancellationPolicyCount: rulesForPlan(plan, plan.contract.cancellationPolicies).rules.length, markets: parseMarketRules(plan.contract) },

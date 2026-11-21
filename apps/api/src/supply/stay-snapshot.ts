@@ -17,6 +17,8 @@ export interface StayPlanInput {
   status: string
   occupancy: number
   currency: string
+  taxesIncluded: boolean
+  feesIncluded: boolean
   minStay: number
   maxStay: number | null
   releaseDays: number
@@ -158,6 +160,8 @@ export function buildStaySnapshot(
     ratePlanStatus: plan.status,
     ratePlanOccupancy: occupancy,
     ratePlanCurrency: plan.currency,
+    ratePlanTaxesIncluded: plan.taxesIncluded,
+    ratePlanFeesIncluded: plan.feesIncluded,
     ratePlanMinStay: plan.minStay,
     ratePlanMaxStay: plan.maxStay,
     ratePlanReleaseDays: plan.releaseDays,

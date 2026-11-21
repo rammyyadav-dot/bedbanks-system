@@ -51,6 +51,7 @@ export async function reserveNight(
       FROM "DailyAvailability" da
       JOIN "RatePlan" rp ON rp."id" = da."rate_plan_id" AND rp."tenant_id" = da."tenant_id"
      WHERE da."tenant_id" = ${input.tenantId} AND da."rate_plan_id" = ${input.ratePlanId} AND da."stay_date" = ${input.stayDate}
+       AND rp."taxes_included" = true AND rp."fees_included" = true
        FOR UPDATE OF da
   `)
   if (rows.length !== 1) throw new ConflictException('Inventory unavailable')

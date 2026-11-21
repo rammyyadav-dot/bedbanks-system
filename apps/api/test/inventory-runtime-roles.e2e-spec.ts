@@ -38,7 +38,7 @@ describe('inventory pool tables under the restricted runtime roles (PostgreSQL)'
     const mapping = (await owner.supplierHotelMapping.create({ data: { tenantId: tenant, supplierId: supplier, hotelId: hotel, supplierHotelId: `${suffix}${key}`, status: 'MAPPED' } })).id
     const contract = (await owner.contract.create({ data: { tenantId: tenant, supplierId: supplier, supplierHotelMappingId: mapping, code: `${suffix}${key}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     const pool = (await owner.inventoryPool.create({ data: { tenantId: tenant, hotelId: hotel, supplierId: supplier, name: `Pool ${key}`, createdById: user } })).id
-    const plan = (await owner.ratePlan.create({ data: { tenantId: tenant, contractId: contract, roomTypeId: room, boardBasisId: board, code: `P${key}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: pool } })).id
+    const plan = (await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenant, contractId: contract, roomTypeId: room, boardBasisId: board, code: `P${key}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: pool } })).id
     const poolDays: string[] = []
     for (const d of [D1, D2]) {
       poolDays.push((await owner.inventoryPoolDay.create({ data: { tenantId: tenant, poolId: pool, stayDate: new Date(d), capacity: 5 } })).id)

@@ -54,7 +54,7 @@ describe('hotel commercial operations (PostgreSQL, HTTP, two tenants)', () => {
     const contract = await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: mapping?.id ?? null, code: `${suffix}-${key}`, status: o.contractStatus ?? 'ACTIVE', validFrom: utc(o.validFrom ?? -400), validTo: utc(o.validTo ?? 4000), settlementCurrency: 'AED' } })
     let planId = ''
     if ((o.plan ?? 'ACTIVE') !== 'NONE') {
-      const plan = await prisma.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId, code: `${key}-BB`.slice(0, 40), status: (o.plan ?? 'ACTIVE') as never, occupancy: 2, currency: 'AED', minStay: o.minStay ?? 1 } })
+      const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId, code: `${key}-BB`.slice(0, 40), status: (o.plan ?? 'ACTIVE') as never, occupancy: 2, currency: 'AED', minStay: o.minStay ?? 1 } })
       planId = plan.id
       const range = Array.from({ length: 16 }, (_, i) => utc(8 + i))
       if (o.rates !== false) await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: o.rateMinor ?? 45_000n, currency: 'AED', amountBasis: 'SELL' as const })) })

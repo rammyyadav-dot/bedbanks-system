@@ -268,7 +268,7 @@ describe('the deal inside the one stay evaluator', () => {
   const snapshot = (promotions: PromotionRule[], patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySnapshot => ({
     hotelContentStatus: 'COMPLETE', roomActive: true, boardActive: true, supplierStatus: 'ACTIVE', hotelMappingStatus: 'MAPPED', hotelMappingHotelId: 'h', canonicalHotelId: 'h', roomMappingStatus: 'MAPPED', contractStatus: 'ACTIVE',
     contractValidFrom: '2026-10-01', contractValidTo: '2026-12-31', contractCurrency: 'AED', guestPrices: [], promotions, derivedProblem: null, cancellationPolicyMissing: false, leadTimeRule: null, minStayMode: 'STAY_THROUGH', supplements: [], eventSupplements: [],
-    planMarketRules: { salesMarkets: [], nationalities: [] }, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanMinStay: 1, ratePlanMaxStay: 14, ratePlanReleaseDays: 0,
+    planMarketRules: { salesMarkets: [], nationalities: [] }, ratePlanValidFrom: null, ratePlanValidTo: null, ratePlanStatus: 'ACTIVE', ratePlanOccupancy: 2, ratePlanCurrency: 'AED', ratePlanTaxesIncluded: true, ratePlanFeesIncluded: true, ratePlanMinStay: 1, ratePlanMaxStay: 14, ratePlanReleaseDays: 0,
     ratePlanReleaseTimeLocal: '00:00', hotelTimeZone: 'Asia/Dubai', maxAdults: 2, maxChildren: 0, maxOccupancy: 2, nights: [night('2026-10-15'), night('2026-10-16'), night('2026-10-17')], ...patch,
   })
 
