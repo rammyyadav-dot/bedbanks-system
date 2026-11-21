@@ -90,6 +90,9 @@ export interface ContractedStaySnapshot {
   ratePlanStatus: string
   ratePlanOccupancy: number
   ratePlanCurrency: string
+  /** Launch rates must explicitly include every tax and mandatory fee in their net amount. */
+  ratePlanTaxesIncluded: boolean
+  ratePlanFeesIncluded: boolean
   ratePlanMinStay: number
   ratePlanMaxStay: number | null
   ratePlanReleaseDays: number
@@ -188,6 +191,8 @@ export function evaluateContractedStay(snapshot: ContractedStaySnapshot, request
   const extraPerNight = guestPricing.mode === 'LINES' ? guestPricing.extraMinorPerNight : 0n
   const guestBasis = guestPricing.mode === 'LINES' ? guestPricing.basis : null
   if (snapshot.contractStatus !== 'ACTIVE') reasons.push('CONTRACT_INACTIVE')
+  if (snapshot.ratePlanTaxesIncluded !== true) reasons.push('TAX_BASIS_NOT_INCLUSIVE')
+  if (snapshot.ratePlanFeesIncluded !== true) reasons.push('FEE_BASIS_NOT_INCLUSIVE')
   // ADR 0067 F-06: validFrom and validTo are the first and last STAY NIGHTS (inclusive), as hotels write contract periods. Check-out may be the day after validTo.
   const checkOutMs = Date.parse(`${request.checkOut}T00:00:00.000Z`)
   // An unparseable check-out keeps itself as the bound, so a malformed request never widens validity (the night count rejects it anyway).

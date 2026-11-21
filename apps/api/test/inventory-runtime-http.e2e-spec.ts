@@ -56,7 +56,7 @@ describe('inventory over HTTP on the restricted API runtime role (PostgreSQL)', 
     const nights = [day(20), day(21), day(22)].map((d) => new Date(d))
     await owner.inventoryPoolDay.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, poolId, stayDate, capacity: 5 })) })
     for (const code of ['P1', 'P2', 'P3']) {
-      const id = (await owner.ratePlan.create({ data: { tenantId: tenantA, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id; planIds.push(id)
+      const id = (await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id; planIds.push(id)
       await owner.dailyRate.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, ratePlanId: id, stayDate, occupancy: 2, amountMinor: 49_900n, currency: 'AED', amountBasis: 'SELL' as const })) })
       await owner.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId: tenantA, ratePlanId: id, stayDate, allotment: 9 })) })
     }

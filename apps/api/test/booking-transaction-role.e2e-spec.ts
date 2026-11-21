@@ -1,3 +1,5 @@
+import { ForbiddenException } from '@nestjs/common'
+import { resolveAgentBookingScope } from '../src/agent/booking-agency-scope'
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import { BOOKING_PRIVILEGE_BOUNDARY_UNAVAILABLE } from '@bedbanks/contracts'
@@ -108,6 +110,37 @@ describe('booking transaction database role (PostgreSQL)', () => {
     expect(await denied(() => asTenant(tenantA, (tx) => tx.booking.updateMany({ where: { id: booking.id }, data: { totalMinor: 1n } })))).toMatch(/42501|permission denied/i)
     expect(await asTenant(tenantB, (tx) => tx.booking.count())).toBe(0)
     expect(await asTenant(tenantA, (tx) => tx.booking.count())).toBe(1)
+  })
+
+  it('revalidates agency, operator and revoked membership scope using only the restricted authorization columns', async () => {
+    const agency = await owner.agency.findUniqueOrThrow({ where: { id: agencyA } })
+    const userId = agency.createdById
+    await owner.membership.create({ data: { tenantId: tenantA, userId, role: 'agent' } })
+    await owner.agencyMember.create({ data: { tenantId: tenantA, userId, agencyId: agencyA } })
+    const role = await owner.role.create({ data: { tenantId: tenantA, name: `${suffix}-reader` } })
+    const permission = await owner.permission.upsert({ where: { key: 'booking.read' }, update: {}, create: { key: 'booking.read' } })
+    await owner.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } })
+    await owner.userRole.create({ data: { tenantId: tenantA, userId, roleId: role.id } })
+    const database = new BookingTransactionDatabase({ DATABASE_URL: ownerUrl, BOOKING_TRANSACTION_DATABASE_URL: roleUrl })
+    const scope = (tenantId = tenantA) => database.withTenant(tenantId, tx => resolveAgentBookingScope(tx, tenantId, userId))
+    try {
+      expect(await scope()).toEqual({ level: 'AGENCY', agencyId: agencyA })
+      await expect(scope(tenantB)).rejects.toBeInstanceOf(ForbiddenException)
+      await owner.agencyMember.delete({ where: { tenantId_userId: { tenantId: tenantA, userId } } })
+      expect(await scope()).toEqual({ level: 'OPERATOR' })
+      await owner.membership.update({ where: { userId_tenantId: { userId, tenantId: tenantA } }, data: { revokedAt: new Date() } })
+      await expect(scope()).rejects.toBeInstanceOf(ForbiddenException)
+    } finally { await database.onModuleDestroy() }
+  })
+
+  it('preserves requested isolation through the restricted booking connection', async () => {
+    const database = new BookingTransactionDatabase({ DATABASE_URL: ownerUrl, BOOKING_TRANSACTION_DATABASE_URL: roleUrl })
+    try {
+      for (const [isolationLevel, expected] of [['Serializable', 'serializable'], ['RepeatableRead', 'repeatable read']] as const) {
+        const [row] = await database.withTenant(tenantA, tx => tx.$queryRaw<Array<{ isolation: string }>>`SELECT current_setting('transaction_isolation') AS isolation`, { isolationLevel, timeoutMs: 10000 })
+        expect(row.isolation).toBe(expected)
+      }
+    } finally { await database.onModuleDestroy() }
   })
 
   it('opens the Nest client as this login and refuses when the URL is the API credential', async () => {

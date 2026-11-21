@@ -34,7 +34,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   let seq = 0
   const key = () => `${suffix}-${++seq}-${randomBytes(4).toString('hex')}`
 
-  const KEYS = ['supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage', 'supply.room_events.read', 'supply.room_events.manage', 'supply.event_supplements.read', 'supply.event_supplements.manage']
+  const KEYS = ['supply.availability.read', 'supply.availability.manage', 'supply.hotels.read', 'supply.hotels.manage', 'supply.rooms.read', 'supply.rooms.manage', 'supply.rates.read', 'supply.rates.manage', 'agency.read', 'agency.manage', 'distribution.read', 'distribution.manage', 'case.read', 'case.manage', 'supply.room_events.read', 'supply.room_events.manage', 'supply.event_supplements.read', 'supply.event_supplements.manage']
   async function user(label: string, tenantId: string, keys: string[]) {
     const email = `${suffix}-${label}@example.test`
     const u = await owner.user.create({ data: { email, name: label, passwordHash: await hashPassword(password), status: 'ACTIVE' } }); userIds.push(u.id); ids[label] = u.id
@@ -97,6 +97,14 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
   afterAll(async () => {
     await app?.close()
     if (previousUrl) process.env.DATABASE_URL = previousUrl
+    await owner.$transaction(async tx => {
+      await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica')
+      for (const table of ['SupplierStayRequest', 'SalesDistributionJob', 'RoomSalesAudit', 'RoomSalesRule', 'RoomSalesBatch', 'PoolNightAllocation', 'InventoryPoolDay']) {
+        await tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE tenant_id IN ($1, $2)`, tenantA, tenantB)
+      }
+    })
+    await owner.ratePlan.updateMany({ where: { tenantId: tenantA }, data: { inventoryPoolId: null } })
+    await owner.inventoryPool.deleteMany({ where: { tenantId: tenantA } })
     // Deals are archived, never deleted, so the scope trigger refuses a delete; the disposable rows are removed with it switched off.
     await owner.$executeRawUnsafe('ALTER TABLE "HotelDealRatePlan" DISABLE TRIGGER "HotelDealRatePlan_guard"').catch(() => undefined)
     await owner.$executeRawUnsafe('ALTER TABLE "EventSupplementVersion" DISABLE TRIGGER "EventSupplementVersion_immutable"').catch(() => undefined)
@@ -188,7 +196,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'BB', name: `B&B ${suffix}` } })
     const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId, supplierHotelId: `${suffix}-deal`, status: 'MAPPED' } })
     const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-deal`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
-    const plans = await Promise.all(['A', 'B'].map((code) => owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `DEAL-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })))
+    const plans = await Promise.all(['A', 'B'].map((code) => owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `DEAL-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })))
     const base = '/admin/commercial/promotions'
     const terms = (over: Record<string, unknown> = {}) => ({ name: 'Workflow deal', kind: 'PERCENT_OFF', percentBp: 1500, ...over })
     const draft = (await call('post', base, 'maker', { hotelId, idempotencyKey: key(), code: `WF${suffix.slice(-8)}`.toUpperCase(), ...terms(), ratePlanIds: [plans[0].id] }).expect(201)).body.data
@@ -215,7 +223,7 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
     const board = await owner.boardBasis.create({ data: { tenantId: tenantA, code: 'RO', name: `Room only ${suffix}` } })
     const mapping = await owner.supplierHotelMapping.create({ data: { tenantId: tenantA, supplierId: supplier.id, hotelId: planHotel, supplierHotelId: `${suffix}-evt`, status: 'MAPPED' } })
     const contract = await owner.contract.create({ data: { tenantId: tenantA, supplierId: supplier.id, supplierHotelMappingId: mapping.id, code: `${suffix}-evt`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } as never })
-    const plan = await owner.ratePlan.create({ data: { tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `EVT-${suffix.slice(-6)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+    const plan = await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `EVT-${suffix.slice(-6)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
     // The event: INSERT (draft), UPDATE (edit the draft, submit, approve by another user).
     const event = (await call('post', '/admin/room-events', 'maker', { name: 'Workflow expo', eventType: 'EXHIBITION', destinationCity: 'Dubai', destinationCountry: 'AE', eventStartDate: day(40), eventEndDate: day(44), referenceRef: `${suffix}-ref` }).expect(201)).body.data
     await call('patch', `/admin/room-events/${event.id}`, 'maker', { name: 'Workflow expo edited' }).expect(200)
@@ -386,6 +394,41 @@ describe('strict runtime role: every granted Admin write works end to end (Postg
       // No tenant context: nothing is readable or writable.
       expect(await probe.$executeRawUnsafe(`UPDATE "Agency" SET name = name`)).toBe(0)
     } finally { await probe.$disconnect() }
+  })
+
+  it('W-10b sales controls: save, replay, update, distribute, allocate and decide a supplier request as the strict API role', async () => {
+    const plan = await owner.ratePlan.findFirstOrThrow({ where: { tenantId: tenantA, roomType: { hotelId }, status: 'ACTIVE' }, include: { contract: true } })
+    const from = day(60), to = day(61), allocationTo = day(66)
+    const pool = await owner.inventoryPool.create({ data: { tenantId: tenantA, hotelId, supplierId: plan.contract.supplierId, name: `Sales ${suffix}`, createdById: ids.maker } })
+    await owner.inventoryPoolDay.createMany({ data: Array.from({ length: 7 }, (_, offset) => day(60 + offset)).map(date => ({ tenantId: tenantA, poolId: pool.id, stayDate: new Date(date), capacity: 5 })) })
+    await owner.ratePlan.update({ where: { id: plan.id }, data: { inventoryPoolId: pool.id } })
+    await owner.dailyRate.createMany({ data: [from, to].map(date => ({ tenantId: tenantA, ratePlanId: plan.id, stayDate: new Date(date), amountMinor: 10000n, currency: 'AED', occupancy: plan.occupancy })) })
+    const base = `/admin/hotels/${hotelId}/inventory`
+    const settings = { poolId: pool.id, ratePlanId: plan.id, channel: null, market: null, contractId: null, roomTypeIds: [plan.roomTypeId], allRoomTypes: false, from, to, mode: 'ON_REQUEST', responseDeadlineHours: 24, requestOwnerLabel: 'Reservations', escalationPolicy: 'Call supplier', reason: 'Supplier confirmation required' }
+    const preview = (await call('post', `${base}/sales/preview`, 'maker', settings).expect(200)).body.data
+    expect(preview).toMatchObject({ canSave: true, affected: 2 })
+    const commit = { ...settings, expectedFingerprint: preview.fingerprint, idempotencyKey: key() }
+    const saved = (await call('post', `${base}/sales/commit`, 'maker', commit).expect(200)).body.data
+    expect(saved).toMatchObject({ replayed: false, affected: 2 })
+    expect((await call('post', `${base}/sales/commit`, 'maker', commit).expect(200)).body.data).toMatchObject({ replayed: true, batchId: saved.batchId })
+    await call('post', `${base}/sales/commit`, 'badmin', commit).expect(404)
+    const revised = { ...settings, reason: 'Supplier deadline reviewed' }
+    const next = (await call('post', `${base}/sales/preview`, 'maker', revised).expect(200)).body.data
+    await call('post', `${base}/sales/commit`, 'maker', { ...revised, expectedFingerprint: next.fingerprint, idempotencyKey: key() }).expect(200)
+    await call('post', `${base}/sales/distribution/${saved.distribution.jobId}/deliver`, 'maker', {}).expect(200)
+    for (const contracted of [6, 7]) {
+      const board = (await call('get', `${base}/allocation?from=${from}&days=7`, 'maker').expect(200)).body.data
+      const expectedFingerprint = board.fingerprints.find((item: { poolId: string }) => item.poolId === pool.id).fingerprint
+      await call('post', `${base}/allocation/apply`, 'maker', { poolId: pool.id, from, to: allocationTo, contracted, approvedAdjustment: 0, blocked: 0, blockedExcludedFromAllocation: false, postReleasePolicy: 'CLOSED', releaseCutoffDays: null, releaseTimeLocal: null, reason: 'Supplier allocation agreed', expectedFingerprint, idempotencyKey: key() }).expect(200)
+    }
+    const requestBody = { ratePlanId: plan.id, checkIn: from, checkOut: to, rooms: 1, adults: 2, children: 0, responseDeadlineHours: 24, requestOwnerLabel: 'Reservations', escalationPolicy: 'Call supplier', reason: 'Guest requested stay', idempotencyKey: key() }
+    const pending = (await call('post', `${base}/sales/requests`, 'maker', requestBody).expect(200)).body.data
+    expect(pending.status).toBe('PENDING')
+    const decision = { decision: 'REJECT', reason: 'Supplier declined', idempotencyKey: key() }
+    expect((await call('post', `${base}/sales/requests/${pending.id}/decide`, 'maker', decision).expect(200)).body.data.status).toBe('REJECTED')
+    const stock = await owner.inventoryPoolDay.findMany({ where: { poolId: pool.id } })
+    expect(stock.every(row => row.capacity === 7 && row.sold === 0 && row.held === 0)).toBe(true)
+    expect(await owner.roomSalesAudit.count({ where: { tenantId: tenantA, hotelId } })).toBe(4)
   })
 
   it('W-11 coverage: every write privilege in the contract changed at least one row through these workflows', async () => {

@@ -48,7 +48,7 @@ async function main() {
     await prisma.inventoryPoolDay.createMany({ data: Array.from({ length: 30 }, (_, d) => ({ tenantId, poolId, stayDate: utc(d), capacity: 5, sold: exhausted ? 5 : 0 })) })
     const planIds: string[] = []
     for (const code of ['P1', 'P2', 'P3']) {
-      const planId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
+      const planId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', inventoryPoolId: poolId } })).id
       planIds.push(planId)
       await prisma.dailyRate.createMany({ data: Array.from({ length: 30 }, (_, d) => ({ tenantId, ratePlanId: planId, stayDate: utc(d), occupancy: 2, amountMinor: 49_900n, currency: 'AED', amountBasis: 'SELL' as const })) })
       await prisma.dailyAvailability.createMany({ data: Array.from({ length: 30 }, (_, d) => ({

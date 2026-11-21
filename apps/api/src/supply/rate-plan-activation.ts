@@ -25,7 +25,7 @@ export interface ActivationReadiness {
 export interface ActivationFacts {
   /** Today in the hotel's calendar, YYYY-MM-DD. The caller supplies it so the evaluator stays deterministic. */
   today: string
-  plan: { status: RatePlanStatusValue; currency: string; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null; cancellationPolicySet: string | null; markets: { salesMarkets: string[] | null; nationalities: string[] | null } }
+  plan: { status: RatePlanStatusValue; currency: string; taxesIncluded: boolean; feesIncluded: boolean; occupancy: number; refundable: boolean; minStay: number; maxStay: number | null; inventoryPoolId: string | null; validFrom: string | null; validTo: string | null; cancellationPolicySet: string | null; markets: { salesMarkets: string[] | null; nationalities: string[] | null } }
   room: { hotelId: string; maxOccupancy: number; isActive: boolean }
   board: { isActive: boolean }
   contract: {
@@ -66,6 +66,10 @@ const check = (code: string, label: string, ok: boolean, pass: string, fail: str
 export function assessRatePlanActivation(facts: ActivationFacts): ActivationReadiness {
   const { plan, room, board, contract, rates, today } = facts
   const checks: ActivationCheck[] = []
+  checks.push(check('TAX_BASIS_NOT_INCLUSIVE', 'Taxes included', plan.taxesIncluded === true,
+    'The net rate includes all taxes.', 'Confirm that the supplier net includes all taxes before activation.'))
+  checks.push(check('FEE_BASIS_NOT_INCLUSIVE', 'Mandatory fees included', plan.feesIncluded === true,
+    'The net rate includes all mandatory fees.', 'Confirm that the supplier net includes all mandatory fees before activation. Hotel-collected local charges must be disclosed separately.'))
 
   checks.push(check('STATUS_ALLOWED', 'Lifecycle state', plan.status === 'DRAFT' || plan.status === 'SUSPENDED', `Plan is ${plan.status}.`,
     plan.status === 'ACTIVE' ? 'Plan is already active.' : 'An expired plan cannot be reactivated; clone it into a new draft.'))

@@ -114,7 +114,7 @@ describe('pool capacity editor and per-plan consumption (PostgreSQL, HTTP, two t
     await owner.inventoryPoolDay.createMany({ data: D.map((d) => ({ tenantId, poolId: pool.id, stayDate: new Date(d), capacity: 5 })) })
     const ids: string[] = []
     for (let i = 0; i < planCount; i++) {
-      const plan = await owner.ratePlan.create({ data: { tenantId, contractId: meta.contractId, roomTypeId: meta.roomId, boardBasisId: meta.boardId, code: `${name.replace(/\W/g, '')}-${'ABC'[i]}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool.id } })
+      const plan = await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: meta.contractId, roomTypeId: meta.roomId, boardBasisId: meta.boardId, code: `${name.replace(/\W/g, '')}-${'ABC'[i]}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1, inventoryPoolId: pool.id } })
       ids.push(plan.id)
       await owner.dailyRate.createMany({ data: D.map((d) => ({ tenantId, ratePlanId: plan.id, stayDate: new Date(d), occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
       await owner.dailyAvailability.createMany({ data: [...D, day(25)].map((d) => ({ tenantId, ratePlanId: plan.id, stayDate: new Date(d), allotment: 5 })) })

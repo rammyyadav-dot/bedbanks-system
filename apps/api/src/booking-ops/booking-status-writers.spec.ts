@@ -25,14 +25,30 @@ function bookingWrites(source: string): string[] {
   return out
 }
 
+/** Only the complete known probe descriptor is exempt; concatenated or transformed SQL is still scanned. */
+function rawStatusWrite(source: string): boolean {
+  const withoutProbe = source.replace(/\{\s*name: 'UPDATE Booking\.status',\s*sql: `UPDATE "Booking" SET "status" = "status" WHERE false`,\s*expect: 'allowed'\s*\}/g, '')
+  return /UPDATE\s+"Booking"[^;]*\bstatus\b/i.test(withoutProbe)
+}
+
 describe('Booking.status has one writer (ADR 0039)', () => {
+  it('ignores only the exact zero-row privilege probe, while detecting real or widened SQL writes', () => {
+    expect(rawStatusWrite('{ name: \'UPDATE Booking.status\', sql: `UPDATE "Booking" SET "status" = "status" WHERE false`, expect: \'allowed\' }')).toBe(false)
+    expect(rawStatusWrite('sql: `UPDATE "Booking" SET "status" = "status" WHERE false OR true`')).toBe(true)
+    expect(rawStatusWrite('sql: `UPDATE "Booking" SET "status" = "status" WHERE false` + " OR true"')).toBe(true)
+    expect(rawStatusWrite('sql: `UPDATE "Booking" SET "status" = "status" WHERE false`.replace("false", "true")')).toBe(true)
+
+    expect(rawStatusWrite('sql: `UPDATE "Booking" SET "status" = \'CANCELLED\' WHERE false`')).toBe(true)
+    expect(rawStatusWrite('sql: `UPDATE "Booking" SET "status" = "status" WHERE false`; sql: `UPDATE "Booking" SET "status" = \'CONFIRMED\'`')).toBe(true)
+  })
+
   it('SW-01: no source file outside transitionBooking writes Booking.status or closedAt', () => {
     const offenders: string[] = []
     for (const file of files(SRC)) {
       const rel = relative(SRC, file).split('\\').join('/')
       if (ALLOWED.has(rel)) continue
       for (const call of bookingWrites(readFileSync(file, 'utf8'))) if (/\bstatus\s*:|\bclosedAt\s*:/.test(call.replace(/where\s*:\s*\{[^}]*\}/g, ''))) offenders.push(`${rel}: ${call.slice(0, 80)}`)
-      if (/UPDATE\s+"Booking"[^;]*\bstatus\b/i.test(readFileSync(file, 'utf8'))) offenders.push(`${rel}: raw SQL update of "Booking".status`)
+      if (rawStatusWrite(readFileSync(file, 'utf8'))) offenders.push(`${rel}: raw SQL update of "Booking".status`)
     }
     expect(offenders).toEqual([])
   })

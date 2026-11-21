@@ -215,7 +215,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     }).expect(201)
     contractId = contract.body.data.id
     await setContractStatusFixture(prisma, contractId, 'ACTIVE')
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-FLEX`, occupancy: 2, currency: 'AED',
       refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
@@ -378,7 +378,7 @@ describe('Authoritative Dubai one-hotel agent search', () => {
     try {
       const rate = (await search().expect(201)).body.data.hotels[0].rooms[0].rates[0]
       expect(rate.payAtHotel).toEqual([{ kind: 'TOURISM_DIRHAM', label: 'Tourism Dirham', amountMinor: 2000, currency: 'AED', basis: 'PER_ROOM_PER_NIGHT', estimatedTotalMinor: 2000 * nights.length }])
-      expect(rate.priceIncludes).toEqual({ taxes: false, fees: false })
+      expect(rate.priceIncludes).toEqual({ taxes: true, fees: true })
       expect(rate.sellAmountMinor).toBe(nightMinor * nights.length)
     } finally {
       await prisma.hotelProfile.update({ where: { id: profile.id }, data: { localCharges: [] } })

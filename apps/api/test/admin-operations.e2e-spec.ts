@@ -79,7 +79,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
     const mappingId = (await prisma.supplierHotelMapping.create({ data: { tenantId, supplierId, hotelId, supplierHotelId: `${key}-sup`, status: 'MAPPED' } })).id
     await prisma.supplierRoomMapping.create({ data: { tenantId, supplierHotelMappingId: mappingId, hotelId, supplierRoomId: `${key}-sup-room`, roomTypeId: roomId, status: 'MAPPED' } })
     const contractId = (await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: mappingId, code: key, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
-    const ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    const ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: key, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, allotment: 20 })) })
     await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId, ratePlanId, stayDate, occupancy: 2, amountMinor: 62_550n, currency: 'AED', amountBasis: 'SELL' })) })
     await makeAgencyBooker(prisma, tenantId, userId, 1_000_000n) // ADR 0028 slice 3: bookings charge the booker's agency account
@@ -332,7 +332,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
       const mapping = (o.hotelMapping ?? 'MAPPED') ? await prisma.supplierHotelMapping.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, hotelId: hotel.id, supplierHotelId: `${suffix}-${code}`, status: o.hotelMapping ?? 'MAPPED' } }) : null
       if (mapping && o.roomMapping !== false) await prisma.supplierRoomMapping.create({ data: { tenantId: A.tenantId, supplierHotelMappingId: mapping.id, hotelId: hotel.id, supplierRoomId: `${suffix}-r-${code}`, roomTypeId: room.id, status: 'MAPPED' } })
       const contract = await prisma.contract.create({ data: { tenantId: A.tenantId, supplierId: A.supplierId, supplierHotelMappingId: mapping?.id ?? null, code: `${suffix}-scn-${code}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date(o.validTo ?? '2099-12-31'), settlementCurrency: 'AED' } })
-      const plan = await prisma.ratePlan.create({ data: { tenantId: A.tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: A.boardId, code: `${suffix}-scn-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+      const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A.tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: A.boardId, code: `${suffix}-scn-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
       if (o.rates !== false) await prisma.dailyRate.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
       if (o.availability !== false) await prisma.dailyAvailability.createMany({ data: nights.map(stayDate => ({ tenantId: A.tenantId, ratePlanId: plan.id, stayDate, allotment: o.allotment ?? 5, sold: o.sold ?? 0, stopSell: o.stopSell ?? false })) })
       return { hotel, room, plan, name }

@@ -31,7 +31,7 @@ async function main() {
   const contract1 = await prisma.contract.create({ data: { tenantId: A, supplierId: supplierA, code: `${tag}-c1`, status: 'ACTIVE', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
   await prisma.contractSupplement.create({ data: { contractId: contract1.id, kind: 'BOARD', name: 'Breakfast', boardBasisId: boardA, basis: 'PER_ROOM', frequency: 'PER_NIGHT', amountMinor: 5_000n, currency: 'AED' } })
   await prisma.contractSupplement.create({ data: { contractId: contract1.id, kind: 'COMPULSORY', name: 'Resort fee', boardBasisId: null, basis: 'PER_ROOM', frequency: 'PER_STAY', amountMinor: 2_000n, currency: 'AED' } })
-  const plan = await prisma.ratePlan.create({ data: { tenantId: A, contractId: contract1.id, roomTypeId: room.id, boardBasisId: boardA, code: `PROMO-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const plan = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: A, contractId: contract1.id, roomTypeId: room.id, boardBasisId: boardA, code: `PROMO-MAIN-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
   const range = Array.from({ length: 120 }, (_, i) => utc(i - 2))
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, occupancy: 2, amountMinor: 50_000n, currency: 'AED', amountBasis: 'SELL' as const })) })
   await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: A, ratePlanId: plan.id, stayDate, allotment: 10, sold: 0 })) })
@@ -43,7 +43,7 @@ async function main() {
   const hotelB = await prisma.hotel.create({ data: { tenantId: B, name: 'Other Tenant Hotel', externalRef: `PSB-${tag.slice(-6)}`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE', contentStatus: 'COMPLETE', starRating: 4, timeZone: 'Asia/Dubai' } })
   const roomB = await prisma.roomType.create({ data: { hotelId: hotelB.id, name: 'Standard Room', code: 'STD', maxAdults: 2, maxChildren: 0, maxOccupancy: 2 } })
   const contractB = await prisma.contract.create({ data: { tenantId: B, supplierId: supplierB, code: `${tag}-cb`, status: 'DRAFT', validFrom: utc(-30), validTo: utc(400), settlementCurrency: 'AED' } })
-  const planB = await prisma.ratePlan.create({ data: { tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `PROMO-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+  const planB = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: B, contractId: contractB.id, roomTypeId: roomB.id, boardBasisId: boardB, code: `PROMO-B-${tag.slice(-4)}`, status: 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
 
   const perms = ['supply.rates.read', 'supply.rates.manage', 'supply.contracts.read', 'supply.contracts.manage', 'supply.hotels.read']
   async function user(label: string, tenantId: string, keys: string[], role = 'agent') {

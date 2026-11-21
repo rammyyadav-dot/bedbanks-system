@@ -140,7 +140,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
     await api(operator).post(`/supply/contracts/${ids.contract}/policies/lead-time`, { minLeadHours: 24 }).expect(201)
     await setContractStatusFixture(prisma, ids.contract, 'ACTIVE')
 
-    const plan = await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, code: 'DLX-BB-2A', occupancy: 2, currency: 'AED', refundable: true, taxesIncluded: false, feesIncluded: false, minStay: 1, releaseDays: 0 }).expect(201)
+    const plan = await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, code: 'DLX-BB-2A', occupancy: 2, currency: 'AED', refundable: true, taxesIncluded: true, feesIncluded: true, minStay: 1, releaseDays: 0 }).expect(201)
     ids.ratePlan = plan.body.data.id
     expect(plan.body.data).toMatchObject({ contractId: ids.contract, roomTypeId: ids.room, boardBasisId: ids.board, status: 'DRAFT', currency: 'AED' })
 
@@ -213,7 +213,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
       const secondHotel = await api(operator).post('/supply/hotels', { name: `${suffix} Second`, propertyType: 'HOTEL', city: 'Dubai', countryCode: 'AE' }).expect(201)
       const strayRoom = await api(operator).post(`/supply/hotels/${secondHotel.body.data.id}/rooms`, { name: 'Stray', code: 'STR', maxAdults: 2, maxOccupancy: 2 }).expect(201)
       await api(operator).post(`/supply/mappings/hotels/${ids.hotelMapping}/rooms`, { supplierRoomId: 'SUP-STRAY', roomTypeId: strayRoom.body.data.id }).expect((res) => expect([400, 404]).toContain(res.status))
-      await api(operator).post('/supply/rate-plans', { contractId: ids.contract, roomTypeId: strayRoom.body.data.id, boardBasisId: ids.board, code: 'STRAY', occupancy: 2, currency: 'AED' }).expect(400)
+      await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId: ids.contract, roomTypeId: strayRoom.body.data.id, boardBasisId: ids.board, code: 'STRAY', occupancy: 2, currency: 'AED' }).expect(400)
     })
 
     it('7-8. makes the stay unsellable while hotel or room mappings are not approved', async () => {
@@ -240,7 +240,7 @@ describe('Admin one-hotel golden path (Dubai, AED, 1 room, 2 adults)', () => {
     it('12-13. rejects foreign rate-plan relationships and currency mismatches', async () => {
       const foreignSupplier = await prisma.supplier.create({ data: { tenantId: otherTenantId, type: 'DMC', status: 'ACTIVE', legalName: `${suffix} Foreign`, displayName: 'Foreign', countryCode: 'AE', defaultCurrency: 'AED' } })
       const foreignContract = await prisma.contract.create({ data: { tenantId: otherTenantId, supplierId: foreignSupplier.id, code: `${suffix}-FC`, validFrom: new Date(`${iso(0)}T00:00:00.000Z`), validTo: new Date(`${iso(100)}T00:00:00.000Z`), settlementCurrency: 'AED' } })
-      await api(operator).post('/supply/rate-plans', { contractId: foreignContract.id, roomTypeId: ids.room, boardBasisId: ids.board, code: 'FOREIGN', occupancy: 2, currency: 'AED' }).expect(400)
+      await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId: foreignContract.id, roomTypeId: ids.room, boardBasisId: ids.board, code: 'FOREIGN', occupancy: 2, currency: 'AED' }).expect(400)
       await api(operator).post('/supply/daily-rates', { ratePlanId: ids.ratePlan, stayDate: start, occupancy: 2, amountMinor: '45000', amountBasis: 'SELL', currency: 'USD' }).expect(400)
       await prisma.contract.delete({ where: { id: foreignContract.id } })
       await prisma.supplier.delete({ where: { id: foreignSupplier.id } })

@@ -42,6 +42,8 @@ export const FINPOST_INSERT_ONLY_TABLES = ['AuditEvent'] as const
 /** Must stay unreadable and unwritable. Checked by the verifier. */
 export const FINPOST_FORBIDDEN_TABLES = ['users', 'sessions', 'memberships', 'BookingGuest', 'BookingEvent', 'BookingDocument', 'InventoryHold', 'ConnectorCredentialReference', 'FundingReceipt', 'AuditEvent', 'SupplierStatement', 'ReconciliationFinding'] as const
 export const FINPOST_DUE_FUNCTION = 'fbeds_finance_posting_due_tenants()'
+/** Invoker-rights LedgerEntry trigger calls this predicate for every writer, including Finance. */
+export const FINPOST_GUARD_PREDICATE = 'fbeds_is_booking_transaction_role()'
 
 export function assertFinpostInput(loginRole: string, password: string): void {
   if (!IDENTIFIER.test(loginRole)) throw new Error('Login role must match [a-z][a-z0-9_]{2,62}')
@@ -60,6 +62,7 @@ export function finpostGrantStatements(group = FINPOST_GROUP_ROLE): string[] {
     ...Object.entries(FINPOST_READ_COLUMNS).map(([table, columns]) => `GRANT SELECT (${cols(columns)}) ON "${table}" TO "${group}"`),
     ...FINPOST_INSERT_ONLY_TABLES.map((table) => `GRANT INSERT ON "${table}" TO "${group}"`),
     `GRANT EXECUTE ON FUNCTION ${FINPOST_DUE_FUNCTION} TO "${group}"`,
+    `GRANT EXECUTE ON FUNCTION ${FINPOST_GUARD_PREDICATE} TO "${group}"`,
   ]
 }
 
@@ -128,6 +131,7 @@ export async function verifyFinpostRole(db: Pick<Executor, '$queryRawUnsafe'>): 
   if (!(await count(`SELECT CASE WHEN has_table_privilege(current_user, '"AuditEvent"', 'INSERT') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot append audit events')
   if (!(await count(`SELECT CASE WHEN has_function_privilege(current_user, '${FINPOST_DUE_FUNCTION}', 'EXECUTE') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot list tenants with unposted events')
   if (await count(`SELECT count(*) AS n FROM unnest(ARRAY[${list(FINPOST_FORBIDDEN_TABLES)}]) t WHERE has_table_privilege(current_user, format('%I', t), 'SELECT')`) > 0) failures.push('role can read a table outside the finance posting scope')
+  if (!(await count(`SELECT CASE WHEN has_function_privilege(current_user, '${FINPOST_GUARD_PREDICATE}', 'EXECUTE') THEN 1 ELSE 0 END AS n`))) failures.push('role cannot evaluate the ledger booking-role guard')
   return { ok: failures.length === 0, failures }
 }
 

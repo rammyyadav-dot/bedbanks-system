@@ -61,7 +61,7 @@ describe('Supplier availability change sets (strict runtime role, PostgreSQL, HT
     const contract = (supplierId: string, n: string) => owner.contract.create({ data: { tenantId: tenantA, supplierId, code: `${suffix}-${n}`, validFrom: new Date('2099-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
     const [c1, c2] = await Promise.all([contract(s1, 'C1'), contract(s2, 'C2')])
     const pool = await owner.inventoryPool.create({ data: { tenantId: tenantA, hotelId: hotelA, supplierId: s1, name: `${suffix} pool`, createdById: 'u' } })
-    const ratePlan = (contractId: string, c: string, inventoryPoolId?: string) => owner.ratePlan.create({ data: { tenantId: tenantA, contractId, roomTypeId: room.id, boardBasisId: board.id, code: c, occupancy: 2, currency: 'AED', ...(inventoryPoolId ? { inventoryPoolId } : {}) } })
+    const ratePlan = (contractId: string, c: string, inventoryPoolId?: string) => owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantA, contractId, roomTypeId: room.id, boardBasisId: board.id, code: c, occupancy: 2, currency: 'AED', ...(inventoryPoolId ? { inventoryPoolId } : {}) } })
     plan1 = (await ratePlan(c1.id, P1())).id
     await ratePlan(c1.id, POOLED(), pool.id); await ratePlan(c2.id, OTHER())
     // One existing live cell for plan 1: 10 allotted, 2 sold, 1 held.

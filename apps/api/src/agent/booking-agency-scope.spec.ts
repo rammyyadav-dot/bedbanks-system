@@ -94,13 +94,13 @@ function datasource(people: Person[], bookings: StoredBooking[]) {
     auditEvent: { findFirst: async () => null, create: jest.fn(), count: jest.fn() },
     bookingEmail: { findUnique: async () => null, create: jest.fn() },
     bookingDocument: {
-      findUnique: async ({ where }: { where: { bookingId_type: { bookingId: string; type: string } } }) => ({
-        id: `doc-${where.bookingId_type.bookingId}`, type: where.bookingId_type.type, number: `VCH-${where.bookingId_type.bookingId}`,
-        issuedAt: new Date('2026-01-03T00:00:00.000Z'), payload: { bookingReference: where.bookingId_type.bookingId },
-      }),
+      findMany: async ({ where }: { where: { bookingId: string; tenantId: string } }) => where.tenantId === TENANT ? [{
+        id: `doc-${where.bookingId}`, type: 'VOUCHER', number: `VCH-${where.bookingId}`,
+        issuedAt: new Date('2026-01-03T00:00:00.000Z'), payload: { bookingReference: where.bookingId },
+      }] : [],
       create: jest.fn(async (input: unknown) => { created.push(input); return input }),
     },
-    cancellation: { create: jest.fn(), findUniqueOrThrow: jest.fn() },
+    cancellation: { create: jest.fn(), findUnique: async () => null, findUniqueOrThrow: jest.fn() },
     inventoryHold: { update: jest.fn() },
     $queryRaw: jest.fn(async (query: { strings?: string[]; values?: unknown[] }) => lock(query)),
   }

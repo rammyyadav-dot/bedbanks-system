@@ -52,5 +52,5 @@ describe('StepUpService', () => {
     const blocked = await verify(PASSWORD).catch((e: HttpException) => e)
     expect((blocked as HttpException).getStatus()).toBe(429)
     expect(audits[audits.length - 1].action).toBe('step_up.throttled')
-  })
+  }, 15_000) // Six real bcrypt comparisons need headroom on shared CI runners.
 })

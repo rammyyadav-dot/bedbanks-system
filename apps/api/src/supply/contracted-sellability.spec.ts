@@ -39,7 +39,7 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     ratePlanValidTo: null,
     ratePlanStatus: 'ACTIVE',
     ratePlanOccupancy: 2,
-    ratePlanCurrency: 'AED',
+    ratePlanCurrency: 'AED', ratePlanTaxesIncluded: true, ratePlanFeesIncluded: true,
     ratePlanMinStay: 1,
     ratePlanMaxStay: 14,
     ratePlanReleaseDays: 0,
@@ -52,6 +52,19 @@ function snapshot(patch: Partial<ContractedStaySnapshot> = {}): ContractedStaySn
     ...patch,
   }
 }
+
+describe('launch all-inclusive pricing', () => {
+  it.each([false, undefined, null])('refuses a non-inclusive or unknown tax basis (%s)', (basis) => {
+    const decision = evaluateContractedStay(snapshot({ ratePlanTaxesIncluded: basis as boolean }), request)
+    expect(decision).toMatchObject({ eligible: false, totalMinor: null, netMinor: null })
+    expect(decision.reasons).toContain('TAX_BASIS_NOT_INCLUSIVE')
+  })
+  it.each([false, undefined, null])('refuses a non-inclusive or unknown mandatory-fee basis (%s)', (basis) => {
+    const decision = evaluateContractedStay(snapshot({ ratePlanFeesIncluded: basis as boolean }), request)
+    expect(decision).toMatchObject({ eligible: false, totalMinor: null, netMinor: null })
+    expect(decision.reasons).toContain('FEE_BASIS_NOT_INCLUSIVE')
+  })
+})
 
 describe('contracted stay sellability', () => {
   it('prices three AED nights in integer minor units', () => {

@@ -23,7 +23,7 @@ const row = (page, code) => page.locator('tr[data-plan-id]').filter({ has: page.
   const hotelId = seed.hotels.alpha
   const template = await prisma.ratePlan.findFirstOrThrow({ where: { roomType: { hotelId }, status: 'ACTIVE' } })
   const tag = Date.now().toString(36)
-  const ready = await prisma.ratePlan.create({ data: { tenantId: template.tenantId, contractId: template.contractId, roomTypeId: template.roomTypeId, boardBasisId: template.boardBasisId, code: `ST-READY-${tag}`, status: 'DRAFT', occupancy: 2, currency: 'AED', refundable: false } })
+  const ready = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: template.tenantId, contractId: template.contractId, roomTypeId: template.roomTypeId, boardBasisId: template.boardBasisId, code: `ST-READY-${tag}`, status: 'DRAFT', occupancy: 2, currency: 'AED', refundable: false } })
   const range = Array.from({ length: 40 }, (_, i) => new Date(utc(-1 + i)))
   await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId: ready.tenantId, ratePlanId: ready.id, stayDate, occupancy: 2, amountMinor: 52_500n, currency: 'AED', amountBasis: 'SELL' })) })
   await prisma.dailyAvailability.createMany({ data: range.map((stayDate) => ({ tenantId: ready.tenantId, ratePlanId: ready.id, stayDate, allotment: 5 })) })

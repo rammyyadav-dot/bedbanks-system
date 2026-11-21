@@ -1,3 +1,4 @@
+import { testArtifactDir } from './artifact-dir'
 import { mkdirSync, writeFileSync } from 'fs'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -281,7 +282,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       supplierId: otherSupplierId, supplierHotelMappingId: otherMapping.body.data.id, code: `${suffix}-other-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     await setContractStatusFixture(prisma, otherContract.body.data.id, 'ACTIVE')
-    const otherPlan = await otherAdmin.post('/api/v1/supply/rate-plans').send({
+    const otherPlan = await otherAdmin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: otherContract.body.data.id, roomTypeId: otherRoom.body.data.id, boardBasisId: otherBoard.body.data.id,
       code: `${suffix}-other-FLEX`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
@@ -331,7 +332,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       supplierId, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-${input.key}-C`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: input.boardId, code: `${suffix}-${input.key}-FLEX`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: input.minStay ?? 1, releaseDays: input.releaseDays ?? 0,
     }).expect(201)
@@ -357,7 +358,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       supplierId, supplierHotelMappingId: chain.mappingId, code: `${suffix}-${code}`, validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: contract.body.data.id, roomTypeId: chain.roomId, boardBasisId: bbId, code: `${suffix}-${code}-P`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
@@ -374,7 +375,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     boardName?: string
     record?: boolean
   }) {
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: chain.contractId, roomTypeId: chain.roomId, boardBasisId: boardId, code: `${suffix}-${code}`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: options.minStay ?? 1, releaseDays: 0,
     }).expect(201)
@@ -399,7 +400,7 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
       supplierRoomId: `${suffix}-${code}-room`, roomTypeId: room.body.data.id,
     }).expect(201)
     if (approve) await admin.post(`/api/v1/supply/mappings/hotels/${chain.mappingId}/rooms/${roomMapping.body.data.id}/approve`).expect(201)
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: chain.contractId, roomTypeId: room.body.data.id, boardBasisId: boardId, code: `${suffix}-${code}-P`,
       occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
@@ -502,8 +503,8 @@ describe('Authoritative Dubai 10-hotel agent search', () => {
     }).expect(200)
     const recheckMs = Number(process.hrtime.bigint() - started) / 1_000_000
     expect(recheck.body.data.status).toBe('rechecked')
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/dubai-10-metrics.json', JSON.stringify({
+    mkdirSync(testArtifactDir(), { recursive: true })
+    writeFileSync(`${testArtifactDir()}/dubai-10-metrics.json`, JSON.stringify({
       searchMs: durations, recheckMs, hotels: signature.length,
       offers: signature.reduce((sum, hotel) => sum + hotel.rooms.reduce((rooms, room) => rooms + room.rates.length, 0), 0),
     }, null, 2))

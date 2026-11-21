@@ -25,7 +25,7 @@ describe('supplier rate plan mapping governance and resolution', () => {
     const board = await prisma.boardBasis.upsert({ where: { tenantId_code: { tenantId: tenant, code: 'BB' } }, update: {}, create: { tenantId: tenant, code: 'BB', name: 'B&B' } })
     const parent = typeof extra.derivedFromId === 'string' ? await prisma.ratePlan.findUniqueOrThrow({ where: { id: extra.derivedFromId }, select: { contractId: true } }) : null
     const contract = parent ? { id: parent.contractId } : await prisma.contract.create({ data: { tenantId: tenant, supplierId: supplier, code: `${suffix}-${code}`, status: 'ACTIVE', validFrom: new Date(day(-5)), validTo: new Date(day(300)), settlementCurrency: 'AED' } as never })
-    return (await prisma.ratePlan.create({ data: { tenantId: tenant, contractId: contract.id, roomTypeId: room, boardBasisId: board.id, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', ...extra } })).id
+    return (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenant, contractId: contract.id, roomTypeId: room, boardBasisId: board.id, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', ...extra } })).id
   }
 
   beforeAll(async () => {

@@ -1,3 +1,4 @@
+import { testArtifactDir } from './artifact-dir'
 import { PrismaClient } from '@prisma/client'
 import { retrieveHotelCandidates, upsertHotelSearchIndex } from '../src/mapping/hotel-search-index'
 
@@ -91,8 +92,8 @@ describe('disposable hotel search index', () => {
     expect(rows.some((row) => row.hotelId === hotelB)).toBe(false)
     expect(lookupMs).toBeLessThan(1_000)
     const { mkdirSync, writeFileSync } = await import('fs')
-    mkdirSync('/opt/cursor/artifacts', { recursive: true })
-    writeFileSync('/opt/cursor/artifacts/mapping-candidate-metrics.json', JSON.stringify({ indexedHotels: 102, indexWriteMs: indexedMs, candidateLookupMs: lookupMs, returned: rows.length }, null, 2))
+    mkdirSync(testArtifactDir(), { recursive: true })
+    writeFileSync(`${testArtifactDir()}/mapping-candidate-metrics.json`, JSON.stringify({ indexedHotels: 102, indexWriteMs: indexedMs, candidateLookupMs: lookupMs, returned: rows.length }, null, 2))
   })
 
   it('returns a full shortlist even when other tenants hold the nearest neighbours', async () => {

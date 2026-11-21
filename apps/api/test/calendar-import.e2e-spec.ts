@@ -43,7 +43,7 @@ describe('Calendar CSV import (ADR 0057, S7)', () => {
   }
   /** A DRAFT plan, optionally complete with rates and availability for the five test nights. */
   const newPlan = async (complete: boolean, body: Record<string, unknown> = {}) => {
-    const plan = await api(operator).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
+    const plan = await api(operator).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P${++n}`, occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0, ...body }).expect(201)
     const id = plan.body.data.id as string
     if (complete) {
       await api(operator).post('/supply/daily-rates/bulk', { rows: nights.map((stayDate) => ({ ratePlanId: id, stayDate, occupancy: 2, amountMinor: '45000', amountBasis: 'SELL', currency: 'AED' })) }).expect(201)

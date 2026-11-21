@@ -36,7 +36,7 @@ async function main() {
     const range = Array.from({ length: 106 }, (_, i) => i - 3).filter((offset) => offset <= (o.rateEnd ?? 102))
     const codes = o.duplicate ? [`${key.toUpperCase()}-BB`, `${key.toUpperCase()}-BB-COPY`] : [o.code ?? `${key.toUpperCase()}-BB`]
     for (const code of codes) {
-      const p = await prisma.ratePlan.create({ data: { tenantId, contractId: c.id, roomTypeId: room.id, boardBasisId, code, status: o.plan ?? 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
+      const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: c.id, roomTypeId: room.id, boardBasisId, code, status: o.plan ?? 'ACTIVE', occupancy: 2, currency: 'AED', minStay: 1 } })
       hotels[key] ??= { id: h.id, planId: p.id }
       await prisma.dailyRate.createMany({ data: range.map((offset) => ({ tenantId, ratePlanId: p.id, stayDate: utc(offset), occupancy: 2, amountMinor: (o.zeroDays ?? []).includes(offset) ? 0n : o.amount ?? 49_900n, currency: o.currency ?? 'AED', amountBasis: o.basis === undefined ? 'SELL' as const : o.basis })) })
       if (o.extraOccupancy) await prisma.dailyRate.createMany({ data: range.slice(0, 10).map((offset) => ({ tenantId, ratePlanId: p.id, stayDate: utc(offset), occupancy: 3, amountMinor: 69_900n, currency: 'AED', amountBasis: 'SELL' as const })) })

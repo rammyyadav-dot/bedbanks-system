@@ -202,7 +202,7 @@ describe('Contract maker-checker and versioning (ADR 0067)', () => {
   })
 
   it('amends an ACTIVE contract only through an approved amendment that raises the version', async () => {
-    await api(maker).post('/supply/rate-plans', { contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P1`, occupancy: 2, currency: 'AED', refundable: true }).expect(201)
+    await api(maker).post('/supply/rate-plans', { taxesIncluded: true, feesIncluded: true, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-P1`, occupancy: 2, currency: 'AED', refundable: true }).expect(201)
     const fingerprint = (await lifecycle()).fingerprint
     const identity = await api(maker).post(`/supply/contracts/${contractId}/amendment-request`, { requestId: rid(), reason: 'r', expectedFingerprint: fingerprint, changes: { supplierId: 'x' } })
     expect(expectStatus(identity, 400).body.error.code).toBe('CONTRACT_AMENDMENT_INVALID')

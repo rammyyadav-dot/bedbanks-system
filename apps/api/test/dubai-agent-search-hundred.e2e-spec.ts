@@ -1,3 +1,4 @@
+import { testArtifactDir } from './artifact-dir'
 import { mkdirSync, writeFileSync } from 'fs'
 import { randomUUID } from 'crypto'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
@@ -150,7 +151,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
 
   afterAll(async () => {
     restoreBookingOps()
-    const artifactDir = process.env.TEST_ARTIFACT_DIR ?? '/opt/cursor/artifacts'
+    const artifactDir = testArtifactDir()
     mkdirSync(artifactDir, { recursive: true })
     writeFileSync(`${artifactDir}/dubai-100-metrics.json`, JSON.stringify({
       ...measured, hotels: HOTEL_COUNT, offers: HOTEL_COUNT, activePlans: HOTEL_COUNT * PLANS_PER_HOTEL,
@@ -242,7 +243,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
       plan(hotel.minPlanId, hotel, 'MIN', 5),
       plan(hotel.stopPlanId, hotel, 'STOP', 1),
     ]) }))
-    await withTenant(otherTenantId, (tx) => tx.ratePlan.create({ data: {
+    await withTenant(otherTenantId, (tx) => tx.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true,
       id: otherPlanId, tenantId: otherTenantId, contractId: otherContractId, roomTypeId: otherRoomId, boardBasisId: otherBoard.id,
       code: `${suffix}-other-FLEX`, status: 'ACTIVE', occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     } }))
@@ -274,6 +275,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
 
   function plan(id: string, hotel: typeof hotels[number], code: string, minStay: number) {
     return {
+      taxesIncluded: true, feesIncluded: true,
       id, tenantId, contractId: hotel.contractId, roomTypeId: hotel.roomId, boardBasisId: boardId, code: `${suffix}-${hotel.index}-${code}`,
       status: 'ACTIVE' as const, occupancy: 2, currency: 'AED', refundable: true, minStay, releaseDays: 0,
     }
@@ -682,7 +684,8 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
   it('marks an elapsed offer expired and rejects an extreme page size', async () => {
     await search(agentCookie, { limit: 10_000 }).expect(400)
     const previousTtl = process.env.AGENT_OFFER_TTL_MS
-    process.env.AGENT_OFFER_TTL_MS = '1000'
+    process.env.AGENT_OFFER_TTL_MS = '300000'
+    let clock: jest.SpyInstance | undefined
     try {
       const beforeBookings = await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))
       const found = await search().expect(201)
@@ -691,7 +694,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
         offerId: offer.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: offer.sellAmountMinor,
       }).expect(200)
       expect(fresh.body.data.status).toBe('rechecked')
-      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse(offer.expiresAt) + 1)
       const expired = await api(agentCookie).post('/api/v1/agent/rates/recheck').send({
         offerId: offer.offerId, searchId: found.body.data.searchId, expectedCurrency: 'AED', expectedSellAmountMinor: offer.sellAmountMinor,
       }).expect(410)
@@ -699,6 +702,7 @@ describe('Authoritative Dubai 100-hotel agent search', () => {
       expect(JSON.stringify(expired.body)).not.toContain('postgresql://')
       expect(await withTenant(tenantId, (tx) => tx.booking.count({ where: { tenantId } }))).toBe(beforeBookings)
     } finally {
+      clock?.mockRestore()
       if (previousTtl === undefined) delete process.env.AGENT_OFFER_TTL_MS
       else process.env.AGENT_OFFER_TTL_MS = previousTtl
     }

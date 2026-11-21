@@ -1,3 +1,4 @@
+import { enableBookingTransaction } from './support/booking-transaction'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import * as cookieParser from 'cookie-parser'
@@ -23,6 +24,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
   const checkIn = day(21)
   const checkOut = day(23)
   const nights = [day(21), day(22)]
+  let restoreBookingTransaction: (() => Promise<void>) | undefined
   let app: INestApplication
   let tenantId: string
   let otherTenantId: string
@@ -53,6 +55,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
   beforeAll(async () => {
     delete process.env.BOOKING_ENABLED
     await prisma.$connect()
+    restoreBookingTransaction = await enableBookingTransaction(prisma)
     const [tenant, other, empty] = await Promise.all([
       prisma.tenant.create({ data: { name: `${suffix} Agency`, slug: `${suffix}-a` } }),
       prisma.tenant.create({ data: { name: `${suffix} Other`, slug: `${suffix}-b` } }),
@@ -137,6 +140,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
     if (previousBooking === undefined) delete process.env.BOOKING_ENABLED
     else process.env.BOOKING_ENABLED = previousBooking
     await app?.close()
+    await restoreBookingTransaction?.()
     const userIds = [ownerId, searcherId, financeId, deniedId, otherUserId, emptyOwnerId, platformUserId].filter(Boolean)
     const tenantIds = [tenantId, otherTenantId, emptyTenantId].filter(Boolean)
     if (tenantIds.length) {
@@ -218,7 +222,7 @@ describe('Agent transaction gates, effective capabilities and booking pages', ()
       supplierId: supplier.body.data.id, supplierHotelMappingId: mapping.body.data.id, code: `${suffix}-C`.slice(0, 40), validFrom: day(0), validTo: day(60), settlementCurrency: 'AED',
     }).expect(201)
     await setContractStatusFixture(prisma, contract.body.data.id, 'ACTIVE')
-    const plan = await admin.post('/api/v1/supply/rate-plans').send({
+    const plan = await admin.post('/api/v1/supply/rate-plans').send({ taxesIncluded: true, feesIncluded: true,
       contractId: contract.body.data.id, roomTypeId: room.body.data.id, boardBasisId: board.body.data.id, code: `${suffix}-FLEX`.slice(0, 40), occupancy: 2, currency: 'AED', refundable: true, minStay: 1, releaseDays: 0,
     }).expect(201)
     ratePlanId = plan.body.data.id

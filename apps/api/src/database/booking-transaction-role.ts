@@ -50,7 +50,13 @@ export const BOOKTX_UPDATE_COLUMNS = {
 /** Column-level SELECT. A table-level SELECT would expose hotel contacts, agency notes or the credit-limit approver. */
 export const BOOKTX_READ_COLUMNS = {
   HotelProfile: ['id', 'tenant_id', 'hotel_id', 'check_in_time', 'check_out_time', 'local_charges'],
-  tenants: ['id', 'name'],
+  tenants: ['id', 'name', 'status'],
+  // Revalidate current membership and formal booking.read before touching a booking. No credentials or authoring rights.
+  memberships: ['id', 'user_id', 'tenant_id', 'role', 'revoked_at'],
+  UserRole: ['user_id', 'role_id', 'tenant_id'],
+  Role: ['id', 'tenant_id'],
+  RolePermission: ['role_id', 'permission_id'],
+  Permission: ['id', 'key'],
   Agency: ['id', 'tenant_id', 'name'],
   AgencyMember: ['tenant_id', 'agency_id', 'user_id'],
   // `id` is included because Prisma selects the primary key even when the caller names other columns.
@@ -62,11 +68,11 @@ export const BOOKTX_READ_COLUMNS = {
 
 /** Must stay unreadable and unwritable. Checked by the verifier. */
 export const BOOKTX_FORBIDDEN_TABLES = [
-  'users', 'sessions', 'memberships', 'password_reset_tokens', 'FundingReceipt', 'ConnectorCredentialReference',
+  'users', 'sessions', 'password_reset_tokens', 'FundingReceipt', 'ConnectorCredentialReference',
   'BookingFinanceEvent', 'BookingFinancePosting', 'SupplierPayableEntry', 'LedgerAdjustment', 'GlAccount', 'FinancePeriodClose', 'LedgerChainLink',
 ] as const
 
-/** Trigger functions. EXECUTE is required for the role that fires them; nobody else is granted it by this contract. */
+/** Booking trigger dependencies. Finance separately needs the shared boolean predicate (ADR 0116). */
 export const BOOKTX_FUNCTIONS = ['"fbeds_is_booking_transaction_role"()', '"fbeds_booktx_wallet_guard"()', '"fbeds_booktx_ledger_guard"()'] as const
 
 export function assertBooktxInput(loginRole: string, password: string): void {

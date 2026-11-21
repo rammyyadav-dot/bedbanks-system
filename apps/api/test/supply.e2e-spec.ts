@@ -100,8 +100,8 @@ describe('Supply HTTP authorization boundaries', () => {
     contractAId = contractA.id
     contractBId = contractB.id
     const [planA, planB] = await Promise.all([
-      prisma.ratePlan.create({ data: { tenantId: tenantAId, contractId: contractAId, roomTypeId: roomAId, boardBasisId: boardAId, code: `${suffix}-RPA`, occupancy: 2, currency: 'USD' } }),
-      prisma.ratePlan.create({ data: { tenantId: tenantBId, contractId: contractBId, roomTypeId: roomBId, boardBasisId: boardBId, code: `${suffix}-RPB`, occupancy: 2, currency: 'USD' } }),
+      prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantAId, contractId: contractAId, roomTypeId: roomAId, boardBasisId: boardAId, code: `${suffix}-RPA`, occupancy: 2, currency: 'USD' } }),
+      prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId: tenantBId, contractId: contractBId, roomTypeId: roomBId, boardBasisId: boardBId, code: `${suffix}-RPB`, occupancy: 2, currency: 'USD' } }),
     ])
     ratePlanAId = planA.id
     ratePlanBId = planB.id

@@ -35,7 +35,7 @@ describe('Rate plan expiry sweeper (lifecycle role)', () => {
     return { room, board, contract }
   }
   const mkPlan = (tenantId: string, world: Awaited<ReturnType<typeof mkWorld>>, key: string, status: 'DRAFT' | 'ACTIVE' | 'SUSPENDED' | 'EXPIRED', validTo: Date | null) =>
-    prisma.ratePlan.create({ data: { tenantId, contractId: world.contract.id, roomTypeId: world.room.id, boardBasisId: world.board.id, code: `${suffix}-${key}`, status, occupancy: 2, currency: 'AED', validTo } }).then((plan) => { ids[key] = plan.id; return plan })
+    prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: world.contract.id, roomTypeId: world.room.id, boardBasisId: world.board.id, code: `${suffix}-${key}`, status, occupancy: 2, currency: 'AED', validTo } }).then((plan) => { ids[key] = plan.id; return plan })
   const status = async (key: string) => (await prisma.ratePlan.findUniqueOrThrow({ where: { id: ids[key] } })).status
   const expiryEvents = (key: string) => prisma.auditEvent.findMany({ where: { entityId: ids[key], action: 'supply.rate_plan.status_changed' } })
 

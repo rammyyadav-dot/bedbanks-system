@@ -31,7 +31,6 @@
   "apps/api/src/database/verify-supplier-ingest-role.cli.ts": 1,
   "apps/api/src/database/verify-supplier-promotion-role.cli.ts": 1,
   "apps/api/src/hotel-setup/hotel-profile-summary.ts": 6,
-  "apps/api/src/hotel-setup/hotel-rooms.service.ts": 6,
   "apps/api/src/supply/deal-rules.loader.ts": 3,
   "apps/api/src/supply/markup-rules.loader.ts": 3
 }

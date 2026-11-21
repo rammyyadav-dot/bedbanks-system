@@ -183,7 +183,7 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
         const board = await owner.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'BB ' } }, update: {}, create: { tenantId, code: 'BB ', name: `Board ${suffix}` } })
         const room = await owner.roomType.create({ data: { hotelId, name: `Room ${n}`, code: `${suffix}-${n}`, maxAdults: 2, maxOccupancy: 2 } })
         const contract = await owner.contract.create({ data: { tenantId, supplierId, code: `${suffix}-C${n}`, validFrom: new Date('2099-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
-        const plan = await owner.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `RP${n}`, occupancy: 2, currency: 'AED' } })
+        const plan = await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `RP${n}`, occupancy: 2, currency: 'AED' } })
         const hold = await owner.inventoryHold.create({ data: {
           tenantId, ratePlanId: plan.id, offerId: `offer-${n}`, searchId: `search-${n}`, canonicalHotelId: hotelId, canonicalRoomTypeId: room.id, boardBasisId: board.id,
           checkIn: new Date('2099-06-01'), checkOut: new Date('2099-06-03'), rooms: 1, currency: 'AED', sellAmountMinor: 125099n, idempotencyKey: `${suffix}-h${n}`,
@@ -376,7 +376,7 @@ describe('Supplier extranet bookings (strict runtime role, PostgreSQL, HTTP)', (
         const board = await owner.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'BB ' } }, update: {}, create: { tenantId, code: 'BB ', name: `Board ${suffix}` } })
         const room = await owner.roomType.create({ data: { hotelId, name: `BF Room ${n}`, code: `${suffix}-bf${n}`, maxAdults: 2, maxOccupancy: 2 } })
         const contract = await owner.contract.create({ data: { tenantId, supplierId, code: `${suffix}-BF${n}`, validFrom: new Date('2099-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })
-        const plan = await owner.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `BF${n}`, occupancy: 2, currency: 'AED' } })
+        const plan = await owner.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: room.id, boardBasisId: board.id, code: `BF${n}`, occupancy: 2, currency: 'AED' } })
         const hold = await owner.inventoryHold.create({ data: {
           tenantId, ratePlanId: plan.id, offerId: `o-${tag}`, searchId: `s-${tag}`, canonicalHotelId: hotelId, canonicalRoomTypeId: room.id, boardBasisId: board.id,
           checkIn: new Date('2099-07-01'), checkOut: new Date('2099-07-03'), rooms: 1, currency: 'AED', sellAmountMinor: amount, idempotencyKey: `${suffix}-bf-${tag}`,

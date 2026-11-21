@@ -31,7 +31,7 @@ async function main() {
     const c = await prisma.contract.create({ data: { tenantId, supplierId, supplierHotelMappingId: m?.id ?? null, code: `${tag}-${key}`, status: 'ACTIVE', validFrom: utc(-400), validTo: utc(o.validTo ?? 4000), settlementCurrency: 'AED' } })
     if (o.plan !== false) {
       for (const [r, label, occ] of [[room, 'DLX', 2], [room2, 'FAM', 2]] as const) {
-        const p = await prisma.ratePlan.create({ data: { tenantId, contractId: c.id, roomTypeId: r.id, boardBasisId, code: `${key}-${label}`.slice(0, 30), status: 'ACTIVE', occupancy: occ, currency: 'AED' } })
+        const p = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: c.id, roomTypeId: r.id, boardBasisId, code: `${key}-${label}`.slice(0, 30), status: 'ACTIVE', occupancy: occ, currency: 'AED' } })
         const range = Array.from({ length: 46 }, (_, i) => utc(-3 + i)) // covers the default 30-night window and beyond
         if (o.rates !== false) await prisma.dailyRate.createMany({ data: range.map((stayDate) => ({ tenantId, ratePlanId: p.id, stayDate, occupancy: occ, amountMinor: label === 'DLX' ? 49_900n : 79_900n, currency: 'AED', amountBasis: 'SELL' as const })) })
         if (o.availability !== false) await prisma.dailyAvailability.createMany({ data: range.map((stayDate, i) => ({ tenantId, ratePlanId: p.id, stayDate, allotment: o.allotment ?? 6, stopSell: label === 'DLX' && (o.stopSell ?? []).includes(-3 + i) })) })

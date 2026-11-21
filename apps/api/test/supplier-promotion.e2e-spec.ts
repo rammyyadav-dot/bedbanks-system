@@ -45,7 +45,7 @@ describe('supplier promotion under its narrow database role (ADR 0084)', () => {
   async function plan(room: string, code: string, extra: Record<string, unknown> = {}) {
     const board = await owner.boardBasis.upsert({ where: { tenantId_code: { tenantId, code: 'BB' } }, update: {}, create: { tenantId, code: 'BB', name: 'B&B' } })
     const contract = await owner.contract.create({ data: { tenantId, supplierId, code: `${suffix}-${code}`, status: 'ACTIVE', validFrom: new Date(day(-5)), validTo: new Date(day(300)), settlementCurrency: 'AED' } as never })
-    return (await owner.ratePlan.create({ data: { tenantId, contractId: contract.id, roomTypeId: roomIds[room], boardBasisId: board.id, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', taxesIncluded: true, ...extra } })).id
+    return (await owner.ratePlan.create({ data: { feesIncluded: true, tenantId, contractId: contract.id, roomTypeId: roomIds[room], boardBasisId: board.id, code, status: 'ACTIVE', occupancy: 2, currency: 'AED', taxesIncluded: true, ...extra } })).id
   }
   /** Approved mapping chain, created as the owner so the test does not depend on the governance UI. */
   async function mapRoom(supplierHotelMappingId: string, supplierRoomId: string, room: string) {

@@ -1,3 +1,4 @@
+import { enableBookingTransaction } from './support/booking-transaction'
 import { randomBytes } from 'crypto'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -17,6 +18,7 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
   const prisma = new PrismaClient()
   const suffix = `ra-${Date.now()}-${randomBytes(3).toString('hex')}`
   const password = 'reconciliation-approval-password'
+  let restoreBookingTransaction: (() => Promise<void>) | undefined
   let app: INestApplication
   let tenantA = '', tenantB = ''
   const userIds: string[] = []; const roleIds: string[] = []
@@ -49,6 +51,7 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
 
   beforeAll(async () => {
     await prisma.$connect()
+    restoreBookingTransaction = await enableBookingTransaction(prisma)
     tenantA = (await prisma.tenant.create({ data: { name: `${suffix} A`, slug: `${suffix}-a` } })).id
     tenantB = (await prisma.tenant.create({ data: { name: `${suffix} B`, slug: `${suffix}-b` } })).id
     const maker = await user('maker', tenantA, ['booking.reconcile', 'booking.read'])
@@ -66,6 +69,7 @@ describe('reconciliation approval (maker-checker, PostgreSQL, HTTP)', () => {
 
   afterAll(async () => {
     await app?.close()
+    await restoreBookingTransaction?.()
     for (const tenantId of [tenantA, tenantB].filter(Boolean)) {
       await prisma.auditEvent.deleteMany({ where: { tenantId } })
       await prisma.approvalRequest.deleteMany({ where: { tenantId } })

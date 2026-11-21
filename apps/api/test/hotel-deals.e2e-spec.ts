@@ -118,7 +118,7 @@ describe('Hotel deals and promotions (ADR 0089)', () => {
     }
     contractId = await map(hotelId, roomId, 'a'); otherContractId = await map(otherHotelId, otherRoomId, 'b')
     const plan = async (contract: string, room: string, code: string, basis: 'SELL' | 'NET', amount: bigint, status: 'ACTIVE' | 'DRAFT' = 'ACTIVE') => {
-      const id = (await prisma.ratePlan.create({ data: { tenantId, contractId: contract, roomTypeId: room, boardBasisId: boardId, code: `${suffix}-${code}`, status, occupancy: 2, currency: 'AED', releaseDays: 0, releaseTimeLocal: '00:00' } })).id
+      const id = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: contract, roomTypeId: room, boardBasisId: boardId, code: `${suffix}-${code}`, status, occupancy: 2, currency: 'AED', releaseDays: 0, releaseTimeLocal: '00:00' } })).id
       await prisma.dailyRate.createMany({ data: nights.map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), occupancy: 2, amountMinor: amount, amountBasis: basis, currency: 'AED' })) })
       await prisma.dailyAvailability.createMany({ data: [...nights, checkOut].map((d) => ({ tenantId, ratePlanId: id, stayDate: new Date(d), allotment: 5 })) })
       return id
@@ -720,7 +720,7 @@ describe('Hotel deals and promotions (ADR 0089)', () => {
     })
 
     it('resuming re-validates: a deal whose plan is no longer active cannot be resumed', async () => {
-      const lonely = await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-lonely`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
+      const lonely = await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: `${suffix}-lonely`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })
       const live = await goLive({ ratePlanIds: [lonely.id] })
       await expectStatus(await api(maker).post(`${ROUTE}/${live.id}/pause`, { reason: 'Hold for a check' }), 200)
       await prisma.ratePlan.update({ where: { id: lonely.id }, data: { status: 'SUSPENDED' } })

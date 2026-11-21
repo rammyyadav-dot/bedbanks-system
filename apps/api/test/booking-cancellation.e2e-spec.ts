@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common'
 import { transitionBooking } from '../src/booking-ops/booking-transition'
 import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
 import { buildNoShowQuote, buildPenaltyQuote } from '../src/booking-ops/booking-penalty-quote'
@@ -55,7 +56,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     roomId = (await prisma.roomType.create({ data: { hotelId, name: 'R', code: suffix, maxAdults: 2, maxOccupancy: 2 } })).id
     boardId = (await prisma.boardBasis.create({ data: { tenantId, code: 'RO', name: 'Room only' } })).id
     contractId = (await prisma.contract.create({ data: { tenantId, supplierId, code: suffix, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
-    ratePlanId = (await prisma.ratePlan.create({ data: { tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+    ratePlanId = (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId, roomTypeId: roomId, boardBasisId: boardId, code: suffix, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
     await prisma.dailyAvailability.createMany({ data: nights.map((stayDate) => ({ tenantId, ratePlanId, stayDate, allotment: 5 })) })
     walletId = (await makeAgencyBooker(prisma, tenantId, userId, 100_000_000n)).walletId // ADR 0028 slice 3: the booker's agency account
   })
@@ -224,9 +225,13 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await expect(cancel('does-not-exist')).rejects.toThrow('Booking not found')
 
     const other = await prisma.tenant.create({ data: { name: `${suffix}-other`, slug: `${suffix}-other` } })
+    const foreignBefore = { balance: await walletNet(), stock: await sold() }
     try {
-      await expect(cancellations.cancel({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toThrow('Booking not found')
-      await expect(cancellations.quote({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toThrow('Booking not found')
+      await expect(cancellations.cancel({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(cancellations.quote({ tenantId: other.id, userId, requestId: 'x', bookingId: noPolicy.bookingId })).rejects.toBeInstanceOf(ForbiddenException)
+      expect({ balance: await walletNet(), stock: await sold() }).toEqual(foreignBefore)
+      expect(await prisma.cancellation.count({ where: { bookingId: noPolicy.bookingId } })).toBe(0)
+      expect(await prisma.booking.findUniqueOrThrow({ where: { id: noPolicy.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
     } finally { await prisma.tenant.delete({ where: { id: other.id } }) }
     await holds.release(tenantId, hold.holdId, 'cleanup', { type: 'USER', userId })
   })

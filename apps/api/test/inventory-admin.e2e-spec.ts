@@ -34,7 +34,7 @@ describe('inventory admin (PostgreSQL)', () => {
     const contract = (await prisma.contract.create({ data: { tenantId, supplierId: supplier, supplierHotelMappingId: hm, code: `${suffix}${tag}`, status: 'ACTIVE', validFrom: new Date('2026-01-01'), validTo: new Date('2099-12-31'), settlementCurrency: 'AED' } })).id
     return { supplier, hotel, room, board, contract }
   }
-  const plan = async (tenantId: string, w: { contract: string; room: string; board: string }, code: string) => (await prisma.ratePlan.create({ data: { tenantId, contractId: w.contract, roomTypeId: w.room, boardBasisId: w.board, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
+  const plan = async (tenantId: string, w: { contract: string; room: string; board: string }, code: string) => (await prisma.ratePlan.create({ data: { taxesIncluded: true, feesIncluded: true, tenantId, contractId: w.contract, roomTypeId: w.room, boardBasisId: w.board, code: `${suffix}-${code}`, status: 'ACTIVE', occupancy: 2, currency: 'AED' } })).id
   const auditCount = (tenantId: string, action: string) => prisma.auditEvent.count({ where: { tenantId, action } })
 
   beforeAll(async () => {

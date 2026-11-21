@@ -103,7 +103,7 @@ export class OfferHoldService {
     const today = new Date(); const checkIn = new Date(`${offer.checkIn}T00:00:00.000Z`); const checkOut = new Date(`${offer.checkOut}T00:00:00.000Z`); const lastNight = new Date(checkOut.getTime() - 86_400_000)
     return this.prisma.withTenant(tenantId, async tx => {
       const plan = await tx.ratePlan.findFirst({ where: {
-        id: offer.ratePlanId, tenantId, status: 'ACTIVE', boardBasisId: offer.boardBasisId,
+        id: offer.ratePlanId, tenantId, status: 'ACTIVE', taxesIncluded: true, feesIncluded: true, boardBasisId: offer.boardBasisId,
         roomTypeId: offer.canonicalRoomTypeId, currency: offer.contractCurrency ?? offer.currency,
         // The base occupancy may be below the party: guest lines and the contract child policy price the rest (ADR 0057 S6, ADR 0067 F-03); the evaluator decides.
         occupancy: { lte: offer.adults + offer.children }, boardBasis: { tenantId, isActive: true },

@@ -99,6 +99,8 @@ describeDisposable('PostgreSQL credit concurrency and financial RLS', () => {
     // Both interpolated tokens are generated hex / identifier-safe values, never user input.
     await owner.$executeRawUnsafe(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`)
     await owner.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${role}"`)
+    // The ledger trigger evaluates this predicate for every writer, including this restricted probe.
+    await owner.$executeRawUnsafe(`GRANT EXECUTE ON FUNCTION "fbeds_is_booking_transaction_role"() TO "${role}"`)
     await owner.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON "Wallet", "LedgerEntry", "AgencyCreditLimit", "Agency", "AgencyMember", "ApprovalRequest", "AuditEvent" TO "${role}"`)
     await owner.$executeRawUnsafe(`GRANT SELECT ON users, memberships, "InventoryHold" TO "${role}"`)
     const url = new URL(ownerUrl!); url.username = role; url.password = password; url.searchParams.set('connection_limit', '8')
