@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { randomBytes } from 'crypto'
 import { PrismaClient } from '@prisma/client'
 import { PrismaService } from '../src/database/prisma.service'
@@ -203,7 +204,7 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
 
     const cancelled = await book(`${suffix}-cancelled`)
     await issue(cancelled.bookingId)
-    await cancellations.cancel({ tenantId, userId, requestId: 'cx', bookingId: cancelled.bookingId, reason: 'client changed plans' } as never)
+    await acceptCancellation(cancellations, { tenantId, userId, requestId: 'cx', bookingId: cancelled.bookingId, reason: 'client changed plans' })
     sent.length = 0
     await dispatcher.runOnce()
     expect(await emailOf(cancelled.bookingId)).toMatchObject({ status: 'FAILED', lastErrorCode: 'BOOKING_NOT_CONFIRMED' })
@@ -236,7 +237,7 @@ describe('booking checkout details and confirmation email (PostgreSQL)', () => {
     // A retry of the same prebook is not its own duplicate; another user's hold reveals nothing.
     expect(await ask(noor, `${suffix}-dup-1`)).toEqual([])
     expect(await tx.findDuplicates({ tenantId, userId: 'someone-else', inventoryHoldId: second.holdId, idempotencyKey: 'k', leadGuest: noor })).toEqual([])
-    await cancellations.cancel({ tenantId, userId, requestId: 'dup-cx', bookingId: pre.bookingId, reason: 'duplicate' } as never)
+    await acceptCancellation(cancellations, { tenantId, userId, requestId: 'dup-cx', bookingId: pre.bookingId, reason: 'duplicate' })
     expect(await ask(noor)).toEqual([])
   })
 })

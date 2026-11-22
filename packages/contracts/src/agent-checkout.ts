@@ -59,3 +59,31 @@ export interface ConfirmBookingResponse {
   documents: { voucher: string | null; invoice: string | null }
   email: ConfirmationEmailState
 }
+
+
+export const CANCELLATION_QUOTE_MAX_AGE_MS = 120_000
+export const CANCELLATION_QUOTE_REQUIRED = 'CANCELLATION_QUOTE_REQUIRED'
+export const CANCELLATION_QUOTE_STALE = 'CANCELLATION_QUOTE_STALE'
+
+export interface AgentCancellationAmounts {
+  bookingId: string
+  currency: string
+  totalMinor: string
+  penaltyMinor: string
+  refundMinor: string
+  additionalRefundMinor?: string
+  checkIn: string
+  evaluatedAt: string
+}
+
+export interface AgentCancellationQuote extends AgentCancellationAmounts {
+  additionalRefundMinor: string
+  quoteId: string
+  expiresAt: string
+}
+
+export interface AgentCancellationResult extends AgentCancellationAmounts {
+  status: 'CANCELLED'
+  alreadyCancelled: boolean
+  cancellationId: string
+}

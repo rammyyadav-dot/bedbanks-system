@@ -195,7 +195,7 @@ describe('Agent booking agency scope inside one tenant', () => {
     await expect(confirmation.confirm({ ...other, bookingId: 'b-a' })).resolves.toMatchObject({ bookingId: 'b-a', alreadyConfirmed: true })
     await expect(documents.get({ ...other, bookingId: 'b-a', type: 'VOUCHER' })).resolves.toMatchObject({ number: 'VCH-b-a' })
     await expect(cancellations.quote({ ...other, bookingId: 'b-a' })).rejects.toThrow('incomplete')
-    await expect(cancellations.cancel({ ...other, bookingId: 'b-a', reason: 'guest' })).rejects.toThrow('incomplete')
+    await expect(cancellations.cancel({ ...other, bookingId: 'b-a', reason: 'guest' })).rejects.toThrow('Request and accept a cancellation quote')
     expect(tx.cancellation.create).not.toHaveBeenCalled()
     expect(tx.bookingDocument.create).not.toHaveBeenCalled()
   })

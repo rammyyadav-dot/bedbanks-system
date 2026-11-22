@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { ForbiddenException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
@@ -161,7 +162,7 @@ describe('booking documents (PostgreSQL)', () => {
     await prisma.cancellationPolicy.create({ data: { contractId, daysBeforeCheckin: 50_000, penaltyPercent: 30 } })
     const bookingId = await bookConfirmed(`${suffix}-cn`)
     const voucher = await get(bookingId, 'VOUCHER')
-    await cancellations.cancel({ tenantId, userId, requestId: 'cancel-cn', bookingId })
+    await acceptCancellation(cancellations, { tenantId, userId, requestId: 'cancel-cn', bookingId })
 
     await expect(get(bookingId, 'CREDIT_NOTE')).rejects.toThrow('Issue the invoice first')
     const invoice = await get(bookingId, 'INVOICE') // issued after cancellation, from the frozen booking data

@@ -17,6 +17,7 @@ export class BookingActionDto extends RateActionDto {
 }
 
 export class CancellationDto {
+  @IsOptional() @IsString() @Length(1, 128) quoteId?: string
   @IsOptional() @IsString() @Length(0, 500) reason?: string
 }
 

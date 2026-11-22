@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { BookingService, type BookingDetail, type BookingPage, type CancellationQuote, type DocumentType } from '@/services/booking-service'
 import { agentFacingBooking, supplierReferenceForAgent } from '@/lib/booking-attention'
 import { recoveryLines } from '@/lib/booking-recovery'
-import { cancellationQuoteFresh } from '@/lib/checkout-guard'
 import { replaceDocumentUrl, revokeDocumentUrl } from '@/lib/document-url'
 import { formatMinorAmount, formatOfferExpiry, formatStay } from '@/lib/format'
 import type { PortalAccess } from '@/lib/portal-access'
@@ -132,11 +131,21 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   }
   async function confirmCancel() {
     if (!detail || !quote || busy) return
-    if (!cancellationQuoteFresh(quote.evaluatedAt, Date.now())) { setQuote(null); setNotice('This cancellation quote is out of date. Request a new quote before cancelling.'); return }
     setBusy(true); setNotice('')
-    const result = await api.cancel(detail.id, 'Cancelled by agent', tenantId)
-    if (result.ok) { setQuote(null); setNotice(`Booking cancelled. ${formatMinorAmount(result.data.refundMinor, result.data.currency) ?? ''} credited to your wallet.`); onChanged(); await Promise.all([loadList(), loadDetail(detail.id)]) }
-    else setNotice(result.message)
+    const result = await api.cancel(detail.id, 'Cancelled by agent', tenantId, quote.quoteId)
+    if (result.ok) {
+      const credited = result.data.additionalRefundMinor ?? result.data.refundMinor
+      setQuote(null)
+      setNotice(!result.data.alreadyCancelled && credited !== '0'
+        ? `Booking cancelled. ${money(credited, result.data.currency)} credited to your wallet.`
+        : 'Booking cancelled.')
+      onChanged()
+      await Promise.all([loadList(), loadDetail(detail.id)])
+    }
+    else {
+      if (result.quoteRefreshRequired) setQuote(null)
+      setNotice(result.message)
+    }
     setBusy(false)
   }
 
@@ -178,7 +187,7 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
           {access.cancel.enabled && detail.cancellable && !quote && <button className="portal-link danger" disabled={busy} onClick={() => void requestQuote()}>Cancel booking…</button>}
           {access.cancel.shown && !access.cancel.enabled && detail.cancellable && <p role="status">{access.cancel.message}</p>}
         </div>
-        {quote && <div ref={cancelDialog} className="portal-hold-panel" role="alertdialog" aria-modal="true" aria-labelledby={cancelTitleId}><div><strong id={cancelTitleId}>Confirm cancellation</strong><span>Cancelling now: penalty <b>{money(quote.penaltyMinor, quote.currency)}</b>, refund <b>{money(quote.refundMinor, quote.currency)}</b> to your wallet, from a total of {money(quote.totalMinor, quote.currency)}. This cannot be undone.</span></div>
+        {quote && <div ref={cancelDialog} className="portal-hold-panel" role="alertdialog" aria-modal="true" aria-labelledby={cancelTitleId}><div><strong id={cancelTitleId}>Confirm cancellation</strong><span>Cancelling now: penalty <b>{money(quote.penaltyMinor, quote.currency)}</b>, additional wallet credit <b>{money(quote.additionalRefundMinor ?? quote.refundMinor, quote.currency)}</b>, from a total of {money(quote.totalMinor, quote.currency)}. This cannot be undone.</span></div>
           <div className="booking-actions"><button className="portal-primary" disabled={busy} onClick={() => void confirmCancel()}>{busy ? 'Cancelling…' : 'Yes, cancel this booking'}</button><button className="portal-link" disabled={busy} onClick={() => setQuote(null)}>Keep booking</button></div></div>}
         {notice && <p role="status" className="booking-note">{notice}</p>}</>}
     </div>}

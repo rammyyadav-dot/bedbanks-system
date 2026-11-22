@@ -1,3 +1,6 @@
+import { enableBookingTransaction } from './support/booking-transaction'
+import { BookingTransactionDatabase } from '../src/agent/booking-transaction.database'
+import { acceptCancellation } from './support/accept-cancellation'
 import { ForbiddenException } from '@nestjs/common'
 import { transitionBooking } from '../src/booking-ops/booking-transition'
 import { BookingOpsDatabase } from '../src/booking-ops/booking-ops-database'
@@ -16,10 +19,11 @@ import { SupplierMutationJournalService } from '../src/agent/supplier-mutation-j
 import { BookingConfirmationService } from '../src/agent/booking-confirmation.service'
 import { BookingTransactionService } from '../src/agent/booking-transaction.service'
 import { BookingCancellationService } from '../src/agent/booking-cancellation.service'
-import { CancellationPolicyService } from '../src/agent/cancellation-policy.service'
+import { CancellationPolicyService, penaltyStartsAt } from '../src/agent/cancellation-policy.service'
 import { LedgerService } from '../src/agent/ledger.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { appendLedgerEntry } from '../src/ledger/ledger-core'
 import { eraseLedger } from './ledger-erasure'
 
 describe('booking cancellation and refunds (PostgreSQL)', () => {
@@ -95,7 +99,8 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await tx.confirm({ tenantId, userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
     return { bookingId: pre.bookingId, holdId: hold.holdId }
   }
-  const cancel = (bookingId: string, extra: object = {}) => cancellations.cancel({ tenantId, userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request', ...extra })
+  const cancellationCommand = (bookingId: string) => ({ tenantId, userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request' })
+  const cancel = (bookingId: string, extra: { quoteId?: string; now?: Date } = {}) => acceptCancellation(cancellations, { ...cancellationCommand(bookingId), ...extra })
   const sold = () => prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { held: true, sold: true } })
   const types = (bookingId: string) => prisma.ledgerEntry.findMany({ where: { walletId, reference: `booking:${bookingId}` }, orderBy: { immutableAt: 'asc' }, select: { type: true, amountMinor: true } })
   const setPolicy = async (rules: Array<{ kind?: 'CANCELLATION' | 'NO_SHOW'; daysBeforeCheckin: number; penaltyPercent?: number; penaltyMinor?: bigint; penaltyNights?: number; currency?: string }>) => {
@@ -109,9 +114,10 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     const before = await sold()
     expect(before.every((night) => night.sold >= 1)).toBe(true)
     const net = await walletNet()
-    expect(await cancellations.quote({ tenantId, userId, requestId: 'q', bookingId })).toMatchObject({ penaltyMinor: '0', refundMinor: '125099' })
+    const quote = await cancellations.quote({ tenantId, userId, requestId: 'q', bookingId })
+    expect(quote).toMatchObject({ penaltyMinor: '0', refundMinor: '125099' })
 
-    const result = await cancel(bookingId)
+    const result = await cancel(bookingId, { quoteId: quote.quoteId })
     expect(result).toMatchObject({ status: 'CANCELLED', alreadyCancelled: false, penaltyMinor: '0', refundMinor: '125099', totalMinor: '125099', currency: 'AED' })
     expect(await types(bookingId)).toEqual([{ type: 'HOLD', amountMinor: -125099n }, { type: 'RELEASE', amountMinor: 125099n }, { type: 'DEBIT', amountMinor: -125099n }, { type: 'REFUND', amountMinor: 125099n }])
     expect(await walletNet()).toBe(net + 125099n)
@@ -121,7 +127,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect(await prisma.cancellation.findUniqueOrThrow({ where: { bookingId } })).toMatchObject({ refundMinor: 125099n, reason: 'guest request' })
     expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancelled', entityId: bookingId, userId } })).toBe(1)
 
-    expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED', alreadyCancelled: true, refundMinor: '125099', cancellationId: result.cancellationId })
+    expect(await cancel(bookingId, { quoteId: quote.quoteId, now: new Date(quote.expiresAt) })).toMatchObject({ status: 'CANCELLED', alreadyCancelled: true, refundMinor: '125099', cancellationId: result.cancellationId })
     expect((await types(bookingId)).length).toBe(4)
     expect(await walletNet()).toBe(net + 125099n)
   })
@@ -147,9 +153,111 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect((await types(total.bookingId)).some((entry) => entry.type === 'REFUND')).toBe(false)
   })
 
+  it('charges the full NRF penalty before the first tier starts', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { refundable: false } })
+    try {
+      const { bookingId } = await bookConfirmed(`${suffix}-nrf`)
+      expect(await cancellations.quote({ tenantId, userId, requestId: 'q-nrf', bookingId })).toMatchObject({ penaltyMinor: '125099', refundMinor: '0', additionalRefundMinor: '0' })
+      expect(await cancel(bookingId)).toMatchObject({ penaltyMinor: '125099', refundMinor: '0' })
+      expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([])
+    } finally {
+      await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { refundable: true } })
+    }
+  })
+
+  it('quotes and posts only the remaining credit after a partial credit note', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-prior-credit`)
+    const reference = `booking:${bookingId}`
+    const beforeCredit = await cancellations.quote(cancellationCommand(bookingId))
+    await prisma.$transaction((db) => appendLedgerEntry(db, {
+      tenantId, walletId, type: 'REFUND', amountMinor: 20_000n, currency: 'AED', reference, idempotencyKey: `${reference}:credit-note:test`,
+    }))
+
+    await expect(cancel(bookingId, { quoteId: beforeCredit.quoteId })).rejects.toMatchObject({ response: { code: 'CANCELLATION_QUOTE_STALE' } })
+    const afterCredit = await cancellations.quote(cancellationCommand(bookingId))
+    expect(afterCredit).toMatchObject({ refundMinor: '125099', additionalRefundMinor: '105099' })
+    const results = await Promise.all([cancel(bookingId, { quoteId: afterCredit.quoteId }), cancel(bookingId, { quoteId: afterCredit.quoteId })])
+    expect(results.filter((result) => !result.alreadyCancelled)).toEqual([expect.objectContaining({ refundMinor: '125099', additionalRefundMinor: '105099' })])
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([{ type: 'REFUND', amountMinor: 20_000n }, { type: 'REFUND', amountMinor: 105099n }])
+    expect(await prisma.cancellation.findUniqueOrThrow({ where: { bookingId } })).toMatchObject({ refundMinor: 125099n })
+  })
+
+  it('leaves the booking and inventory intact when prior credits exceed the policy refund', async () => {
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
+    const { bookingId, holdId } = await bookConfirmed(`${suffix}-excess-credit`)
+    const reference = `booking:${bookingId}`
+    await prisma.$transaction((db) => appendLedgerEntry(db, {
+      tenantId, walletId, type: 'REFUND', amountMinor: 20_000n, currency: 'AED', reference, idempotencyKey: `${reference}:credit-note:test`,
+    }))
+    const inventory = await sold()
+
+    await expect(cancel(bookingId)).rejects.toThrow('previous credits exceed the policy refund')
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'CONFIRMED' })
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: holdId } })).toMatchObject({ status: 'CONFIRMED' })
+    expect(await sold()).toEqual(inventory)
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([{ type: 'REFUND', amountMinor: 20_000n }])
+  })
+
+  it('rejects missing, foreign, expired and version-stale quotes before mutation', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-quote-guard`)
+    const other = await bookConfirmed(`${suffix}-other-quote`)
+    const inventory = await sold()
+    const quote = await cancellations.quote(cancellationCommand(bookingId))
+    const foreign = await cancellations.quote(cancellationCommand(other.bookingId))
+    const stale = { response: { code: 'CANCELLATION_QUOTE_STALE' } }
+
+    await expect(cancellations.cancel(cancellationCommand(bookingId))).rejects.toMatchObject({ response: { code: 'CANCELLATION_QUOTE_REQUIRED' } })
+    await expect(cancel(bookingId, { quoteId: foreign.quoteId })).rejects.toMatchObject(stale)
+    await expect(cancel(bookingId, { quoteId: quote.quoteId, now: new Date(quote.expiresAt) })).rejects.toMatchObject(stale)
+    await prisma.booking.update({ where: { id: bookingId }, data: { version: { increment: 1 } } })
+    await expect(cancel(bookingId, { quoteId: quote.quoteId })).rejects.toMatchObject(stale)
+
+    expect(await sold()).toEqual(inventory)
+    expect((await types(bookingId)).some((entry) => entry.type === 'REFUND')).toBe(false)
+    expect(await prisma.cancellation.count({ where: { bookingId } })).toBe(0)
+    expect(await cancel(bookingId)).toMatchObject({ status: 'CANCELLED' })
+  })
+
+  it('issues and accepts an audited quote with the restricted booking principal', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-quote-role`)
+    const restore = await enableBookingTransaction(prisma)
+    const database = new BookingTransactionDatabase()
+    try {
+      const restricted = new BookingCancellationService(database, new CancellationPolicyService(), new LedgerService(prisma), audit)
+      const command = cancellationCommand(bookingId)
+      const quote = await restricted.quote(command)
+      await expect(restricted.cancel({ ...command, quoteId: quote.quoteId })).resolves.toMatchObject({ status: 'CANCELLED' })
+      const accepted = await prisma.auditEvent.findFirstOrThrow({ where: { tenantId, entityId: bookingId, action: 'booking.cancelled' } })
+      expect(accepted.payload).toMatchObject({ quoteId: quote.quoteId })
+    } finally {
+      await database.onModuleDestroy()
+      await restore()
+    }
+  })
+
+  it('requires new acceptance when the penalty changes inside the quote window', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 30 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-quote-cutoff`)
+    const hotel = await prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { timeZone: true } })
+    const cutoff = penaltyStartsAt('2099-03-01', 3, hotel.timeZone)!
+    const quote = await cancellations.quote({ ...cancellationCommand(bookingId), now: new Date(cutoff - 1_000) })
+    expect(quote.penaltyMinor).toBe('0')
+    await expect(cancel(bookingId, { quoteId: quote.quoteId, now: new Date(cutoff) })).rejects.toMatchObject({ response: { code: 'CANCELLATION_QUOTE_STALE' } })
+    expect(await prisma.cancellation.count({ where: { bookingId } })).toBe(0)
+    expect(await cancel(bookingId, { now: new Date(cutoff) })).toMatchObject({ penaltyMinor: '37529' })
+  })
+
   it('F13: the terms frozen at booking govern the cancellation and the voucher, even if the contract changes afterwards', async () => {
     await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
     const { bookingId } = await bookConfirmed(`${suffix}-frozen`)
+    const booked = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })
+    await prisma.booking.update({ where: { id: bookingId }, data: {
+      searchSnapshot: { ...(booked.searchSnapshot as Prisma.JsonObject), ratePlanId: 'retired-rate-plan' },
+    } })
     expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }], source: 'CONTRACT_AT_BOOKING' } })
     // the hotel later makes the contract far stricter; the booking made earlier keeps what the buyer was shown
     await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
@@ -194,7 +302,8 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
     const { bookingId } = await bookConfirmed(`${suffix}-race`)
     const net = await walletNet(), before = await sold()
-    const results = await Promise.allSettled(Array.from({ length: 25 }, () => cancel(bookingId)))
+    const { quoteId } = await cancellations.quote(cancellationCommand(bookingId))
+    const results = await Promise.allSettled(Array.from({ length: 25 }, () => cancel(bookingId, { quoteId })))
     expect(results.every((result) => result.status === 'fulfilled')).toBe(true)
     expect(results.filter((result) => result.status === 'fulfilled' && !result.value.alreadyCancelled)).toHaveLength(1)
     expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toHaveLength(1)
@@ -210,7 +319,7 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     await expect(cancel(noPolicy.bookingId)).rejects.toThrow('manual review: missing_cancellation_policy')
     expect(await walletNet()).toBe(net); expect(await sold()).toEqual(before)
     expect(await prisma.booking.findUniqueOrThrow({ where: { id: noPolicy.bookingId } })).toMatchObject({ status: 'CONFIRMED' })
-    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancel.refused', entityId: noPolicy.bookingId } })).toBe(1)
+    expect(await prisma.auditEvent.count({ where: { tenantId, action: 'booking.cancel.quote_issued', entityId: noPolicy.bookingId } })).toBe(0)
 
     // the terms are frozen at booking: a booking sold with no rules stays "no rules" (manual review) even after the contract gains one
     await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])

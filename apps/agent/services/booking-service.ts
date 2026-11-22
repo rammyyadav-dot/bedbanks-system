@@ -2,7 +2,7 @@ import { agencySuspendedMessage, isAgencySuspended } from '../lib/agency-suspens
 import { creditRefusal } from '../lib/agency-credit.mjs'
 import { agentApiBase } from '../lib/api-config.mjs'
 import { authenticatedFetch } from '../lib/authenticated-fetch'
-import { DUPLICATE_BOOKING_SUSPECTED, isSuccessEnvelope, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
+import { CANCELLATION_QUOTE_REQUIRED, CANCELLATION_QUOTE_STALE, DUPLICATE_BOOKING_SUSPECTED, isSuccessEnvelope, type AgentCancellationAmounts, type AgentCancellationQuote, type AgentCancellationResult, routes, type CheckoutGuest, type CheckoutSpecialRequests, type ConfirmationEmailState, type DuplicateBookingMatch } from '@bedbanks/contracts/agent'
 import { duplicateMatches } from '../lib/checkout'
 import type { RecoveryItem } from '../lib/booking-recovery'
 
@@ -12,6 +12,7 @@ import type { RecoveryItem } from '../lib/booking-recovery'
  */
 export type BookingFailure = { ok: false; kind: 'unavailable' | 'auth' | 'denied' | 'not_found' | 'conflict' | 'gone' | 'invalid' | 'error' | 'uncertain'; message: string
   /** Set when the prebook was refused as a probable duplicate: the existing bookings (references only). */
+  quoteRefreshRequired?: boolean
   duplicates?: DuplicateBookingMatch[] }
 export type BookingResult<T> = { ok: true; data: T } | BookingFailure
 
@@ -30,8 +31,8 @@ export type BookingDetail = BookingSummary & {
     supplierReference: string | null; attemptedAt: string | null; requestId: string; failureCategory: string | null; lastReconciledAt: string | null
   } | null
 }
-export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
-export type CancellationData = CancellationQuote & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
+export type CancellationQuote = AgentCancellationQuote
+export type CancellationData = AgentCancellationResult
 export type RecoveryData = { dryRun: boolean; examined: number; items: RecoveryItem[] }
 export type DocumentType = 'voucher' | 'invoice' | 'credit-note'
 export type GuestInput = { adults: number; children: number; childAges: number[]; firstName: string; lastName: string
@@ -143,7 +144,11 @@ export class BookingService {
   }
 
   async cancellationQuote(bookingId: string, tenantId: string): Promise<BookingResult<CancellationQuote>> {
-    return this.parse(await this.call(routes.agent.cancellationQuote.replace(':id', encodeURIComponent(bookingId)), tenantId), isQuote)
+    return this.parse(await this.call(routes.agent.cancellationQuote.replace(':id', encodeURIComponent(bookingId)), tenantId, { cache: 'no-store' }),
+      (data): data is CancellationQuote => isCancellationAmounts(data) && isRecord(data) &&
+        typeof data.quoteId === 'string' && data.quoteId.length > 0 &&
+        typeof data.expiresAt === 'string' && Number.isFinite(Date.parse(data.expiresAt)) &&
+        typeof data.additionalRefundMinor === 'string')
   }
 
   /** Recovers interrupted holds. The server decides which ones are old enough and never releases a fulfilled booking still inside its window. */
@@ -152,9 +157,19 @@ export class BookingService {
       (data): data is RecoveryData => isRecord(data) && data.dryRun === false && Number.isSafeInteger(data.examined) && (data.examined as number) >= 0 && Array.isArray(data.items) && data.items.length <= (data.examined as number) && data.items.every(isRecoveryItem))
   }
 
-  async cancel(bookingId: string, reason: string, tenantId: string): Promise<BookingResult<CancellationData>> {
-    return this.parse(await this.call(routes.agent.cancelBooking.replace(':id', encodeURIComponent(bookingId)), tenantId, { method: 'DELETE', body: JSON.stringify({ reason: reason.trim().slice(0, 500) }) }),
-      (data): data is CancellationData => isQuote(data) && (data as Record<string, unknown>).status === 'CANCELLED')
+  async cancel(bookingId: string, reason: string, tenantId: string, quoteId: string): Promise<BookingResult<CancellationData>> {
+    const result = await this.call(routes.agent.cancelBooking.replace(':id', encodeURIComponent(bookingId)), tenantId, {
+      method: 'DELETE', body: JSON.stringify({ reason: reason.trim().slice(0, 500), quoteId }),
+    })
+    if (!('ok' in result) && result.status === 409 && isRecord(result.body) && isRecord(result.body.error)) {
+      const { code } = result.body.error
+      if (code === CANCELLATION_QUOTE_STALE || code === CANCELLATION_QUOTE_REQUIRED) {
+        return { ...failureFor(409, 'Review a new cancellation quote before cancelling.'), quoteRefreshRequired: true }
+      }
+    }
+    return this.parse(result,
+      (data): data is CancellationData => isCancellationAmounts(data) && isRecord(data) && data.status === 'CANCELLED' &&
+        typeof data.alreadyCancelled === 'boolean' && typeof data.cancellationId === 'string')
   }
 
   /** Printable HTML for a document. The caller opens it in a new tab; it is escaped, script-free and CSP-locked by the API. */
@@ -184,6 +199,8 @@ function isBookingSummary(value: unknown): value is BookingSummary {
 function isRecoveryItem(value: unknown): value is RecoveryItem {
   return isRecord(value) && typeof value.holdId === 'string' && value.holdId.length > 0 && (value.bookingId === null || typeof value.bookingId === 'string') && typeof value.outcome === 'string' && value.outcome.length > 0
 }
-function isQuote(value: unknown): value is CancellationQuote {
-  return isRecord(value) && typeof value.bookingId === 'string' && typeof value.currency === 'string' && ['totalMinor', 'penaltyMinor', 'refundMinor'].every((key) => typeof value[key] === 'string' && MINOR.test(value[key] as string))
+function isCancellationAmounts(value: unknown): value is AgentCancellationAmounts {
+  return isRecord(value) && typeof value.bookingId === 'string' && typeof value.currency === 'string' && typeof value.checkIn === 'string' && typeof value.evaluatedAt === 'string' &&
+    (value.additionalRefundMinor === undefined || (typeof value.additionalRefundMinor === 'string' && MINOR.test(value.additionalRefundMinor))) &&
+    ['totalMinor', 'penaltyMinor', 'refundMinor'].every((key) => typeof value[key] === 'string' && MINOR.test(value[key] as string))
 }

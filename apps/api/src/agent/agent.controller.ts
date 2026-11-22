@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, HttpStatus, Inject, Param, Post, Query, Req, Res, UnprocessableEntityException, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Header, HttpStatus, Inject, Param, Post, Query, Req, Res, UnprocessableEntityException, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
 import { PrismaService } from '../database/prisma.service'
@@ -343,6 +343,7 @@ export class AgentController {
   }
 
   @Get('bookings/:id/cancellation-quote')
+  @Header('Cache-Control', 'private, no-store')
   @ApiOperation({ summary: 'Quote the penalty and refund for cancelling a confirmed booking now (requires BOOKING_ENABLED=true)' })
   @RequirePermission(PERMISSIONS.cancelBooking)
   @AllowWhenAgencySuspended()
@@ -395,7 +396,7 @@ export class AgentController {
       await this.audit.record({ tenantId, user: identity, action: 'booking.cancel.unavailable', entityType: 'booking', entityId: bookingId, payload: { reason: 'privilege_boundary' } })
       return boundary
     }
-    return this.cancellations.cancel({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, reason: body.reason })
+    return this.cancellations.cancel({ tenantId, userId: identity.user.id, requestId: req.requestId ?? randomUUID(), bookingId, reason: body.reason, quoteId: body.quoteId })
   }
 
   @Post('bookings/reconcile-stale')
