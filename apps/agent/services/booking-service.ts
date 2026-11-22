@@ -30,7 +30,7 @@ export type BookingDetail = BookingSummary & {
     supplierReference: string | null; attemptedAt: string | null; requestId: string; failureCategory: string | null; lastReconciledAt: string | null
   } | null
 }
-export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; checkIn: string; evaluatedAt: string }
+export type CancellationQuote = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; additionalRefundMinor?: string; checkIn: string; evaluatedAt: string }
 export type CancellationData = CancellationQuote & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
 export type RecoveryData = { dryRun: boolean; examined: number; items: RecoveryItem[] }
 export type DocumentType = 'voucher' | 'invoice' | 'credit-note'

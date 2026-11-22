@@ -20,6 +20,7 @@ import { CancellationPolicyService } from '../src/agent/cancellation-policy.serv
 import { LedgerService } from '../src/agent/ledger.service'
 import type { SupplierAdapter } from '../src/agent/supplier.port'
 import { makeAgencyBooker, removeAgencyBookers } from './support/agency-booker'
+import { appendLedgerEntry } from '../src/ledger/ledger-core'
 import { eraseLedger } from './ledger-erasure'
 
 describe('booking cancellation and refunds (PostgreSQL)', () => {
@@ -147,9 +148,57 @@ describe('booking cancellation and refunds (PostgreSQL)', () => {
     expect((await types(total.bookingId)).some((entry) => entry.type === 'REFUND')).toBe(false)
   })
 
+  it('charges the full NRF penalty before the first tier starts', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { refundable: false } })
+    try {
+      const { bookingId } = await bookConfirmed(`${suffix}-nrf`)
+      expect(await cancellations.quote({ tenantId, userId, requestId: 'q-nrf', bookingId })).toMatchObject({ penaltyMinor: '125099', refundMinor: '0', additionalRefundMinor: '0' })
+      expect(await cancel(bookingId)).toMatchObject({ penaltyMinor: '125099', refundMinor: '0' })
+      expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([])
+    } finally {
+      await prisma.ratePlan.update({ where: { id: ratePlanId }, data: { refundable: true } })
+    }
+  })
+
+  it('quotes and posts only the remaining credit after a partial credit note', async () => {
+    await setPolicy([{ daysBeforeCheckin: 3, penaltyPercent: 100 }])
+    const { bookingId } = await bookConfirmed(`${suffix}-prior-credit`)
+    const reference = `booking:${bookingId}`
+    await prisma.$transaction((db) => appendLedgerEntry(db, {
+      tenantId, walletId, type: 'REFUND', amountMinor: 20_000n, currency: 'AED', reference, idempotencyKey: `${reference}:credit-note:test`,
+    }))
+
+    expect(await cancellations.quote({ tenantId, userId, requestId: 'q-prior-credit', bookingId })).toMatchObject({ refundMinor: '125099', additionalRefundMinor: '105099' })
+    const results = await Promise.all([cancel(bookingId), cancel(bookingId)])
+    expect(results.filter((result) => !result.alreadyCancelled)).toEqual([expect.objectContaining({ refundMinor: '125099', additionalRefundMinor: '105099' })])
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([{ type: 'REFUND', amountMinor: 20_000n }, { type: 'REFUND', amountMinor: 105099n }])
+    expect(await prisma.cancellation.findUniqueOrThrow({ where: { bookingId } })).toMatchObject({ refundMinor: 125099n })
+  })
+
+  it('leaves the booking and inventory intact when prior credits exceed the policy refund', async () => {
+    await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])
+    const { bookingId, holdId } = await bookConfirmed(`${suffix}-excess-credit`)
+    const reference = `booking:${bookingId}`
+    await prisma.$transaction((db) => appendLedgerEntry(db, {
+      tenantId, walletId, type: 'REFUND', amountMinor: 20_000n, currency: 'AED', reference, idempotencyKey: `${reference}:credit-note:test`,
+    }))
+    const inventory = await sold()
+
+    await expect(cancel(bookingId)).rejects.toThrow('previous credits exceed the policy refund')
+    expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ status: 'CONFIRMED' })
+    expect(await prisma.inventoryHold.findUniqueOrThrow({ where: { id: holdId } })).toMatchObject({ status: 'CONFIRMED' })
+    expect(await sold()).toEqual(inventory)
+    expect((await types(bookingId)).filter((entry) => entry.type === 'REFUND')).toEqual([{ type: 'REFUND', amountMinor: 20_000n }])
+  })
+
   it('F13: the terms frozen at booking govern the cancellation and the voucher, even if the contract changes afterwards', async () => {
     await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }])
     const { bookingId } = await bookConfirmed(`${suffix}-frozen`)
+    const booked = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })
+    await prisma.booking.update({ where: { id: bookingId }, data: {
+      searchSnapshot: { ...(booked.searchSnapshot as Prisma.JsonObject), ratePlanId: 'retired-rate-plan' },
+    } })
     expect(await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } })).toMatchObject({ cancellationPolicy: { rules: [{ daysBeforeCheckin: 50_000, penaltyPercent: 30 }], source: 'CONTRACT_AT_BOOKING' } })
     // the hotel later makes the contract far stricter; the booking made earlier keeps what the buyer was shown
     await setPolicy([{ daysBeforeCheckin: 50_000, penaltyPercent: 100 }])

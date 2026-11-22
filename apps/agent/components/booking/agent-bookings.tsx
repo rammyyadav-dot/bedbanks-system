@@ -135,7 +135,15 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
     if (!cancellationQuoteFresh(quote.evaluatedAt, Date.now())) { setQuote(null); setNotice('This cancellation quote is out of date. Request a new quote before cancelling.'); return }
     setBusy(true); setNotice('')
     const result = await api.cancel(detail.id, 'Cancelled by agent', tenantId)
-    if (result.ok) { setQuote(null); setNotice(`Booking cancelled. ${formatMinorAmount(result.data.refundMinor, result.data.currency) ?? ''} credited to your wallet.`); onChanged(); await Promise.all([loadList(), loadDetail(detail.id)]) }
+    if (result.ok) {
+      const credited = result.data.additionalRefundMinor ?? result.data.refundMinor
+      setQuote(null)
+      setNotice(!result.data.alreadyCancelled && credited !== '0'
+        ? `Booking cancelled. ${money(credited, result.data.currency)} credited to your wallet.`
+        : 'Booking cancelled.')
+      onChanged()
+      await Promise.all([loadList(), loadDetail(detail.id)])
+    }
     else setNotice(result.message)
     setBusy(false)
   }
@@ -178,7 +186,7 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
           {access.cancel.enabled && detail.cancellable && !quote && <button className="portal-link danger" disabled={busy} onClick={() => void requestQuote()}>Cancel booking…</button>}
           {access.cancel.shown && !access.cancel.enabled && detail.cancellable && <p role="status">{access.cancel.message}</p>}
         </div>
-        {quote && <div ref={cancelDialog} className="portal-hold-panel" role="alertdialog" aria-modal="true" aria-labelledby={cancelTitleId}><div><strong id={cancelTitleId}>Confirm cancellation</strong><span>Cancelling now: penalty <b>{money(quote.penaltyMinor, quote.currency)}</b>, refund <b>{money(quote.refundMinor, quote.currency)}</b> to your wallet, from a total of {money(quote.totalMinor, quote.currency)}. This cannot be undone.</span></div>
+        {quote && <div ref={cancelDialog} className="portal-hold-panel" role="alertdialog" aria-modal="true" aria-labelledby={cancelTitleId}><div><strong id={cancelTitleId}>Confirm cancellation</strong><span>Cancelling now: penalty <b>{money(quote.penaltyMinor, quote.currency)}</b>, additional wallet credit <b>{money(quote.additionalRefundMinor ?? quote.refundMinor, quote.currency)}</b>, from a total of {money(quote.totalMinor, quote.currency)}. This cannot be undone.</span></div>
           <div className="booking-actions"><button className="portal-primary" disabled={busy} onClick={() => void confirmCancel()}>{busy ? 'Cancelling…' : 'Yes, cancel this booking'}</button><button className="portal-link" disabled={busy} onClick={() => setQuote(null)}>Keep booking</button></div></div>}
         {notice && <p role="status" className="booking-note">{notice}</p>}</>}
     </div>}
