@@ -81,10 +81,25 @@ test('hold keeps meaningful non-2xx outcomes and exposes only validated fields',
 
 test('cancel and quote use the right verbs and paths, with exact string amounts', async () => {
   const calls = []
-  globalThis.fetch = async (url, init) => { calls.push([url, init.method ?? 'GET']); return new Response(JSON.stringify({ success: true, data: { status: 'CANCELLED', bookingId: 'b/1', currency: 'AED', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570', checkIn: '2099-03-01', evaluatedAt: 'x', alreadyCancelled: false, cancellationId: 'c1' } }), { status: 200 }) }
-  const quote = await service().cancellationQuote('b/1', 't'); const done = await service().cancel('b/1', 'guest request', 't')
-  assert.deepEqual(calls, [['https://api.invalid/agent/bookings/b%2F1/cancellation-quote', 'GET'], ['https://api.invalid/agent/bookings/b%2F1', 'DELETE']])
-  assert.equal(quote.ok && quote.data.refundMinor, '87570'); assert.equal(done.ok && done.data.penaltyMinor, '37529')
+  const amounts = { bookingId: 'b/1', currency: 'AED', totalMinor: '125099', penaltyMinor: '37529', refundMinor: '87570', additionalRefundMinor: '87570', checkIn: '2099-03-01', evaluatedAt: '2099-02-27T00:00:00.000Z' }
+  globalThis.fetch = async (url, init) => {
+    calls.push([url, init.method ?? 'GET', init.body])
+    const data = init.method === 'DELETE'
+      ? { ...amounts, status: 'CANCELLED', alreadyCancelled: false, cancellationId: 'c1' }
+      : { ...amounts, quoteId: 'q1', expiresAt: '2099-02-27T00:02:00.000Z' }
+    return new Response(JSON.stringify({ success: true, data }), { status: 200 })
+  }
+  const quote = await service().cancellationQuote('b/1', 't')
+  const done = await service().cancel('b/1', 'guest request', 't', quote.data.quoteId)
+  assert.deepEqual(calls, [
+    ['https://api.invalid/agent/bookings/b%2F1/cancellation-quote', 'GET', undefined],
+    ['https://api.invalid/agent/bookings/b%2F1', 'DELETE', JSON.stringify({ reason: 'guest request', quoteId: 'q1' })],
+  ])
+  assert.equal(quote.ok && quote.data.refundMinor, '87570')
+  assert.equal(done.ok && done.data.penaltyMinor, '37529')
+
+  globalThis.fetch = reply(409, { success: false, error: { code: 'CANCELLATION_QUOTE_STALE' } })
+  assert.equal((await service().cancel('b/1', 'guest request', 't', 'q1')).quoteRefreshRequired, true)
 })
 
 test('Given a protected booking call, When the API answers 401, Then every workflow phase announces session expiry', async () => {
@@ -99,7 +114,7 @@ test('Given a protected booking call, When the API answers 401, Then every workf
     () => service().prebook('h', guest, 't'),
     () => service().confirm('b', 't'),
     () => service().cancellationQuote('b', 't'),
-    () => service().cancel('b', 'guest request', 't'),
+    () => service().cancel('b', 'guest request', 't', 'q1'),
     () => service().recover('t'),
     () => service().documentHtml('b', 'voucher', 't'),
   ]

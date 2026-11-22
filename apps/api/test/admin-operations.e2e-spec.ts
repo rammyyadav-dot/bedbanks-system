@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { BookingOpsQueueService } from '../src/booking-ops/booking-ops-queue.service'
 import { BookingSupplierRegistry } from '../src/booking-ops/supplier/booking-supplier.registry'
 import { randomBytes } from 'crypto'
@@ -126,7 +127,7 @@ describe('admin operations API (PostgreSQL, two tenants)', () => {
       canonicalHotelId: f.hotelId, canonicalRoomTypeId: f.roomId, boardBasisId: f.boardId, checkIn, checkOut, rooms: 1, currency: 'AED', sellAmountMinor: 125_100, offerExpiresAt: new Date(Date.now() + 3_600_000).toISOString() })
     const pre = await bookingTx.prebook({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-pre`, inventoryHoldId: hold.holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
     if (finish !== 'none') await bookingTx.confirm({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-confirm`, bookingId: pre.bookingId })
-    if (finish === 'cancel') await cancellations.cancel({ tenantId: f.tenantId, userId: f.userId, requestId: `${key}-cancel`, bookingId: pre.bookingId })
+    if (finish === 'cancel') await acceptCancellation(cancellations, { tenantId: f.tenantId, userId: f.userId, requestId: `${key}-cancel`, bookingId: pre.bookingId })
     return { holdId: hold.holdId, bookingId: pre.bookingId }
   }
 

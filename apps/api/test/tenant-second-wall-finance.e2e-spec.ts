@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { randomBytes } from 'crypto'
 import { HttpException } from '@nestjs/common'
 import { PrismaService } from '../src/database/prisma.service'
@@ -76,7 +77,7 @@ describe('tenant second wall, financial paths: confirm, cancel and fund refuse a
     return { bookingId: pre.bookingId, holdId: h.holdId }
   }
   const confirm = (actor: World, bookingId: string) => tx.confirm({ tenantId: actor.tenantId, userId: actor.userId, requestId: `confirm-${Math.random()}`, bookingId })
-  const cancel = (actor: World, bookingId: string) => cancellations.cancel({ tenantId: actor.tenantId, userId: actor.userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request' })
+  const cancel = (actor: World, bookingId: string) => acceptCancellation(cancellations, { tenantId: actor.tenantId, userId: actor.userId, requestId: `cancel-${Math.random()}`, bookingId, reason: 'guest request' })
 
   /** Everything a cross-tenant call could disturb in one tenant, for an exact before/after comparison. */
   const snapshot = async (w: World) => ({

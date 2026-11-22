@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { randomBytes } from 'node:crypto'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
@@ -61,7 +62,7 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
   const guest = { firstName: 'Chain', lastName: 'Guest' }
   const prebook = (key: string, holdId: string) => tx.prebook({ tenantId, userId, requestId: `${key}-pre`, inventoryHoldId: holdId, idempotencyKey: key, adults: 2, children: 0, childAges: [], leadGuest: guest })
   const confirm = (bookingId: string) => tx.confirm({ tenantId, userId, requestId: `confirm-${randomBytes(4).toString('hex')}`, bookingId })
-  const cancel = (bookingId: string) => cancellations.cancel({ tenantId, userId, requestId: `cancel-${randomBytes(4).toString('hex')}`, bookingId, reason: 'guest request' })
+  const cancel = (bookingId: string, quoteId?: string) => acceptCancellation(cancellations, { tenantId, userId, requestId: `cancel-${randomBytes(4).toString('hex')}`, bookingId, reason: 'guest request', quoteId })
   const doc = (bookingId: string, type: 'VOUCHER' | 'INVOICE' | 'CREDIT_NOTE') => documents.get({ tenantId, userId, requestId: `doc-${randomBytes(4).toString('hex')}`, bookingId, type })
   const grid = () => prisma.dailyAvailability.findMany({ where: { ratePlanId }, orderBy: { stayDate: 'asc' }, select: { stayDate: true, allotment: true, held: true, sold: true } })
   const ledgerTypes = (bookingId: string) => prisma.ledgerEntry.findMany({ where: { walletId, reference: `booking:${bookingId}` }, orderBy: { immutableAt: 'asc' }, select: { type: true, amountMinor: true } })
@@ -187,9 +188,10 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     await doc(pre.bookingId, 'INVOICE')
 
     // cancel: inventory returned, refund posted once, replay is a no-op
-    const done = await cancel(pre.bookingId)
+    const accepted = await cancellations.quote({ tenantId, userId, bookingId: pre.bookingId, requestId: 'accept-cancel' })
+    const done = await cancel(pre.bookingId, accepted.quoteId)
     expect(done).toMatchObject({ status: 'CANCELLED', alreadyCancelled: false, penaltyMinor: '0', refundMinor: String(price) })
-    expect(await cancel(pre.bookingId)).toMatchObject({ alreadyCancelled: true, cancellationId: done.cancellationId })
+    expect(await cancel(pre.bookingId, accepted.quoteId)).toMatchObject({ alreadyCancelled: true, cancellationId: done.cancellationId })
     expect((await grid()).slice(0, 2).map(n => [n.held, n.sold])).toEqual([[0, 0], [0, 0]])
     expect((await ledgerTypes(pre.bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT', 'REFUND'])
     expect(await walletNet()).toBe(net0)
@@ -249,7 +251,8 @@ describe('booking lifecycle chain (PostgreSQL)', () => {
     expect(confirmations.every(r => r.status === 'fulfilled')).toBe(true)
     expect((await grid()).slice(0, 2).map(n => n.sold)).toEqual([1, 1])
     expect((await ledgerTypes(pre.bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT'])
-    const cancellationsRun = await Promise.allSettled(Array.from({ length: 25 }, () => cancel(pre.bookingId)))
+    const { quoteId } = await cancellations.quote({ tenantId, userId, bookingId: pre.bookingId, requestId: 'race-quote' })
+    const cancellationsRun = await Promise.allSettled(Array.from({ length: 25 }, () => cancel(pre.bookingId, quoteId)))
     expect(cancellationsRun.every(r => r.status === 'fulfilled')).toBe(true)
     expect(new Set(cancellationsRun.map(r => (r as PromiseFulfilledResult<{ cancellationId: string }>).value.cancellationId)).size).toBe(1)
     expect((await ledgerTypes(pre.bookingId)).map(e => e.type)).toEqual(['HOLD', 'RELEASE', 'DEBIT', 'REFUND'])

@@ -215,8 +215,8 @@ describe('Agent canonical search boundary', () => {
     const previousBoundary = process.env.BOOKING_TRANSACTION_DATABASE_URL
     process.env.BOOKING_TRANSACTION_DATABASE_URL = 'postgresql://fbeds_booktx_ops:secret@127.0.0.1:5432/app'
     try {
-      await expect(enabled.cancel('booking-a', { reason: 'guest' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
-      expect(cancellations.cancel).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', bookingId: 'booking-a', reason: 'guest' }))
+      await expect(enabled.cancel('booking-a', { reason: 'guest', quoteId: 'q1' }, 'tenant-a', identity, request(), response())).resolves.toMatchObject({ status: 'CANCELLED' })
+      expect(cancellations.cancel).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-a', bookingId: 'booking-a', reason: 'guest', quoteId: 'q1' }))
       await expect(enabled.cancellationQuote('booking-a', 'tenant-a', identity, request(), response())).resolves.toEqual({ refundMinor: '1' })
     } finally {
       delete process.env.BOOKING_ENABLED

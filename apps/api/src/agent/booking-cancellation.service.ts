@@ -1,3 +1,4 @@
+import { CANCELLATION_QUOTE_MAX_AGE_MS, CANCELLATION_QUOTE_REQUIRED, CANCELLATION_QUOTE_STALE, type AgentCancellationQuote, type AgentCancellationResult } from '@bedbanks/contracts'
 import { rulesForPlan } from '../supply/cancellation-rules'
 import { freezeCancellationTerms } from './booking-cancellation-terms'
 import { buildPenaltyQuote, frozenTimeZone } from '../booking-ops/booking-penalty-quote'
@@ -13,9 +14,8 @@ import { CancellationPolicyService, penaltyStartsAt } from './cancellation-polic
 import { LedgerService } from './ledger.service'
 import { agencyConstraint, lockBookingSql, resolveAgentBookingScope } from './booking-agency-scope'
 
-export interface CancellationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; reason?: string; now?: Date }
-export type CancellationQuoteView = { bookingId: string; currency: string; totalMinor: string; penaltyMinor: string; refundMinor: string; additionalRefundMinor?: string; checkIn: string; evaluatedAt: string }
-export type CancellationResult = CancellationQuoteView & { status: 'CANCELLED'; alreadyCancelled: boolean; cancellationId: string }
+export interface CancellationCommand { tenantId: string; userId: string; requestId: string; bookingId: string; reason?: string; quoteId?: string; now?: Date }
+const QUOTE_ISSUED = 'booking.cancel.quote_issued'
 
 /**
  * Cancels a CONFIRMED contracted-inventory booking in ONE transaction: contract cancellation policy -> integer
@@ -32,19 +32,27 @@ export class BookingCancellationService {
     private readonly audit: AgentAuditService,
   ) {}
 
-  async quote(command: Omit<CancellationCommand, 'reason'>): Promise<CancellationQuoteView> {
+  async quote(command: Omit<CancellationCommand, 'reason' | 'quoteId'>): Promise<AgentCancellationQuote> {
     return this.prisma.withTenant(command.tenantId, async tx => {
       const scope = await resolveAgentBookingScope(tx, command.tenantId, command.userId)
       const booking = await tx.booking.findFirst({ where: { ...agencyConstraint(scope), id: command.bookingId, tenantId: command.tenantId } })
       if (!booking) throw new NotFoundException('Booking not found')
       if (booking.status !== 'CONFIRMED') throw new ConflictException('Booking is not cancellable')
       const { view, refund } = await this.evaluate(tx, command.tenantId, booking, command.now ?? new Date())
-      const { additional } = await this.refundDetails(tx, command.tenantId, booking, refund, false)
-      return { ...view, additionalRefundMinor: additional.toString() }
+      const balance = await this.refundBalance(tx, command.tenantId, booking, false)
+      const additional = this.additionalRefund(refund, balance)
+      const payload = { ...view, additionalRefundMinor: additional.toString(), bookingVersion: booking.version }
+      const issuedAt = new Date(view.evaluatedAt)
+      const expiresAt = new Date(issuedAt.getTime() + CANCELLATION_QUOTE_MAX_AGE_MS).toISOString()
+      const { id } = await tx.auditEvent.create({
+        data: { tenantId: command.tenantId, userId: command.userId, actorType: 'USER', action: QUOTE_ISSUED, entityType: 'booking', entityId: booking.id, createdAt: issuedAt, payload: { ...payload, requestId: command.requestId } },
+        select: { id: true },
+      })
+      return { ...view, additionalRefundMinor: payload.additionalRefundMinor, quoteId: id, expiresAt }
     })
   }
 
-  async cancel(command: CancellationCommand): Promise<CancellationResult> {
+  async cancel(command: CancellationCommand): Promise<AgentCancellationResult> {
     const { tenantId, userId, requestId, bookingId } = command
     try {
       return await this.prisma.withTenant(tenantId, async tx => {
@@ -60,8 +68,27 @@ export class BookingCancellationService {
         }
         if (booking.status !== 'CONFIRMED') throw new ConflictException('Booking is not cancellable')
 
-        const { view, holdId, penalty, refund } = await this.evaluate(tx, tenantId, booking, command.now ?? new Date())
-        const { walletId, reference, posted, additional } = await this.refundDetails(tx, tenantId, booking, refund, true)
+        const { quoteId } = command
+        if (!quoteId) throw new ConflictException({ code: CANCELLATION_QUOTE_REQUIRED, message: 'Request and accept a cancellation quote before cancelling.' })
+        const issued = await tx.auditEvent.findFirst({
+          where: { id: quoteId, tenantId, userId, action: QUOTE_ISSUED, entityType: 'booking', entityId: bookingId },
+          select: { createdAt: true, payload: true },
+        })
+        const stale = () => new ConflictException({ code: CANCELLATION_QUOTE_STALE, message: 'This cancellation quote is no longer valid. Review a new quote before cancelling.' })
+        const accepted = issued?.payload as Partial<AgentCancellationQuote & { bookingVersion: number }> | undefined
+        if (!issued || accepted?.bookingVersion !== booking.version) throw stale()
+
+        const { walletId, reference, posted, charged } = await this.refundBalance(tx, tenantId, booking, true)
+        const now = command.now ?? new Date()
+        const expiresAt = issued.createdAt.getTime() + CANCELLATION_QUOTE_MAX_AGE_MS
+        if (now.getTime() < issued.createdAt.getTime() || now.getTime() >= expiresAt) throw stale()
+
+        const { view, holdId, penalty, refund } = await this.evaluate(tx, tenantId, booking, now)
+        const additional = this.additionalRefund(refund, { charged, posted })
+        if ((command.now ?? new Date()).getTime() >= expiresAt ||
+            accepted.checkIn !== view.checkIn || accepted.currency !== view.currency || accepted.totalMinor !== view.totalMinor ||
+            accepted.penaltyMinor !== view.penaltyMinor || accepted.refundMinor !== view.refundMinor ||
+            accepted.additionalRefundMinor !== additional.toString()) throw stale()
 
         const nights = await tx.inventoryHoldNight.findMany({ where: { holdId, tenantId } })
         if (nights.length === 0) throw new ConflictException('Booking has no inventory record')
@@ -76,7 +103,7 @@ export class BookingCancellationService {
         await transitionBooking(tx, { ...move, action: 'systemRequestCancellation', expectedStatus: 'CONFIRMED', idempotencyKey: `cancel:${bookingId}:request` })
         await transitionBooking(tx, { ...move, action: 'systemCompleteCancellation', expectedStatus: 'CANCEL_REQUESTED', idempotencyKey: `cancel:${bookingId}:complete` })
         await tx.auditEvent.create({ data: { tenantId, userId, actorType: 'USER', action: 'booking.cancelled', entityType: 'booking', entityId: bookingId,
-          payload: { requestId, cancellationId: cancellation.id, currency: booking.currency, totalMinor: booking.totalMinor.toString(), penaltyMinor: penalty.toString(), refundMinor: refund.toString(), walletId, postedMinor: additional.toString() } } })
+          payload: { requestId, quoteId, cancellationId: cancellation.id, currency: booking.currency, totalMinor: booking.totalMinor.toString(), penaltyMinor: penalty.toString(), refundMinor: refund.toString(), walletId, postedMinor: additional.toString() } } })
         return { ...view, additionalRefundMinor: additional.toString(), status: 'CANCELLED' as const, alreadyCancelled: false, cancellationId: cancellation.id }
       })
     } catch (error) {
@@ -87,7 +114,7 @@ export class BookingCancellationService {
     }
   }
 
-  private async refundDetails(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; currency: string; totalMinor: bigint }, target: bigint, lockWallet: boolean) {
+  private async refundBalance(tx: Prisma.TransactionClient, tenantId: string, booking: { id: string; currency: string; totalMinor: bigint }, lockWallet: boolean) {
     const debit = await tx.ledgerEntry.findFirst({ where: { tenantId, idempotencyKey: `booking:${booking.id}:authorize:settle-debit`, type: 'DEBIT' } })
     if (!debit || -debit.amountMinor !== booking.totalMinor || debit.currency !== booking.currency) throw new ConflictException('Booking was never charged')
     if (lockWallet) {
@@ -96,10 +123,14 @@ export class BookingCancellationService {
     }
     const reference = `booking:${booking.id}`
     const posted = await referenceSumMinor(tx, tenantId, debit.walletId, reference, 'REFUND')
+    return { walletId: debit.walletId, reference, posted, charged: -debit.amountMinor }
+  }
+
+  private additionalRefund(target: bigint, { charged, posted }: { charged: bigint; posted: bigint }) {
     if (posted > target) throw new ConflictException('Cancellation requires Finance review: previous credits exceed the policy refund')
     const additional = target - posted
-    this.ledger.assertRefundWithinAuthorized({ refundMinor: additional, authorizedRefundableMinor: -debit.amountMinor - posted })
-    return { walletId: debit.walletId, reference, posted, additional }
+    this.ledger.assertRefundWithinAuthorized({ refundMinor: additional, authorizedRefundableMinor: charged - posted })
+    return additional
   }
 
   private async evaluate(tx: Prisma.TransactionClient, tenantId: string, booking: {

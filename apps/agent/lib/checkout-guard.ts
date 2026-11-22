@@ -19,10 +19,3 @@ export function nextHoldKey(current: string, outcome: 'rejected' | 'uncertain' |
 export function shouldWarnBeforeLeave(phase: CheckoutPhase): boolean {
   return phase === 'holding' || phase === 'held' || phase === 'booking' || phase === 'uncertain'
 }
-
-export const CANCELLATION_QUOTE_MAX_AGE_MS = 120_000
-
-export function cancellationQuoteFresh(evaluatedAt: string, now: number): boolean {
-  const time = Date.parse(evaluatedAt)
-  return Number.isFinite(time) && now >= time && now - time <= CANCELLATION_QUOTE_MAX_AGE_MS
-}

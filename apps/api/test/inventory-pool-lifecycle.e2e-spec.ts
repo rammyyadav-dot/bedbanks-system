@@ -1,3 +1,4 @@
+import { acceptCancellation } from './support/accept-cancellation'
 import { PrismaService } from '../src/database/prisma.service'
 import { AgentAuditService } from '../src/agent/audit.service'
 import { InventoryHoldService } from '../src/agent/inventory-hold.service'
@@ -56,7 +57,7 @@ describe('shared pool counter lifecycle (PostgreSQL)', () => {
     return { hold, pre }
   }
   const confirm = (bookingId: string) => tx.confirm({ tenantId, userId, requestId: `c-${Math.random()}`, bookingId })
-  const cancel = (bookingId: string) => cancellations.cancel({ tenantId, userId, requestId: `x-${Math.random()}`, bookingId, reason: 'guest request' })
+  const cancel = (bookingId: string, quoteId?: string) => acceptCancellation(cancellations, { tenantId, userId, requestId: `x-${Math.random()}`, bookingId, reason: 'guest request', quoteId })
   const invariant = async () => {
     const days = await prisma.inventoryPoolDay.findMany({ where: { tenantId } })
     for (const d of days) { expect(d.sold).toBeGreaterThanOrEqual(0); expect(d.held).toBeGreaterThanOrEqual(0); expect(d.sold + d.held).toBeLessThanOrEqual(d.capacity) }
@@ -137,11 +138,12 @@ describe('shared pool counter lifecycle (PostgreSQL)', () => {
 
   it('LC-04 changing pool membership after the sale cannot redirect it: cancel returns to the pool day, once, never negative', async () => {
     await prisma.ratePlan.update({ where: { id: plans[1] }, data: { inventoryPoolId: null } }) // the selling plan leaves the pool
-    const result = await cancel(ids.confirmed!)
+    const accepted = await cancellations.quote({ tenantId, userId, bookingId: ids.confirmed!, requestId: 'accept-cancel' })
+    const result = await cancel(ids.confirmed!, accepted.quoteId)
     expect(result).toMatchObject({ status: 'CANCELLED', alreadyCancelled: false })
     expect(await poolDays()).toEqual([{ capacity: 5, sold: 0, held: 0 }, { capacity: 5, sold: 0, held: 0 }])
     expect(await planCounters()).toEqual({ sold: 0, held: 0 })
-    expect(await cancel(ids.confirmed!)).toMatchObject({ alreadyCancelled: true })
+    expect(await cancel(ids.confirmed!, accepted.quoteId)).toMatchObject({ alreadyCancelled: true })
     expect(await poolDays()).toEqual([{ capacity: 5, sold: 0, held: 0 }, { capacity: 5, sold: 0, held: 0 }])
     await prisma.ratePlan.update({ where: { id: plans[1] }, data: { inventoryPoolId: poolId } }); await invariant()
   })

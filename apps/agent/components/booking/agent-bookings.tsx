@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { BookingService, type BookingDetail, type BookingPage, type CancellationQuote, type DocumentType } from '@/services/booking-service'
 import { agentFacingBooking, supplierReferenceForAgent } from '@/lib/booking-attention'
 import { recoveryLines } from '@/lib/booking-recovery'
-import { cancellationQuoteFresh } from '@/lib/checkout-guard'
 import { replaceDocumentUrl, revokeDocumentUrl } from '@/lib/document-url'
 import { formatMinorAmount, formatOfferExpiry, formatStay } from '@/lib/format'
 import type { PortalAccess } from '@/lib/portal-access'
@@ -132,9 +131,8 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
   }
   async function confirmCancel() {
     if (!detail || !quote || busy) return
-    if (!cancellationQuoteFresh(quote.evaluatedAt, Date.now())) { setQuote(null); setNotice('This cancellation quote is out of date. Request a new quote before cancelling.'); return }
     setBusy(true); setNotice('')
-    const result = await api.cancel(detail.id, 'Cancelled by agent', tenantId)
+    const result = await api.cancel(detail.id, 'Cancelled by agent', tenantId, quote.quoteId)
     if (result.ok) {
       const credited = result.data.additionalRefundMinor ?? result.data.refundMinor
       setQuote(null)
@@ -144,7 +142,10 @@ export function Bookings({ tenantId, access, initialBookingId, onSearch, onChang
       onChanged()
       await Promise.all([loadList(), loadDetail(detail.id)])
     }
-    else setNotice(result.message)
+    else {
+      if (result.quoteRefreshRequired) setQuote(null)
+      setNotice(result.message)
+    }
     setBusy(false)
   }
 
